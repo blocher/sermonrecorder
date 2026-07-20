@@ -1,0 +1,4 @@
+# Installed agent skills (restore via skills-lock.json)
+.agents/skills/
+.cursor/skills/
+.claude/skills/
