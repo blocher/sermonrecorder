@@ -4,7 +4,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from .models import Sermon
-from .serializers import SermonSerializer
+from .serializers import SermonDetailSerializer, SermonSerializer
 from .tasks import enqueue_sermon_processing
 
 UPLOAD_METADATA_FIELDS = ("source_draft_id", "captured_at", "duration_seconds")
@@ -21,7 +21,20 @@ class SermonViewSet(
     serializer_class = SermonSerializer
 
     def get_queryset(self):
-        return Sermon.objects.filter(owner=self.request.user)
+        queryset = Sermon.objects.filter(owner=self.request.user)
+        if self.action == "retrieve":
+            queryset = queryset.select_related("transcript").prefetch_related(
+                "study_artifacts",
+                "scripture_references",
+                "tag_suggestions",
+                "related_sermons__related_sermon",
+            )
+        return queryset
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return SermonDetailSerializer
+        return SermonSerializer
 
     def create(self, request, *args, **kwargs):
         source_draft_id = request.data.get(

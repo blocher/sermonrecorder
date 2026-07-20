@@ -9,6 +9,7 @@ from django.utils import timezone
 from kombu.exceptions import OperationalError
 
 from .models import Sermon
+from .processed_sermon_repository import persist_processed_sermon
 from .processing import (
     PermanentProcessingError,
     RetryableProcessingError,
@@ -121,7 +122,8 @@ def process_sermon(self: Task, sermon_id: str) -> None:
         return
 
     try:
-        get_sermon_processor().process(sermon)
+        result = get_sermon_processor().process(sermon)
+        persist_processed_sermon(sermon, result)
     except PermanentProcessingError as error:
         _finish(
             sermon.id,

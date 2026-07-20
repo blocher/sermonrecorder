@@ -9,7 +9,14 @@ from rest_framework.test import APITestCase
 
 from accounts.models import User
 
-from .models import Sermon
+from .models import (
+    RelatedSermon,
+    ScriptureReference,
+    Sermon,
+    StudyArtifact,
+    TagSuggestion,
+    Transcript,
+)
 
 
 def sermon_audio(contents: bytes = b"captured sermon") -> SimpleUploadedFile:
@@ -98,6 +105,72 @@ class SermonApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([sermon["id"] for sermon in response.data], [mine.data["id"]])
+
+    def test_ready_detail_exposes_processed_content_only_to_its_owner(self):
+        uploaded = self.upload("ready-detail")
+        related_upload = self.upload("related-detail")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        related = Sermon.objects.get(id=related_upload.data["id"])
+        Sermon.objects.filter(id=sermon.id).update(
+            processing_status=Sermon.ProcessingStatus.READY
+        )
+        Transcript.objects.create(
+            sermon=sermon,
+            text="A cleaned Transcript.",
+            segments=[
+                {
+                    "start_seconds": 0,
+                    "end_seconds": 4.5,
+                    "text": "A cleaned Transcript.",
+                }
+            ],
+        )
+        StudyArtifact.objects.create(
+            sermon=sermon,
+            kind=StudyArtifact.Kind.SHORT_SUMMARY,
+            content="A short summary.",
+        )
+        ScriptureReference.objects.create(
+            sermon=sermon,
+            book="Luke",
+            chapter_start=15,
+            verse_start=11,
+            verse_end=32,
+        )
+        TagSuggestion.objects.create(
+            sermon=sermon,
+            name="Grace",
+            normalized_name="grace",
+        )
+        RelatedSermon.objects.create(
+            sermon=sermon,
+            related_sermon=related,
+            score=0.9,
+            reason="Shared themes",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(f"/api/sermons/{sermon.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["transcript"]["text"], "A cleaned Transcript.")
+        self.assertEqual(
+            response.data["study_artifacts"][0]["kind"],
+            StudyArtifact.Kind.SHORT_SUMMARY,
+        )
+        self.assertEqual(
+            response.data["scripture_references"][0]["display"],
+            "Luke 15:11–32",
+        )
+        self.assertEqual(response.data["tag_suggestions"], [{"name": "Grace"}])
+        self.assertEqual(
+            response.data["related_sermons"][0]["id"],
+            str(related.id),
+        )
+
+        self.client.force_authenticate(user=self.other_user)
+        private_response = self.client.get(f"/api/sermons/{sermon.id}/")
+        self.assertEqual(private_response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_processing_failures_hide_internal_error_details(self):
         uploaded = self.upload("failed-processing")

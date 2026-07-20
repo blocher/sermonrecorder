@@ -1,10 +1,51 @@
 from django.contrib import admin
 
-from .models import Sermon
+from .models import (
+    RelatedSermon,
+    ScriptureReference,
+    Sermon,
+    StudyArtifact,
+    TagSuggestion,
+    Transcript,
+)
+
+
+class TranscriptInline(admin.StackedInline):
+    model = Transcript
+    extra = 0
+    max_num = 1
+
+
+class StudyArtifactInline(admin.StackedInline):
+    model = StudyArtifact
+    extra = 0
+
+
+class ScriptureReferenceInline(admin.TabularInline):
+    model = ScriptureReference
+    extra = 0
+
+
+class TagSuggestionInline(admin.TabularInline):
+    model = TagSuggestion
+    extra = 0
+
+
+class RelatedSermonInline(admin.TabularInline):
+    model = RelatedSermon
+    fk_name = "sermon"
+    extra = 0
 
 
 @admin.register(Sermon)
 class SermonAdmin(admin.ModelAdmin):
+    inlines = (
+        TranscriptInline,
+        StudyArtifactInline,
+        ScriptureReferenceInline,
+        TagSuggestionInline,
+        RelatedSermonInline,
+    )
     list_display = (
         "captured_at",
         "owner",

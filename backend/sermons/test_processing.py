@@ -8,14 +8,47 @@ from kombu.exceptions import OperationalError
 
 from accounts.models import User
 
-from .models import Sermon
-from .processing import PermanentProcessingError, RetryableProcessingError
+from .models import ScriptureReference, Sermon, StudyArtifact, TagSuggestion, Transcript
+from .processing import (
+    PermanentProcessingError,
+    ProcessedSermon,
+    RetryableProcessingError,
+    ScriptureReferenceResult,
+    StudyArtifactResult,
+    TranscriptSegment,
+)
 from .tasks import enqueue_sermon_processing, process_sermon
 
 
+def complete_result() -> ProcessedSermon:
+    return ProcessedSermon(
+        transcript_text="Grace meets us in the ordinary.",
+        transcript_segments=(
+            TranscriptSegment(
+                start_seconds=0,
+                end_seconds=12.5,
+                text="Grace meets us in the ordinary.",
+            ),
+        ),
+        study_artifacts=tuple(
+            StudyArtifactResult(kind=kind, content=f"Generated {kind}.")
+            for kind in StudyArtifact.Kind.values
+        ),
+        scripture_references=(
+            ScriptureReferenceResult(
+                book="Luke",
+                chapter_start=15,
+                verse_start=11,
+                verse_end=32,
+            ),
+        ),
+        tag_suggestions=("grace", "homecoming"),
+    )
+
+
 class SuccessfulProcessor:
-    def process(self, sermon: Sermon) -> None:
-        return None
+    def process(self, sermon: Sermon) -> ProcessedSermon:
+        return complete_result()
 
 
 class TemporarilyFailingProcessor:
@@ -74,6 +107,34 @@ class SermonProcessingTaskTests(TestCase):
         self.assertEqual(sermon.processing_claim_id, "")
         self.assertIsNotNone(sermon.processing_started_at)
         self.assertIsNotNone(sermon.processing_finished_at)
+        self.assertEqual(
+            Transcript.objects.get(sermon=sermon).text,
+            "Grace meets us in the ordinary.",
+        )
+        self.assertEqual(
+            set(
+                StudyArtifact.objects.filter(sermon=sermon).values_list(
+                    "kind", flat=True
+                )
+            ),
+            set(StudyArtifact.Kind.values),
+        )
+        self.assertEqual(
+            list(
+                ScriptureReference.objects.filter(sermon=sermon).values_list(
+                    "book", flat=True
+                )
+            ),
+            ["Luke"],
+        )
+        self.assertEqual(
+            list(
+                TagSuggestion.objects.filter(sermon=sermon).values_list(
+                    "name", flat=True
+                )
+            ),
+            ["grace", "homecoming"],
+        )
 
     @override_settings(SERMON_PROCESSOR="sermons.test_processing.SuccessfulProcessor")
     def test_competing_job_cannot_take_an_active_claim(self):

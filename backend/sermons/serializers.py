@@ -1,6 +1,13 @@
 from rest_framework import serializers
 
-from .models import Sermon
+from .models import (
+    RelatedSermon,
+    ScriptureReference,
+    Sermon,
+    StudyArtifact,
+    TagSuggestion,
+    Transcript,
+)
 
 MAX_AUDIO_SIZE_BYTES = 500 * 1024 * 1024
 SUPPORTED_AUDIO_TYPES = {
@@ -70,3 +77,84 @@ class SermonSerializer(serializers.ModelSerializer):
         if sermon.processing_status == Sermon.ProcessingStatus.FAILED:
             return "Processing could not finish. The recording is still safe."
         return "Ready to revisit."
+
+
+class TranscriptSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Transcript
+        fields = ("text", "segments", "updated_at")
+
+
+class StudyArtifactSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudyArtifact
+        fields = ("kind", "content", "edited_at", "updated_at")
+
+
+class ScriptureReferenceSerializer(serializers.ModelSerializer):
+    display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ScriptureReference
+        fields = (
+            "book",
+            "chapter_start",
+            "verse_start",
+            "chapter_end",
+            "verse_end",
+            "display",
+        )
+
+    def get_display(self, reference: ScriptureReference) -> str:
+        display = f"{reference.book} {reference.chapter_start}"
+        if reference.verse_start is not None:
+            display += f":{reference.verse_start}"
+        if reference.chapter_end is not None:
+            display += f"–{reference.chapter_end}"
+            if reference.verse_end is not None:
+                display += f":{reference.verse_end}"
+        elif reference.verse_end is not None:
+            display += f"–{reference.verse_end}"
+        return display
+
+
+class TagSuggestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TagSuggestion
+        fields = ("name",)
+
+
+class RelatedSermonSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="related_sermon_id", read_only=True)
+    captured_at = serializers.DateTimeField(
+        source="related_sermon.captured_at",
+        read_only=True,
+    )
+
+    class Meta:
+        model = RelatedSermon
+        fields = ("id", "captured_at", "score", "reason")
+
+
+class SermonDetailSerializer(SermonSerializer):
+    transcript = TranscriptSerializer(read_only=True, allow_null=True)
+    study_artifacts = StudyArtifactSerializer(many=True, read_only=True)
+    scripture_references = ScriptureReferenceSerializer(many=True, read_only=True)
+    tag_suggestions = TagSuggestionSerializer(many=True, read_only=True)
+    related_sermons = RelatedSermonSerializer(many=True, read_only=True)
+
+    class Meta(SermonSerializer.Meta):
+        fields = SermonSerializer.Meta.fields + (
+            "transcript",
+            "study_artifacts",
+            "scripture_references",
+            "tag_suggestions",
+            "related_sermons",
+        )
+        read_only_fields = SermonSerializer.Meta.read_only_fields + (
+            "transcript",
+            "study_artifacts",
+            "scripture_references",
+            "tag_suggestions",
+            "related_sermons",
+        )

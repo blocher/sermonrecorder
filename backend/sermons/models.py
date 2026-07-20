@@ -60,3 +60,117 @@ class Sermon(models.Model):
 
     def __str__(self) -> str:
         return f"{self.owner} · {self.captured_at:%Y-%m-%d %H:%M}"
+
+
+class Transcript(models.Model):
+    sermon = models.OneToOneField(
+        Sermon,
+        on_delete=models.CASCADE,
+        related_name="transcript",
+        primary_key=True,
+    )
+    text = models.TextField()
+    segments = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class StudyArtifact(models.Model):
+    class Kind(models.TextChoices):
+        SHORT_SUMMARY = "short_summary", "Short summary"
+        LONG_SUMMARY = "long_summary", "Long summary"
+        OUTLINE = "outline", "Outline"
+        ADULT_DISCUSSION_QUESTIONS = (
+            "adult_discussion_questions",
+            "Adult discussion questions",
+        )
+        KIDS_DISCUSSION_QUESTIONS = (
+            "kids_discussion_questions",
+            "Kids discussion questions",
+        )
+
+    sermon = models.ForeignKey(
+        Sermon,
+        on_delete=models.CASCADE,
+        related_name="study_artifacts",
+    )
+    kind = models.CharField(max_length=40, choices=Kind)
+    content = models.TextField()
+    edited_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("kind",)
+        constraints = (
+            models.UniqueConstraint(
+                fields=("sermon", "kind"),
+                name="unique_sermon_study_artifact_kind",
+            ),
+        )
+
+
+class ScriptureReference(models.Model):
+    sermon = models.ForeignKey(
+        Sermon,
+        on_delete=models.CASCADE,
+        related_name="scripture_references",
+    )
+    book = models.CharField(max_length=64)
+    chapter_start = models.PositiveSmallIntegerField()
+    verse_start = models.PositiveSmallIntegerField(null=True, blank=True)
+    chapter_end = models.PositiveSmallIntegerField(null=True, blank=True)
+    verse_end = models.PositiveSmallIntegerField(null=True, blank=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ("sort_order", "id")
+
+
+class TagSuggestion(models.Model):
+    sermon = models.ForeignKey(
+        Sermon,
+        on_delete=models.CASCADE,
+        related_name="tag_suggestions",
+    )
+    name = models.CharField(max_length=80)
+    normalized_name = models.CharField(max_length=80)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ("sort_order", "id")
+        constraints = (
+            models.UniqueConstraint(
+                fields=("sermon", "normalized_name"),
+                name="unique_sermon_tag_suggestion",
+            ),
+        )
+
+
+class RelatedSermon(models.Model):
+    sermon = models.ForeignKey(
+        Sermon,
+        on_delete=models.CASCADE,
+        related_name="related_sermons",
+    )
+    related_sermon = models.ForeignKey(
+        Sermon,
+        on_delete=models.CASCADE,
+        related_name="suggested_for_sermons",
+    )
+    score = models.FloatField()
+    reason = models.CharField(max_length=255, blank=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ("sort_order", "id")
+        constraints = (
+            models.UniqueConstraint(
+                fields=("sermon", "related_sermon"),
+                name="unique_related_sermon_suggestion",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(sermon=models.F("related_sermon")),
+                name="related_sermon_cannot_reference_itself",
+            ),
+        )
