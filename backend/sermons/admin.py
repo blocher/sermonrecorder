@@ -9,6 +9,7 @@ class SermonAdmin(admin.ModelAdmin):
         "captured_at",
         "owner",
         "processing_status",
+        "processing_attempts",
         "duration_seconds",
         "audio_size_bytes",
     )
@@ -18,6 +19,10 @@ class SermonAdmin(admin.ModelAdmin):
         "id",
         "audio_mime_type",
         "audio_size_bytes",
+        "processing_attempts",
+        "processing_claim_id",
+        "processing_started_at",
+        "processing_finished_at",
         "created_at",
         "updated_at",
     )

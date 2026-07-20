@@ -38,6 +38,10 @@ class Sermon(models.Model):
         default=ProcessingStatus.UPLOADED,
     )
     processing_error = models.TextField(blank=True)
+    processing_attempts = models.PositiveSmallIntegerField(default=0)
+    processing_claim_id = models.CharField(max_length=255, blank=True)
+    processing_started_at = models.DateTimeField(null=True, blank=True)
+    processing_finished_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

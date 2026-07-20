@@ -155,3 +155,19 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": False,
 }
+
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BEAT_SCHEDULE = {
+    "recover-uploaded-sermons": {
+        "task": "sermons.tasks.dispatch_uploaded_sermons",
+        "schedule": 30.0,
+    },
+}
+
+SERMON_PROCESSOR = os.environ.get(
+    "SERMON_PROCESSOR",
+    "sermons.processing.UnconfiguredSermonProcessor",
+)
+SERMON_PROCESSING_RETRY_DELAYS = (60, 5 * 60, 15 * 60)

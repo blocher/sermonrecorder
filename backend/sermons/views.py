@@ -1,9 +1,11 @@
+from django.db import transaction
 from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from .models import Sermon
 from .serializers import SermonSerializer
+from .tasks import enqueue_sermon_processing
 
 UPLOAD_METADATA_FIELDS = ("source_draft_id", "captured_at", "duration_seconds")
 
@@ -41,7 +43,8 @@ class SermonViewSet(
 
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(owner=request.user)
+        sermon = serializer.save(owner=request.user)
+        transaction.on_commit(lambda: enqueue_sermon_processing(str(sermon.id)))
         headers = self.get_success_headers(serializer.data)
         return Response(
             serializer.data, status=status.HTTP_201_CREATED, headers=headers

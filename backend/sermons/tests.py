@@ -1,4 +1,5 @@
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
@@ -51,6 +52,14 @@ class SermonApiTests(APITestCase):
         self.assertEqual(sermon.processing_status, Sermon.ProcessingStatus.UPLOADED)
         self.assertEqual(sermon.audio_mime_type, "audio/mp4")
         self.assertEqual(sermon.audio_size_bytes, len(b"captured sermon"))
+
+    def test_new_upload_is_enqueued_after_the_database_commit(self):
+        with patch("sermons.views.enqueue_sermon_processing") as enqueue:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.upload("queued-after-commit")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        enqueue.assert_called_once_with(response.data["id"])
 
     def test_native_upload_metadata_can_arrive_as_query_parameters(self):
         self.client.force_authenticate(user=self.user)
@@ -108,6 +117,33 @@ class SermonApiTests(APITestCase):
             response.data[0]["processing_message"],
             "Processing could not finish. The recording is still safe.",
         )
+
+    def test_processing_states_have_owner_facing_messages(self):
+        uploaded = self.upload("status-messages")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        expected_messages = {
+            Sermon.ProcessingStatus.UPLOADED: "Safely uploaded and waiting to process.",
+            Sermon.ProcessingStatus.PROCESSING: (
+                "Preparing the transcript and study guide."
+            ),
+            Sermon.ProcessingStatus.READY: "Ready to revisit.",
+            Sermon.ProcessingStatus.FAILED: (
+                "Processing could not finish. The recording is still safe."
+            ),
+        }
+        self.client.force_authenticate(user=self.user)
+
+        for processing_status, message in expected_messages.items():
+            with self.subTest(processing_status=processing_status):
+                Sermon.objects.filter(id=sermon.id).update(
+                    processing_status=processing_status
+                )
+
+                response = self.client.get(f"/api/sermons/{sermon.id}/")
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.data["processing_status"], processing_status)
+                self.assertEqual(response.data["processing_message"], message)
 
     def test_upload_requires_authentication(self):
         self.client.force_authenticate(user=None)
