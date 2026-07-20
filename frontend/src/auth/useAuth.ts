@@ -109,6 +109,10 @@ async function refreshAccessToken(): Promise<string> {
   }
 }
 
+export async function refreshAuthorizedAccessToken(): Promise<string> {
+  return refreshAccessToken()
+}
+
 export async function authorizedAccessToken(): Promise<string> {
   if (!accessToken.value) throw new Error('Sign in before uploading this Draft.')
   return tokenExpiresSoon(accessToken.value) ? refreshAccessToken() : accessToken.value

@@ -15,6 +15,7 @@ SUPPORTED_AUDIO_TYPES = {
 
 class SermonSerializer(serializers.ModelSerializer):
     audio = serializers.FileField(write_only=True)
+    processing_message = serializers.SerializerMethodField()
 
     class Meta:
         model = Sermon
@@ -27,7 +28,7 @@ class SermonSerializer(serializers.ModelSerializer):
             "audio_mime_type",
             "audio_size_bytes",
             "processing_status",
-            "processing_error",
+            "processing_message",
             "created_at",
             "updated_at",
         )
@@ -36,7 +37,7 @@ class SermonSerializer(serializers.ModelSerializer):
             "audio_mime_type",
             "audio_size_bytes",
             "processing_status",
-            "processing_error",
+            "processing_message",
             "created_at",
             "updated_at",
         )
@@ -60,3 +61,12 @@ class SermonSerializer(serializers.ModelSerializer):
         validated_data["audio_mime_type"] = (audio.content_type or "").lower()
         validated_data["audio_size_bytes"] = audio.size
         return super().create(validated_data)
+
+    def get_processing_message(self, sermon: Sermon) -> str:
+        if sermon.processing_status == Sermon.ProcessingStatus.UPLOADED:
+            return "Safely uploaded and waiting to process."
+        if sermon.processing_status == Sermon.ProcessingStatus.PROCESSING:
+            return "Preparing the transcript and study guide."
+        if sermon.processing_status == Sermon.ProcessingStatus.FAILED:
+            return "Processing could not finish. The recording is still safe."
+        return "Ready to revisit."

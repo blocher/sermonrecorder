@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CalendarDays, ChevronRight, Clock3, Mic, MapPin, Search } from '@lucide/vue'
 import { useAuth } from '../auth/useAuth'
 import LocalDraftCard from '../components/LocalDraftCard.vue'
+import ServerSermonCard from '../components/ServerSermonCard.vue'
 import { sermons } from '../data/sermons'
 import { useDraftRecorder } from '../recording/useDraftRecorder'
+import { useServerSermons } from '../sermons/useServerSermons'
 import { uploadDraft } from '../upload/uploadDraft'
 
 const route = useRoute()
@@ -16,6 +18,13 @@ const draftActionMessage = ref('')
 const uploadProgress = ref<Record<string, number>>({})
 const { isAuthenticated } = useAuth()
 const { drafts, removeDraft } = useDraftRecorder()
+const {
+  pendingSermons,
+  errorMessage: serverError,
+  refresh: refreshServerSermons,
+  startPolling,
+  stopPolling,
+} = useServerSermons()
 
 const visibleSermons = computed(() => {
   const needle = query.value.trim().toLowerCase()
@@ -72,6 +81,7 @@ async function uploadLocalDraft(id: string): Promise<void> {
       uploadProgress.value = { ...uploadProgress.value, [id]: progress }
     })
     await removeDraft(id)
+    await refreshServerSermons()
     announceDraftAction('Draft uploaded. Pewcorder will alert you when the Sermon is ready.')
   } catch (error) {
     announceDraftAction(error instanceof Error ? error.message : 'The Draft could not be uploaded.')
@@ -81,6 +91,9 @@ async function uploadLocalDraft(id: string): Promise<void> {
     uploadProgress.value = remaining
   }
 }
+
+onMounted(() => void startPolling())
+onBeforeUnmount(stopPolling)
 
 watch(
   () => route.query.focus,
@@ -133,6 +146,26 @@ watch(
 
     <p v-if="draftActionMessage" class="draft-action-message" role="status">
       {{ draftActionMessage }}
+    </p>
+
+    <section
+      v-if="pendingSermons.length"
+      class="drafts server-sermons"
+      aria-labelledby="preparing-sermons"
+    >
+      <div class="drafts__heading">
+        <p id="preparing-sermons" class="rubric-label">In preparation</p>
+        <span>{{ pendingSermons.length }} on the server</span>
+      </div>
+      <ServerSermonCard
+        v-for="serverSermon in pendingSermons"
+        :key="serverSermon.id"
+        :sermon="serverSermon"
+      />
+    </section>
+
+    <p v-if="serverError && isAuthenticated" class="server-error" role="status">
+      {{ serverError }}
     </p>
 
     <section class="library__search" aria-label="Search sermons">
@@ -291,6 +324,13 @@ watch(
   font-family: var(--font-utility);
   font-size: 0.76rem;
   margin: -0.75rem 0 1.5rem;
+}
+
+.server-error {
+  color: var(--color-rubric);
+  font-family: var(--font-utility);
+  font-size: 0.76rem;
+  margin: 1rem 0 1.5rem;
 }
 
 .empty-search button {

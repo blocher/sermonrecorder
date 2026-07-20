@@ -90,6 +90,25 @@ class SermonApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([sermon["id"] for sermon in response.data], [mine.data["id"]])
 
+    def test_processing_failures_hide_internal_error_details(self):
+        uploaded = self.upload("failed-processing")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        sermon.processing_status = Sermon.ProcessingStatus.FAILED
+        sermon.processing_error = "provider-secret: internal stack detail"
+        sermon.save(
+            update_fields=("processing_status", "processing_error", "updated_at")
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get("/api/sermons/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("processing_error", response.data[0])
+        self.assertEqual(
+            response.data[0]["processing_message"],
+            "Processing could not finish. The recording is still safe.",
+        )
+
     def test_upload_requires_authentication(self):
         self.client.force_authenticate(user=None)
 
