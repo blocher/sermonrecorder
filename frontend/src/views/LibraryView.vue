@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { CalendarDays, ChevronRight, Clock3, CloudUpload, MapPin, Search } from '@lucide/vue'
+import { CalendarDays, ChevronRight, Clock3, Mic, MapPin, Search } from '@lucide/vue'
+import LocalDraftCard from '../components/LocalDraftCard.vue'
 import { sermons } from '../data/sermons'
+import { useDraftRecorder } from '../recording/useDraftRecorder'
 
 const route = useRoute()
 const searchInput = ref<HTMLInputElement>()
 const query = ref('')
+const draftActionMessage = ref('')
+const { drafts, removeDraft } = useDraftRecorder()
 
 const visibleSermons = computed(() => {
   const needle = query.value.trim().toLowerCase()
@@ -29,6 +33,22 @@ const visibleSermons = computed(() => {
     return searchText.includes(needle)
   })
 })
+
+function announceDraftAction(message: string): void {
+  draftActionMessage.value = message
+  window.setTimeout(() => {
+    draftActionMessage.value = ''
+  }, 3000)
+}
+
+async function removeLocalDraft(id: string): Promise<void> {
+  try {
+    await removeDraft(id)
+    announceDraftAction('Draft deleted from this device.')
+  } catch {
+    announceDraftAction('The Draft could not be deleted. Try again.')
+  }
+}
 
 watch(
   () => route.query.focus,
@@ -55,16 +75,31 @@ watch(
       </div>
     </section>
 
-    <aside class="draft-notice" aria-label="Draft waiting to upload">
-      <span class="draft-notice__icon">
-        <CloudUpload :size="20" :stroke-width="1.6" aria-hidden="true" />
-      </span>
+    <section v-if="drafts.length" class="drafts" aria-labelledby="local-drafts">
+      <div class="drafts__heading">
+        <p id="local-drafts" class="rubric-label">Waiting to upload</p>
+        <span>{{ drafts.length }} on this device</span>
+      </div>
+      <LocalDraftCard
+        v-for="draft in drafts"
+        :key="draft.id"
+        :draft="draft"
+        @delete="removeLocalDraft"
+        @upload="announceDraftAction('Sign in to upload and process this Draft.')"
+      />
+    </section>
+
+    <aside v-else class="draft-empty">
+      <Mic :size="20" :stroke-width="1.6" aria-hidden="true" />
       <span>
-        <strong>Sunday evening draft</strong>
-        <small>38 minutes · Stored safely on this device</small>
+        <strong>No local Drafts</strong>
+        <small>The Record seal works from anywhere, even before you sign in.</small>
       </span>
-      <button type="button">Upload</button>
     </aside>
+
+    <p v-if="draftActionMessage" class="draft-action-message" role="status">
+      {{ draftActionMessage }}
+    </p>
 
     <section class="library__search" aria-label="Search sermons">
       <Search :size="20" :stroke-width="1.6" aria-hidden="true" />
@@ -170,46 +205,60 @@ watch(
   text-transform: uppercase;
 }
 
-.draft-notice {
+.drafts,
+.draft-empty {
+  margin: 1.5rem 0;
+}
+
+.drafts__heading {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.55rem;
+}
+
+.drafts__heading > span {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.72rem;
+}
+
+.draft-empty {
   align-items: center;
   background: var(--color-margin);
   border-left: 2px solid var(--color-lapis);
+  color: var(--color-lapis);
   display: grid;
   gap: 0.85rem;
-  grid-template-columns: auto 1fr auto;
-  margin: 1.5rem 0;
+  grid-template-columns: auto 1fr;
   padding: 1rem 1.15rem;
 }
 
-.draft-notice__icon {
-  align-items: center;
-  border: 1px solid rgba(47, 75, 124, 0.35);
-  border-radius: 50%;
-  color: var(--color-lapis);
-  display: flex;
-  height: 2.5rem;
-  justify-content: center;
-  width: 2.5rem;
-}
-
-.draft-notice strong,
-.draft-notice small {
+.draft-empty strong,
+.draft-empty small {
   display: block;
   font-family: var(--font-utility);
 }
 
-.draft-notice strong {
+.draft-empty strong {
+  color: var(--color-ink);
   font-size: 0.9rem;
   font-weight: 650;
 }
 
-.draft-notice small {
+.draft-empty small {
   color: var(--color-ink-muted);
   font-size: 0.78rem;
   margin-top: 0.15rem;
 }
 
-.draft-notice button,
+.draft-action-message {
+  color: var(--color-lapis);
+  font-family: var(--font-utility);
+  font-size: 0.76rem;
+  margin: -0.75rem 0 1.5rem;
+}
+
 .empty-search button {
   background: transparent;
   border: 0;
@@ -430,16 +479,6 @@ watch(
 
   .library__count {
     padding: 0;
-  }
-
-  .draft-notice {
-    grid-template-columns: auto 1fr;
-  }
-
-  .draft-notice button {
-    grid-column: 2;
-    justify-self: start;
-    padding: 0.25rem 0;
   }
 
   .library__search {

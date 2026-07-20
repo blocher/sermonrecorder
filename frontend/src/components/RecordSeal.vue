@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Mic, Square } from '@lucide/vue'
+import { LoaderCircle, Mic, Square } from '@lucide/vue'
+import type { RecorderState } from '../recording/useDraftRecorder'
 
 const props = defineProps<{
-  recording: boolean
+  state: RecorderState
   elapsedSeconds: number
 }>()
 
@@ -16,14 +17,35 @@ const elapsed = computed(() => {
   const seconds = props.elapsedSeconds % 60
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 })
+
+const recording = computed(() => props.state === 'recording')
+const busy = computed(() => props.state === 'requesting' || props.state === 'saving')
+const label = computed(() => {
+  if (props.state === 'recording') return 'Stop'
+  if (props.state === 'requesting') return 'Starting…'
+  if (props.state === 'saving') return 'Saving…'
+  return 'Record'
+})
 </script>
 
 <template>
   <div class="record-control" :class="{ 'record-control--active': recording }">
-    <div v-if="recording" class="record-control__status" aria-live="polite">
-      <span class="record-control__live">Recording</span>
-      <span class="record-control__time">{{ elapsed }}</span>
-      <span class="record-control__hint">Stored on this device</span>
+    <div v-if="state !== 'idle' && state !== 'error'" class="record-control__status" aria-live="polite">
+      <template v-if="recording">
+        <span class="record-control__live">Recording</span>
+        <span class="record-control__time">{{ elapsed }}</span>
+        <span class="record-control__hint">Recording locally on this device</span>
+      </template>
+      <template v-else-if="state === 'requesting'">
+        <span class="record-control__live">Microphone</span>
+        <span class="record-control__time">Waiting</span>
+        <span class="record-control__hint">Allow access to begin recording</span>
+      </template>
+      <template v-else>
+        <span class="record-control__live">Saving</span>
+        <span class="record-control__time">Local</span>
+        <span class="record-control__hint">Writing the Draft to this device</span>
+      </template>
     </div>
 
     <button
@@ -31,16 +53,19 @@ const elapsed = computed(() => {
       type="button"
       :aria-label="recording ? 'Stop recording' : 'Start recording'"
       :aria-pressed="recording"
+      :aria-busy="busy"
+      :disabled="busy"
       @click="emit('toggle')"
     >
       <span class="record-seal__beading" aria-hidden="true"></span>
       <span class="record-seal__field">
         <Square v-if="recording" :size="24" :stroke-width="1.9" fill="currentColor" />
+        <LoaderCircle v-else-if="busy" class="record-seal__spinner" :size="28" :stroke-width="1.65" />
         <Mic v-else :size="30" :stroke-width="1.65" />
       </span>
     </button>
 
-    <span class="record-control__label">{{ recording ? 'Stop' : 'Record' }}</span>
+    <span class="record-control__label">{{ label }}</span>
   </div>
 </template>
 
@@ -134,6 +159,11 @@ const elapsed = computed(() => {
   transform: scale(0.96);
 }
 
+.record-seal:disabled {
+  cursor: wait;
+  opacity: 0.82;
+}
+
 .record-seal:focus-visible {
   outline: 3px solid var(--color-lapis);
   outline-offset: 7px;
@@ -176,6 +206,16 @@ const elapsed = computed(() => {
   text-transform: uppercase;
 }
 
+.record-seal__spinner {
+  animation: seal-spin 900ms linear infinite;
+}
+
+@keyframes seal-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes seal-breathe {
   0%,
   100% {
@@ -211,6 +251,10 @@ const elapsed = computed(() => {
 
   .record-seal {
     transition: none;
+  }
+
+  .record-seal__spinner {
+    animation: none;
   }
 }
 </style>
