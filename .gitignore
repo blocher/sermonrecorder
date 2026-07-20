@@ -2,3 +2,15 @@
 .agents/skills/
 .cursor/skills/
 .claude/skills/
+
+# Frontend build output
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# Local environment
+.DS_Store
+.env
+.env.*
+!.env.example

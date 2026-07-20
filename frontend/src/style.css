@@ -1,0 +1,79 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-vellum);
+  color: var(--color-ink);
+  font-family: var(--font-reading);
+  scroll-behavior: smooth;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100svh;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-lapis);
+  outline-offset: 3px;
+}
+
+::selection {
+  background: rgba(184, 150, 62, 0.28);
+  color: var(--color-ink);
+}
+
+#app {
+  min-height: 100svh;
+}
+
+.rubric-label {
+  color: var(--color-rubric);
+  font-family: var(--font-utility);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.page-gather {
+  animation: gather-page 440ms ease both;
+}
+
+@keyframes gather-page {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .page-gather {
+    animation: none;
+  }
+}
