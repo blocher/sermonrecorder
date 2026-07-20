@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "corsheaders",
     "rest_framework",
+    "simpleai",
     "accounts",
     "sermons",
 ]
@@ -168,6 +169,41 @@ CELERY_BEAT_SCHEDULE = {
 
 SERMON_PROCESSOR = os.environ.get(
     "SERMON_PROCESSOR",
-    "sermons.processing.UnconfiguredSermonProcessor",
+    "sermons.provider_processor.ProviderSermonProcessor",
 )
 SERMON_PROCESSING_RETRY_DELAYS = (60, 5 * 60, 15 * 60)
+
+FFMPEG_BINARY = os.environ.get("FFMPEG_BINARY", "ffmpeg")
+SERMON_TRANSCRIPTION_CHUNK_SECONDS = int(
+    os.environ.get("SERMON_TRANSCRIPTION_CHUNK_SECONDS", "600")
+)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_TRANSCRIPTION_MODEL = os.environ.get(
+    "OPENAI_TRANSCRIPTION_MODEL",
+    "gpt-4o-transcribe-diarize",
+)
+OPENAI_TRANSCRIPTION_TIMEOUT_SECONDS = float(
+    os.environ.get("OPENAI_TRANSCRIPTION_TIMEOUT_SECONDS", "900")
+)
+OPENAI_TRANSCRIPTION_REQUEST_RETRIES = int(
+    os.environ.get("OPENAI_TRANSCRIPTION_REQUEST_RETRIES", "2")
+)
+
+SERMON_ARTIFACT_MODEL = os.environ.get("SERMON_ARTIFACT_MODEL", "openai")
+SERMON_ARTIFACT_REASONING_LEVEL = os.environ.get(
+    "SERMON_ARTIFACT_REASONING_LEVEL",
+    "medium",
+)
+SIMPLEAI = {
+    "defaults": ["openai"],
+    "providers": {
+        "openai": {
+            "api_key": OPENAI_API_KEY,
+            "default_model": os.environ.get("SIMPLEAI_OPENAI_MODEL", "gpt-5.5"),
+        },
+    },
+    "logging": {
+        "enabled": os.environ.get("SIMPLEAI_LOGGING", "0") == "1",
+        "network_logging": False,
+    },
+}

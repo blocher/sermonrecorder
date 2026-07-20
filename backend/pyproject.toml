@@ -8,6 +8,8 @@ dependencies = [
     "django-cors-headers>=4.9.0",
     "djangorestframework>=3.17.1",
     "djangorestframework-simplejwt>=5.5.1",
+    "haesimpleai",
+    "openai>=2.46.0",
 ]
 
 [dependency-groups]
@@ -15,3 +17,6 @@ dev = [
     "black>=26.5.1",
     "ruff>=0.15.22",
 ]
+
+[tool.uv.sources]
+haesimpleai = { git = "https://github.com/HireAnEsquire/simpleai.git", rev = "97c85b05e38e23180b15ea85bfa4ce8798427de4" }
