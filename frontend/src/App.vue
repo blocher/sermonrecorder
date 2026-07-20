@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { UserRound } from '@lucide/vue'
+import { useAuth } from './auth/useAuth'
 import AppNavigation from './components/AppNavigation.vue'
 import BrandMark from './components/BrandMark.vue'
 import RecordSeal from './components/RecordSeal.vue'
@@ -10,6 +11,7 @@ import { useDraftRecorder } from './recording/useDraftRecorder'
 const route = useRoute()
 const publicRoute = computed(() => route.meta.public === true)
 const draftSaved = ref(false)
+const { isAuthenticated } = useAuth()
 const {
   state,
   elapsedSeconds,
@@ -49,9 +51,14 @@ onMounted(initialize)
           <BrandMark compact />
         </RouterLink>
         <span class="app-header__status">{{ draftStatus }}</span>
-        <button class="app-header__account" type="button" aria-label="Open account">
+        <RouterLink
+          class="app-header__account"
+          :class="{ 'app-header__account--connected': isAuthenticated }"
+          to="/account"
+          :aria-label="isAuthenticated ? 'Open connected account' : 'Sign in'"
+        >
           <UserRound :size="20" :stroke-width="1.6" aria-hidden="true" />
-        </button>
+        </RouterLink>
       </div>
     </header>
 
@@ -124,7 +131,14 @@ onMounted(initialize)
   display: flex;
   height: 2.6rem;
   justify-content: center;
+  text-decoration: none;
   width: 2.6rem;
+}
+
+.app-header__account--connected {
+  background: var(--color-lapis);
+  border-color: var(--color-lapis);
+  color: var(--color-vellum-light);
 }
 
 .app-header__account:hover,

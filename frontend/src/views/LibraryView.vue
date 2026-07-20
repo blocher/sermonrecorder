@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { CalendarDays, ChevronRight, Clock3, Mic, MapPin, Search } from '@lucide/vue'
+import { useAuth } from '../auth/useAuth'
 import LocalDraftCard from '../components/LocalDraftCard.vue'
 import { sermons } from '../data/sermons'
 import { useDraftRecorder } from '../recording/useDraftRecorder'
+import { uploadDraft } from '../upload/uploadDraft'
 
 const route = useRoute()
+const router = useRouter()
 const searchInput = ref<HTMLInputElement>()
 const query = ref('')
 const draftActionMessage = ref('')
+const uploadProgress = ref<Record<string, number>>({})
+const { isAuthenticated } = useAuth()
 const { drafts, removeDraft } = useDraftRecorder()
 
 const visibleSermons = computed(() => {
@@ -50,6 +55,33 @@ async function removeLocalDraft(id: string): Promise<void> {
   }
 }
 
+async function uploadLocalDraft(id: string): Promise<void> {
+  const draft = drafts.value.find((candidate) => candidate.id === id)
+  if (!draft) return
+
+  if (!isAuthenticated.value) {
+    await router.push({ name: 'account', query: { redirect: '/' } })
+    return
+  }
+
+  uploadProgress.value = { ...uploadProgress.value, [id]: 0 }
+  announceDraftAction('Uploading this Draft securely…')
+
+  try {
+    await uploadDraft(draft, (progress) => {
+      uploadProgress.value = { ...uploadProgress.value, [id]: progress }
+    })
+    await removeDraft(id)
+    announceDraftAction('Draft uploaded. Pewcorder will alert you when the Sermon is ready.')
+  } catch (error) {
+    announceDraftAction(error instanceof Error ? error.message : 'The Draft could not be uploaded.')
+  } finally {
+    const remaining = { ...uploadProgress.value }
+    delete remaining[id]
+    uploadProgress.value = remaining
+  }
+}
+
 watch(
   () => route.query.focus,
   async (focus) => {
@@ -84,8 +116,10 @@ watch(
         v-for="draft in drafts"
         :key="draft.id"
         :draft="draft"
+        :uploading="draft.id in uploadProgress"
+        :upload-progress="uploadProgress[draft.id]"
         @delete="removeLocalDraft"
-        @upload="announceDraftAction('Sign in to upload and process this Draft.')"
+        @upload="uploadLocalDraft"
       />
     </section>
 

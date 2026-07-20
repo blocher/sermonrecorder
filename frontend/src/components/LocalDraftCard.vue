@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { CloudUpload, Pause, Play, Trash2 } from '@lucide/vue'
+import { CloudUpload, LoaderCircle, Pause, Play, Trash2 } from '@lucide/vue'
 import type { LocalDraft } from '../recording/draftRepository'
 import { nativeDraftPlaybackUrl } from '../recording/nativeDraftFiles'
 
 const props = defineProps<{
   draft: LocalDraft
+  uploading?: boolean
+  uploadProgress?: number
 }>()
 
 const emit = defineEmits<{
@@ -45,6 +47,7 @@ const duration = computed(() => {
 })
 
 const size = computed(() => `${(props.draft.sizeBytes / 1_048_576).toFixed(1)} MB`)
+const uploadPercent = computed(() => Math.round((props.uploadProgress ?? 0) * 100))
 
 function clearAudioUrl(): void {
   if (audioUrl.value && objectUrl) URL.revokeObjectURL(audioUrl.value)
@@ -133,14 +136,22 @@ onBeforeUnmount(clearAudioUrl)
     </div>
 
     <div v-if="!confirmingDelete" class="local-draft__actions">
-      <button class="local-draft__upload" type="button" @click="emit('upload', draft.id)">
-        <CloudUpload :size="16" aria-hidden="true" />
-        Upload
+      <button
+        class="local-draft__upload"
+        type="button"
+        :aria-busy="uploading"
+        :disabled="uploading"
+        @click="emit('upload', draft.id)"
+      >
+        <LoaderCircle v-if="uploading" class="local-draft__spinner" :size="16" aria-hidden="true" />
+        <CloudUpload v-else :size="16" aria-hidden="true" />
+        {{ uploading ? `Uploading ${uploadPercent}%` : 'Upload' }}
       </button>
       <button
         class="local-draft__delete"
         type="button"
         :aria-label="`Delete ${title}`"
+        :disabled="uploading"
         @click="confirmingDelete = true"
       >
         <Trash2 :size="16" aria-hidden="true" />
@@ -242,6 +253,21 @@ onBeforeUnmount(clearAudioUrl)
   color: var(--color-rubric) !important;
 }
 
+.local-draft__actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.local-draft__spinner {
+  animation: draft-spin 900ms linear infinite;
+}
+
+@keyframes draft-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .local-draft__confirm {
   flex-wrap: wrap;
   justify-content: end;
@@ -273,6 +299,12 @@ onBeforeUnmount(clearAudioUrl)
 
   .local-draft__confirm span {
     text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .local-draft__spinner {
+    animation: none;
   }
 }
 </style>

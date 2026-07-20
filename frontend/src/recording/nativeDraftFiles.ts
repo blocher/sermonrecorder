@@ -54,6 +54,10 @@ export async function deleteNativeDraftFile(path: string): Promise<void> {
 }
 
 export async function nativeDraftPlaybackUrl(path: string): Promise<string> {
+  return Capacitor.convertFileSrc(await nativeDraftFileUri(path))
+}
+
+export async function nativeDraftFileUri(path: string): Promise<string> {
   const { uri } = await Filesystem.getUri({ path, directory: DRAFT_STORAGE })
-  return Capacitor.convertFileSrc(uri)
+  return uri
 }

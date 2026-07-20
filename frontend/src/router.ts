@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import AccountView from './views/AccountView.vue'
 import EmailComposerView from './views/EmailComposerView.vue'
 import LibraryView from './views/LibraryView.vue'
 import SermonView from './views/SermonView.vue'
@@ -31,6 +32,11 @@ const router = createRouter({
       path: '/sermons/:id/email',
       name: 'email',
       component: EmailComposerView,
+    },
+    {
+      path: '/account',
+      name: 'account',
+      component: AccountView,
     },
     {
       path: '/share/:token',
