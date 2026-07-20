@@ -1,5 +1,14 @@
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { vi } from 'vitest'
+
+const nativeFiles = vi.hoisted(() => ({
+  deleteNativeDraftFile: vi.fn(),
+  persistNativeRecording: vi.fn(),
+}))
+
+vi.mock('./nativeDraftFiles', () => nativeFiles)
+
 import {
   closeDraftDatabase,
   createDraft,
@@ -18,6 +27,14 @@ async function deleteTestDatabase(): Promise<void> {
 }
 
 beforeEach(deleteTestDatabase)
+beforeEach(() => {
+  vi.clearAllMocks()
+  nativeFiles.deleteNativeDraftFile.mockResolvedValue(undefined)
+  nativeFiles.persistNativeRecording.mockResolvedValue({
+    path: 'drafts/native-draft.m4a',
+    sizeBytes: 2048,
+  })
+})
 afterEach(deleteTestDatabase)
 
 describe('local Draft repository', () => {
@@ -37,7 +54,7 @@ describe('local Draft repository', () => {
       mimeType: 'audio/mp4',
       sizeBytes: secondAudio.size,
     })
-    expect(await drafts[0].audio.text()).toBe('second recording')
+    expect(await drafts[0].audio?.text()).toBe('second recording')
     expect(drafts[1].createdAt).toBe('2026-07-20T14:00:00.000Z')
   })
 
@@ -64,5 +81,31 @@ describe('local Draft repository', () => {
       'contains no audio',
     )
     await expect(listDrafts()).resolves.toEqual([])
+  })
+
+  it('persists native file metadata without copying audio into IndexedDB', async () => {
+    const draft = await createDraft(
+      {
+        kind: 'native-file',
+        mimeType: 'audio/mp4',
+        uri: 'file:///temporary/recording.m4a',
+      },
+      75,
+    )
+
+    expect(nativeFiles.persistNativeRecording).toHaveBeenCalledWith(
+      'file:///temporary/recording.m4a',
+      draft.id,
+    )
+    expect(draft).toMatchObject({
+      audioPath: 'drafts/native-draft.m4a',
+      durationSeconds: 75,
+      mimeType: 'audio/mp4',
+      sizeBytes: 2048,
+    })
+    expect(draft.audio).toBeUndefined()
+
+    await deleteDraft(draft.id)
+    expect(nativeFiles.deleteNativeDraftFile).toHaveBeenCalledWith('drafts/native-draft.m4a')
   })
 })

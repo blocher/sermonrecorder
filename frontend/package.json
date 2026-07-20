@@ -8,11 +8,17 @@
     "test": "vitest run",
     "typecheck": "vue-tsc -b",
     "build": "vue-tsc -b && vite build",
+    "native:sync": "npm run build && cap sync",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/app": "^8.1.1",
     "@capacitor/cli": "^8.4.2",
     "@capacitor/core": "^8.4.2",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/ios": "^8.4.2",
+    "@capgo/capacitor-audio-recorder": "^8.2.6",
     "@fontsource/fraunces": "^5.3.0",
     "@fontsource/literata": "^5.3.0",
     "@fontsource/source-sans-3": "^5.3.0",

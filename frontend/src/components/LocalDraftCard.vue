@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { CloudUpload, Pause, Play, Trash2 } from '@lucide/vue'
 import type { LocalDraft } from '../recording/draftRepository'
+import { nativeDraftPlaybackUrl } from '../recording/nativeDraftFiles'
 
 const props = defineProps<{
   draft: LocalDraft
@@ -17,6 +18,7 @@ const audioUrl = ref('')
 const playing = ref(false)
 const confirmingDelete = ref(false)
 const playbackError = ref(false)
+let objectUrl = false
 
 const title = computed(() => {
   const date = new Date(props.draft.createdAt)
@@ -44,9 +46,32 @@ const duration = computed(() => {
 
 const size = computed(() => `${(props.draft.sizeBytes / 1_048_576).toFixed(1)} MB`)
 
-function setAudioUrl(): void {
-  if (audioUrl.value) URL.revokeObjectURL(audioUrl.value)
-  audioUrl.value = URL.createObjectURL(props.draft.audio)
+function clearAudioUrl(): void {
+  if (audioUrl.value && objectUrl) URL.revokeObjectURL(audioUrl.value)
+  audioUrl.value = ''
+  objectUrl = false
+}
+
+async function setAudioUrl(): Promise<void> {
+  clearAudioUrl()
+  playbackError.value = false
+
+  try {
+    if (props.draft.audio) {
+      audioUrl.value = URL.createObjectURL(props.draft.audio)
+      objectUrl = true
+      return
+    }
+
+    if (props.draft.audioPath) {
+      audioUrl.value = await nativeDraftPlaybackUrl(props.draft.audioPath)
+      return
+    }
+
+    playbackError.value = true
+  } catch {
+    playbackError.value = true
+  }
 }
 
 async function togglePlayback(): Promise<void> {
@@ -71,11 +96,13 @@ function deleteDraft(): void {
   emit('delete', props.draft.id)
 }
 
-watch(() => props.draft.audio, setAudioUrl, { immediate: true })
+watch(
+  () => [props.draft.audio, props.draft.audioPath],
+  () => void setAudioUrl(),
+  { immediate: true },
+)
 
-onBeforeUnmount(() => {
-  if (audioUrl.value) URL.revokeObjectURL(audioUrl.value)
-})
+onBeforeUnmount(clearAudioUrl)
 </script>
 
 <template>

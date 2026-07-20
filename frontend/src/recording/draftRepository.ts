@@ -1,6 +1,16 @@
+import { deleteNativeDraftFile, persistNativeRecording } from './nativeDraftFiles'
+
 const DATABASE_NAME = 'pewcorder'
 const DATABASE_VERSION = 1
 const DRAFT_STORE = 'drafts'
+
+export interface NativeAudioFile {
+  kind: 'native-file'
+  uri: string
+  mimeType: string
+}
+
+export type DraftAudioInput = Blob | NativeAudioFile
 
 export interface LocalDraft {
   id: string
@@ -8,7 +18,8 @@ export interface LocalDraft {
   durationSeconds: number
   mimeType: string
   sizeBytes: number
-  audio: Blob
+  audio?: Blob
+  audioPath?: string
 }
 
 let databasePromise: Promise<IDBDatabase> | undefined
@@ -60,25 +71,53 @@ function draftId(): string {
 }
 
 export async function createDraft(
-  audio: Blob,
+  audio: DraftAudioInput,
   durationSeconds: number,
   createdAt = new Date(),
 ): Promise<LocalDraft> {
-  if (audio.size === 0) throw new Error('The recording contains no audio.')
+  const id = draftId()
+  let nativeAudioPath: string | undefined
+  let draft: LocalDraft
 
-  const draft: LocalDraft = {
-    id: draftId(),
-    createdAt: createdAt.toISOString(),
-    durationSeconds: Math.max(1, Math.round(durationSeconds)),
-    mimeType: audio.type || 'audio/webm',
-    sizeBytes: audio.size,
-    audio,
+  if (audio instanceof Blob) {
+    if (audio.size === 0) throw new Error('The recording contains no audio.')
+    draft = {
+      id,
+      createdAt: createdAt.toISOString(),
+      durationSeconds: Math.max(1, Math.round(durationSeconds)),
+      mimeType: audio.type || 'audio/webm',
+      sizeBytes: audio.size,
+      audio,
+    }
+  } else {
+    const persistedAudio = await persistNativeRecording(audio.uri, id)
+    nativeAudioPath = persistedAudio.path
+    if (persistedAudio.sizeBytes === 0) {
+      await deleteNativeDraftFile(persistedAudio.path)
+      throw new Error('The recording contains no audio.')
+    }
+
+    draft = {
+      id,
+      createdAt: createdAt.toISOString(),
+      durationSeconds: Math.max(1, Math.round(durationSeconds)),
+      mimeType: audio.mimeType,
+      sizeBytes: persistedAudio.sizeBytes,
+      audioPath: persistedAudio.path,
+    }
   }
 
   const database = await openDatabase()
   const transaction = database.transaction(DRAFT_STORE, 'readwrite')
   transaction.objectStore(DRAFT_STORE).put(draft)
-  await transactionComplete(transaction)
+
+  try {
+    await transactionComplete(transaction)
+  } catch (error) {
+    if (nativeAudioPath) await deleteNativeDraftFile(nativeAudioPath).catch(() => undefined)
+    throw error
+  }
+
   return draft
 }
 
@@ -92,6 +131,16 @@ export async function listDrafts(): Promise<LocalDraft[]> {
 
 export async function deleteDraft(id: string): Promise<void> {
   const database = await openDatabase()
+  const readTransaction = database.transaction(DRAFT_STORE, 'readonly')
+  const draft = await requestResult<LocalDraft | undefined>(
+    readTransaction.objectStore(DRAFT_STORE).get(id),
+  )
+  await transactionComplete(readTransaction)
+
+  if (draft?.audioPath) {
+    await deleteNativeDraftFile(draft.audioPath).catch(() => undefined)
+  }
+
   const transaction = database.transaction(DRAFT_STORE, 'readwrite')
   transaction.objectStore(DRAFT_STORE).delete(id)
   await transactionComplete(transaction)

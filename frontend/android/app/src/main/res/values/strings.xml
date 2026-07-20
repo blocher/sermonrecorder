@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Pewcorder</string>
+    <string name="title_activity_main">Pewcorder</string>
+    <string name="package_name">com.pewcorder.app</string>
+    <string name="custom_url_scheme">com.pewcorder.app</string>
+</resources>
