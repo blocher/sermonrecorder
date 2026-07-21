@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
-from .models import User
+from .models import SavedRecipient, User
 
 
 @admin.register(User)
@@ -42,3 +42,10 @@ class UserAdmin(DjangoUserAdmin):
             },
         ),
     )
+
+
+@admin.register(SavedRecipient)
+class SavedRecipientAdmin(admin.ModelAdmin):
+    list_display = ("name", "email", "owner", "updated_at")
+    search_fields = ("name", "email", "owner__email")
+    list_filter = ("updated_at",)

@@ -1,0 +1,16 @@
+Hello {{ recipient.name }},
+
+{% if note %}{{ note }}
+
+{% endif %}{{ sermon.captured_at|date:"l, F j" }} Sermon
+{{ sermon.captured_at|date:"F j, Y" }} · {{ duration_minutes }} min
+
+{% if summary %}In brief
+{{ summary }}
+
+{% endif %}Read and listen:
+{{ share_url }}
+
+This unlisted page includes the sermon audio, cleaned Transcript, Study artifacts, Scripture references, and discussion questions. Private Reflections are never included.
+
+Shared from Pewcorder · AI Sermon Journal

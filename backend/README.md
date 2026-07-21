@@ -32,4 +32,6 @@ Ready detail responses contain an owner-issued, four-hour audio capability URL r
 
 Ready Sermons can also publish one active unlisted Share Link. The public payload includes audio, the cleaned Transcript, Study artifacts, Scripture references, and Tag suggestions, but never Reflections or private-library relationships. Revocation immediately disables both the page and its range-capable audio endpoint. Set `PEWCORDER_PUBLIC_WEB_URL` to the deployed Vue application's HTTPS origin so native apps share a reachable web URL.
 
+Congregants can keep an owner-private list of Saved Recipients and send each recipient an individual HTML/text handout linking to that Share page. Configure `DJANGO_EMAIL_BACKEND`, `DJANGO_DEFAULT_FROM_EMAIL`, and the provider-specific SMTP or transactional-email environment in production; the development default prints messages to the console.
+
 SQLite and local media storage are development defaults. Production must provide `DJANGO_SECRET_KEY`, persistent database/object storage, HTTPS hosts, and worker infrastructure.

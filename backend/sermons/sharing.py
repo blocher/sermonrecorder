@@ -29,13 +29,29 @@ def _share_token(share_link: ShareLink) -> str:
     )
 
 
-def _share_payload(share_link: ShareLink) -> dict[str, str]:
+def share_link_payload(share_link: ShareLink) -> dict[str, str]:
     token = _share_token(share_link)
     public_base_url = settings.PEWCORDER_PUBLIC_WEB_URL.rstrip("/")
     return {
         "url": f"{public_base_url}/share/{quote(token, safe='')}",
         "created_at": share_link.created_at.isoformat(),
     }
+
+
+def ensure_share_link(sermon: Sermon) -> tuple[ShareLink, bool]:
+    share_link = sermon.share_links.filter(revoked_at__isnull=True).first()
+    created = share_link is None
+    if share_link is None:
+        try:
+            with transaction.atomic():
+                share_link = ShareLink.objects.create(sermon=sermon)
+        except IntegrityError:
+            share_link = ShareLink.objects.get(
+                sermon=sermon,
+                revoked_at__isnull=True,
+            )
+            created = False
+    return share_link, created
 
 
 def _owned_ready_sermon(request: Request, sermon_id: UUID) -> Sermon:
@@ -73,26 +89,15 @@ class SermonShareLinkView(APIView):
         sermon = _owned_ready_sermon(request, sermon_id)
         share_link = sermon.share_links.filter(revoked_at__isnull=True).first()
         return Response(
-            {"share_link": _share_payload(share_link) if share_link else None}
+            {"share_link": share_link_payload(share_link) if share_link else None}
         )
 
     def post(self, request: Request, sermon_id: UUID) -> Response:
         sermon = _owned_ready_sermon(request, sermon_id)
-        share_link = sermon.share_links.filter(revoked_at__isnull=True).first()
-        created = share_link is None
-        if share_link is None:
-            try:
-                with transaction.atomic():
-                    share_link = ShareLink.objects.create(sermon=sermon)
-            except IntegrityError:
-                share_link = ShareLink.objects.get(
-                    sermon=sermon,
-                    revoked_at__isnull=True,
-                )
-                created = False
+        share_link, created = ensure_share_link(sermon)
 
         return Response(
-            _share_payload(share_link),
+            share_link_payload(share_link),
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 

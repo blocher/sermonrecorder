@@ -15,12 +15,15 @@ vi.mock('../auth/useAuth', () => ({
 vi.stubGlobal('fetch', mocks.fetch)
 
 import {
+  createSavedRecipient,
   createShareLink,
+  loadSavedRecipients,
   loadSharedSermon,
   loadShareLink,
   loadServerSermon,
   revokeShareLink,
   saveReflection,
+  sendSermonEmail,
   serverSermonDuration,
   serverSermonTitle,
   updateStudyArtifact,
@@ -184,6 +187,56 @@ describe('server Sermon detail', () => {
     await expect(loadSharedSermon('signed/token')).resolves.toEqual(sharedDetail)
     expect(mocks.fetch).toHaveBeenCalledWith(
       'http://api.example.test/api/shares/signed%2Ftoken/',
+    )
+  })
+
+  it('loads and creates reusable email recipients', async () => {
+    const recipient = {
+      id: 'recipient-id',
+      name: 'Family',
+      email: 'family@example.com',
+      created_at: '2026-07-20T16:00:00Z',
+      updated_at: '2026-07-20T16:00:00Z',
+    }
+    mocks.fetch
+      .mockResolvedValueOnce(new Response(JSON.stringify([recipient]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(recipient), { status: 201 }))
+
+    await expect(loadSavedRecipients()).resolves.toEqual([recipient])
+    await expect(
+      createSavedRecipient({ name: recipient.name, email: recipient.email }),
+    ).resolves.toEqual(recipient)
+    expect(mocks.fetch).toHaveBeenLastCalledWith(
+      'http://api.example.test/api/auth/recipients/',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ name: recipient.name, email: recipient.email }),
+      }),
+    )
+  })
+
+  it('sends a Sermon handout to selected saved recipients', async () => {
+    const result = {
+      sent_count: 2,
+      share_url: 'https://listen.example.test/share/signed-token',
+    }
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify(result), { status: 200 }),
+    )
+
+    await expect(
+      sendSermonEmail('ready-sermon', {
+        recipient_ids: ['anna', 'family'],
+        subject: 'A sermon worth revisiting',
+        note: 'I thought of you.',
+      }),
+    ).resolves.toEqual(result)
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/sermons/ready-sermon/email/',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer access-token' }),
+      }),
     )
   })
 })

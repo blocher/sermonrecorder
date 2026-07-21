@@ -2,7 +2,12 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .serializers import RegisterSerializer, UserSerializer
+from .models import SavedRecipient
+from .serializers import (
+    RegisterSerializer,
+    SavedRecipientSerializer,
+    UserSerializer,
+)
 
 
 class RegisterView(generics.CreateAPIView):
@@ -30,3 +35,22 @@ class CurrentUserView(generics.RetrieveAPIView):
 
     def get_object(self):
         return self.request.user
+
+
+class SavedRecipientListCreateView(generics.ListCreateAPIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    serializer_class = SavedRecipientSerializer
+
+    def get_queryset(self):
+        return SavedRecipient.objects.filter(owner=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+
+class SavedRecipientDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    serializer_class = SavedRecipientSerializer
+
+    def get_queryset(self):
+        return SavedRecipient.objects.filter(owner=self.request.user)

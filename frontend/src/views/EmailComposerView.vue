@@ -1,50 +1,173 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Check, Plus, Send } from '@lucide/vue'
 import BrandMark from '../components/BrandMark.vue'
-import { getSermon } from '../data/sermons'
+import { useAuth } from '../auth/useAuth'
+import {
+  createSavedRecipient,
+  loadSavedRecipients,
+  loadServerSermon,
+  sendSermonEmail,
+  serverSermonTitle,
+  type SavedRecipient,
+  type ServerSermonDetail,
+} from '../sermons/serverSermon'
 
-interface Recipient {
-  name: string
-  email: string
+interface SelectableRecipient extends SavedRecipient {
   selected: boolean
 }
 
 const route = useRoute()
 const router = useRouter()
-const sermon = computed(() => getSermon(String(route.params.id)))
-const subject = ref(`${sermon.value.title} · ${sermon.value.date}`)
-const note = ref('I wanted to share this sermon with you. The questions near the end would be good to talk through together.')
-const sent = ref(false)
-const recipients = ref<Recipient[]>([
-  { name: 'Anna', email: 'anna@example.com', selected: true },
-  { name: 'Family group', email: 'family@example.com', selected: true },
-  { name: 'Marcus', email: 'marcus@example.com', selected: false },
-])
+const { isAuthenticated } = useAuth()
+const sermon = ref<ServerSermonDetail>()
+const loading = ref(true)
+const errorMessage = ref('')
+const subject = ref('')
+const note = ref(
+  'I wanted to share this sermon with you. The questions near the end would be good to talk through together.',
+)
+const recipients = ref<SelectableRecipient[]>([])
+const addingRecipient = ref(false)
+const recipientName = ref('')
+const recipientEmail = ref('')
+const savingRecipient = ref(false)
+const sending = ref(false)
+const sentCount = ref(0)
+const shareUrl = ref('')
+const composerMessage = ref('')
 
 const selectedCount = computed(() => recipients.value.filter((recipient) => recipient.selected).length)
+const shortSummary = computed(
+  () =>
+    sermon.value?.study_artifacts.find((artifact) => artifact.kind === 'short_summary')?.content ??
+    '',
+)
+const capturedDate = computed(() =>
+  sermon.value
+    ? new Intl.DateTimeFormat(undefined, {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      }).format(new Date(sermon.value.captured_at))
+    : '',
+)
 
-function sendEmail() {
-  sent.value = true
-  window.setTimeout(() => {
-    sent.value = false
-  }, 2800)
+async function load(): Promise<void> {
+  const sermonId = String(route.params.id)
+  loading.value = true
+  errorMessage.value = ''
+  sermon.value = undefined
+  sentCount.value = 0
+  shareUrl.value = ''
+  composerMessage.value = ''
+  try {
+    const [loadedSermon, savedRecipients] = await Promise.all([
+      loadServerSermon(sermonId),
+      loadSavedRecipients(),
+    ])
+    if (loadedSermon.processing_status !== 'ready') {
+      errorMessage.value = loadedSermon.processing_message
+      return
+    }
+    sermon.value = loadedSermon
+    recipients.value = savedRecipients.map((recipient) => ({ ...recipient, selected: false }))
+    subject.value = `${serverSermonTitle(loadedSermon)} · Shared from Pewcorder`
+  } catch (error) {
+    if (!isAuthenticated.value) {
+      await router.replace({
+        name: 'account',
+        query: { redirect: `/sermons/${encodeURIComponent(sermonId)}/email` },
+      })
+      return
+    }
+    errorMessage.value =
+      error instanceof Error ? error.message : 'The email composer could not be opened.'
+  } finally {
+    loading.value = false
+  }
 }
+
+async function saveRecipient(): Promise<void> {
+  if (savingRecipient.value) return
+  savingRecipient.value = true
+  composerMessage.value = ''
+  try {
+    const saved = await createSavedRecipient({
+      name: recipientName.value,
+      email: recipientEmail.value,
+    })
+    recipients.value.push({ ...saved, selected: true })
+    recipients.value.sort((left, right) => left.name.localeCompare(right.name))
+    recipientName.value = ''
+    recipientEmail.value = ''
+    addingRecipient.value = false
+    composerMessage.value = 'Recipient saved for next time.'
+  } catch (error) {
+    composerMessage.value =
+      error instanceof Error ? error.message : 'This recipient could not be saved.'
+  } finally {
+    savingRecipient.value = false
+  }
+}
+
+async function sendEmail(): Promise<void> {
+  if (!sermon.value || sending.value || selectedCount.value === 0) return
+  sending.value = true
+  sentCount.value = 0
+  composerMessage.value = ''
+  try {
+    const result = await sendSermonEmail(sermon.value.id, {
+      recipient_ids: recipients.value
+        .filter((recipient) => recipient.selected)
+        .map((recipient) => recipient.id),
+      subject: subject.value,
+      note: note.value,
+    })
+    sentCount.value = result.sent_count
+    shareUrl.value = result.share_url
+    composerMessage.value = `Email sent to ${result.sent_count} ${
+      result.sent_count === 1 ? 'recipient' : 'recipients'
+    }.`
+  } catch (error) {
+    composerMessage.value =
+      error instanceof Error ? error.message : 'This Sermon email could not be sent.'
+  } finally {
+    sending.value = false
+  }
+}
+
+watch(
+  () => String(route.params.id),
+  () => void load(),
+  { immediate: true },
+)
 </script>
 
 <template>
   <main class="email-composer page-gather">
-    <div v-if="sent" class="email-sent" role="status">
+    <div v-if="sentCount" class="email-sent" role="status">
       <Check :size="18" aria-hidden="true" />
-      Email queued for {{ selectedCount }} recipients.
+      Email sent to {{ sentCount }} {{ sentCount === 1 ? 'recipient' : 'recipients' }}.
     </div>
 
-    <button class="back-link" type="button" @click="router.push(`/sermons/${sermon.id}`)">
+    <button
+      class="back-link"
+      type="button"
+      @click="router.push(`/sermons/${String(route.params.id)}`)"
+    >
       <ArrowLeft :size="17" :stroke-width="1.7" aria-hidden="true" />
-      {{ sermon.title }}
+      Sermon
     </button>
 
+    <p v-if="loading" class="composer-state" role="status">Opening the email desk…</p>
+    <section v-else-if="errorMessage" class="composer-state composer-state--error" role="alert">
+      <p class="rubric-label">Unable to compose</p>
+      <h1>{{ errorMessage }}</h1>
+    </section>
+
+    <template v-else-if="sermon">
     <header class="email-composer__header">
       <p class="rubric-label">Share by email</p>
       <h1>A note worth opening.</h1>
@@ -63,10 +186,34 @@ function sendEmail() {
               <small>{{ recipient.email }}</small>
             </span>
           </label>
-          <button class="add-recipient" type="button">
+          <p v-if="!recipients.length" class="recipient-empty">
+            Save an email address once, then select it whenever you share a Sermon.
+          </p>
+          <button
+            class="add-recipient"
+            type="button"
+            @click="addingRecipient = !addingRecipient"
+          >
             <Plus :size="16" aria-hidden="true" />
-            Add recipient
+            {{ addingRecipient ? 'Cancel new recipient' : 'Add recipient' }}
           </button>
+          <div v-if="addingRecipient" class="recipient-form">
+            <label class="field">
+              <span>Name</span>
+              <input v-model="recipientName" type="text" autocomplete="name" />
+            </label>
+            <label class="field">
+              <span>Email</span>
+              <input v-model="recipientEmail" type="email" autocomplete="email" />
+            </label>
+            <button
+              type="button"
+              :disabled="savingRecipient || !recipientName.trim() || !recipientEmail.trim()"
+              @click="saveRecipient"
+            >
+              {{ savingRecipient ? 'Saving…' : 'Save recipient' }}
+            </button>
+          </div>
         </fieldset>
 
         <label class="field">
@@ -80,10 +227,14 @@ function sendEmail() {
         </label>
 
         <div class="email-form__footer">
-          <span>{{ selectedCount }} selected</span>
-          <button class="send-button" type="submit" :disabled="selectedCount === 0">
+          <span>{{ composerMessage || `${selectedCount} selected` }}</span>
+          <button
+            class="send-button"
+            type="submit"
+            :disabled="sending || selectedCount === 0 || !subject.trim()"
+          >
             <Send :size="17" aria-hidden="true" />
-            Send email
+            {{ sending ? 'Sending…' : 'Send email' }}
           </button>
         </div>
       </form>
@@ -94,20 +245,23 @@ function sendEmail() {
           <BrandMark />
           <div class="email-preview__rule"></div>
           <p class="email-preview__from">Shared with you from a sermon journal</p>
-          <h2>{{ sermon.title }}</h2>
-          <p class="email-preview__byline">{{ sermon.preacher }} · {{ sermon.date }}</p>
+          <h2>{{ serverSermonTitle(sermon) }}</h2>
+          <p class="email-preview__byline">{{ capturedDate }}</p>
           <p class="email-preview__note">{{ note }}</p>
           <div class="email-preview__summary">
             <span>In brief</span>
-            <p>{{ sermon.shortSummary }}</p>
+            <p>{{ shortSummary }}</p>
           </div>
-          <a href="#" @click.prevent>Read and listen</a>
+          <a :href="shareUrl || '#'" @click="!shareUrl && $event.preventDefault()">
+            Read and listen
+          </a>
           <p class="email-preview__privacy">
             This unlisted Share page includes the sermon audio, transcript, outline, and discussion questions.
           </p>
         </div>
       </aside>
     </div>
+    </template>
   </main>
 </template>
 
@@ -146,6 +300,22 @@ function sendEmail() {
   font-weight: 650;
   gap: 0.4rem;
   padding: 0.5rem 0;
+}
+
+.composer-state {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  padding: 4rem 0;
+}
+
+.composer-state--error h1 {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 7vw, 4.5rem);
+  font-weight: 520;
+  letter-spacing: -0.05em;
+  line-height: 0.98;
+  max-width: 14ch;
 }
 
 .email-composer__header {
@@ -255,6 +425,16 @@ function sendEmail() {
   font-size: 0.74rem;
 }
 
+.recipient-empty {
+  border-top: 1px solid var(--color-margin);
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  margin: 0;
+  padding: 1rem 0;
+}
+
 .add-recipient {
   align-items: center;
   background: transparent;
@@ -270,6 +450,32 @@ function sendEmail() {
   min-height: 3.25rem;
   padding: 0;
   width: 100%;
+}
+
+.recipient-form {
+  background: var(--color-vellum-light);
+  border: 1px solid var(--color-margin);
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+}
+
+.recipient-form button {
+  background: var(--color-lapis);
+  border: 0;
+  color: var(--color-vellum-light);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.78rem;
+  font-weight: 650;
+  justify-self: start;
+  min-height: 2.55rem;
+  padding: 0.55rem 0.8rem;
+}
+
+.recipient-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .field input,

@@ -8,6 +8,7 @@ import {
   Check,
   Clock3,
   Copy,
+  Mail,
   PencilLine,
   Pause,
   Play,
@@ -345,6 +346,10 @@ watch(
           <button type="button" @click="toggleSharePanel">
             <Share2 :size="16" aria-hidden="true" />
             {{ sharePanelOpen ? 'Close sharing' : 'Share sermon' }}
+          </button>
+          <button type="button" @click="router.push(`/sermons/${sermon.id}/email`)">
+            <Mail :size="16" aria-hidden="true" />
+            Email handout
           </button>
         </div>
       </header>

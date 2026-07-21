@@ -6,6 +6,7 @@ from .editing_views import (
     ReflectionListCreateView,
     StudyArtifactDetailView,
 )
+from .emailing import SermonEmailView
 from .private_audio import sermon_private_audio
 from .sharing import SermonShareLinkView
 from .views import SermonViewSet
@@ -14,6 +15,11 @@ router = SimpleRouter()
 router.register("", SermonViewSet, basename="sermon")
 
 urlpatterns = [
+    path(
+        "<uuid:sermon_id>/email/",
+        SermonEmailView.as_view(),
+        name="sermon-email",
+    ),
     path(
         "<uuid:sermon_id>/share/",
         SermonShareLinkView.as_view(),

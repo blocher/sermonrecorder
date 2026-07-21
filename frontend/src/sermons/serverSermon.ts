@@ -96,6 +96,19 @@ export interface SharedSermonDetail {
   updated_at: string
 }
 
+export interface SavedRecipient {
+  id: string
+  name: string
+  email: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SermonEmailResult {
+  sent_count: number
+  share_url: string
+}
+
 export function serverSermonTitle(sermon: Pick<ServerSermon, 'captured_at'>): string {
   const captured = new Date(sermon.captured_at)
   return `${new Intl.DateTimeFormat(undefined, {
@@ -225,4 +238,45 @@ export async function loadSharedSermon(token: string): Promise<SharedSermonDetai
     )
   }
   return data as SharedSermonDetail
+}
+
+export async function loadSavedRecipients(): Promise<SavedRecipient[]> {
+  return authorizedJson<SavedRecipient[]>(
+    '/api/auth/recipients/',
+    {},
+    'Saved recipients could not be loaded.',
+  )
+}
+
+export async function createSavedRecipient(
+  recipient: Pick<SavedRecipient, 'name' | 'email'>,
+): Promise<SavedRecipient> {
+  return authorizedJson<SavedRecipient>(
+    '/api/auth/recipients/',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(recipient),
+    },
+    'This recipient could not be saved.',
+  )
+}
+
+export async function sendSermonEmail(
+  sermonId: string,
+  message: {
+    recipient_ids: string[]
+    subject: string
+    note: string
+  },
+): Promise<SermonEmailResult> {
+  return authorizedJson<SermonEmailResult>(
+    `/api/sermons/${encodeURIComponent(sermonId)}/email/`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(message),
+    },
+    'This Sermon email could not be sent.',
+  )
 }
