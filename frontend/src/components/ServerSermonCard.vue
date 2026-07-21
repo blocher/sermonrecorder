@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { CircleAlert, CloudUpload, LoaderCircle } from '@lucide/vue'
-import type { ServerSermon } from '../sermons/useServerSermons'
+import type { ServerSermon } from '../sermons/serverSermon'
 
 const props = defineProps<{
   sermon: ServerSermon

@@ -162,11 +162,19 @@ class SermonApiTests(APITestCase):
             response.data["scripture_references"][0]["display"],
             "Luke 15:11–32",
         )
-        self.assertEqual(response.data["tag_suggestions"], [{"name": "Grace"}])
+        self.assertEqual(response.data["tag_suggestions"], ["Grace"])
         self.assertEqual(
             response.data["related_sermons"][0]["id"],
             str(related.id),
         )
+        list_response = self.client.get("/api/sermons/")
+        ready_entry = next(
+            entry for entry in list_response.data if entry["id"] == str(sermon.id)
+        )
+        self.assertEqual(ready_entry["short_summary"], "A short summary.")
+        self.assertEqual(ready_entry["tag_suggestions"], ["Grace"])
+        self.assertNotIn("transcript", ready_entry)
+        self.assertNotIn("audio_url", ready_entry)
 
         self.client.force_authenticate(user=self.other_user)
         private_response = self.client.get(f"/api/sermons/{sermon.id}/")

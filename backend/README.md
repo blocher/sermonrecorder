@@ -28,4 +28,6 @@ New Sermons begin in `uploaded`, move to `processing` while claimed, and end in 
 
 The default provider pipeline uses OpenAI's diarizing transcription model, keeps only each audio chunk's predominant speaker, and sends that cleaned Transcript through the pinned simpleai facade for structured Study artifacts. Set `OPENAI_API_KEY` before running workers. Audio over 24 MB is transcoded to mono 32 kbps chunks with `ffmpeg`; install that binary in every worker image. `OPENAI_TRANSCRIPTION_MODEL`, `SIMPLEAI_OPENAI_MODEL`, `SERMON_ARTIFACT_MODEL`, and `SERMON_PROCESSOR` remain configurable so transcription and artifact providers can evolve independently.
 
+Ready detail responses contain an owner-issued, four-hour audio capability URL rather than a permanent media path. The audio endpoint validates that signature and supports byte ranges for seeking; configure `SERMON_AUDIO_URL_MAX_AGE_SECONDS` and native Capacitor origins explicitly in production.
+
 SQLite and local media storage are development defaults. Production must provide `DJANGO_SECRET_KEY`, persistent database/object storage, HTTPS hosts, and worker infrastructure.

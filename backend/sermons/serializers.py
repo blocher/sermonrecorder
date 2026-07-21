@@ -5,9 +5,9 @@ from .models import (
     ScriptureReference,
     Sermon,
     StudyArtifact,
-    TagSuggestion,
     Transcript,
 )
+from .private_audio import private_audio_url
 
 MAX_AUDIO_SIZE_BYTES = 500 * 1024 * 1024
 SUPPORTED_AUDIO_TYPES = {
@@ -23,6 +23,8 @@ SUPPORTED_AUDIO_TYPES = {
 class SermonSerializer(serializers.ModelSerializer):
     audio = serializers.FileField(write_only=True)
     processing_message = serializers.SerializerMethodField()
+    short_summary = serializers.SerializerMethodField()
+    tag_suggestions = serializers.SerializerMethodField()
 
     class Meta:
         model = Sermon
@@ -36,6 +38,8 @@ class SermonSerializer(serializers.ModelSerializer):
             "audio_size_bytes",
             "processing_status",
             "processing_message",
+            "short_summary",
+            "tag_suggestions",
             "created_at",
             "updated_at",
         )
@@ -45,6 +49,8 @@ class SermonSerializer(serializers.ModelSerializer):
             "audio_size_bytes",
             "processing_status",
             "processing_message",
+            "short_summary",
+            "tag_suggestions",
             "created_at",
             "updated_at",
         )
@@ -77,6 +83,24 @@ class SermonSerializer(serializers.ModelSerializer):
         if sermon.processing_status == Sermon.ProcessingStatus.FAILED:
             return "Processing could not finish. The recording is still safe."
         return "Ready to revisit."
+
+    def get_short_summary(self, sermon: Sermon) -> str:
+        if sermon.processing_status != Sermon.ProcessingStatus.READY:
+            return ""
+        artifact = next(
+            (
+                artifact
+                for artifact in sermon.study_artifacts.all()
+                if artifact.kind == StudyArtifact.Kind.SHORT_SUMMARY
+            ),
+            None,
+        )
+        return artifact.content if artifact else ""
+
+    def get_tag_suggestions(self, sermon: Sermon) -> list[str]:
+        if sermon.processing_status != Sermon.ProcessingStatus.READY:
+            return []
+        return [suggestion.name for suggestion in sermon.tag_suggestions.all()]
 
 
 class TranscriptSerializer(serializers.ModelSerializer):
@@ -118,12 +142,6 @@ class ScriptureReferenceSerializer(serializers.ModelSerializer):
         return display
 
 
-class TagSuggestionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = TagSuggestion
-        fields = ("name",)
-
-
 class RelatedSermonSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="related_sermon_id", read_only=True)
     captured_at = serializers.DateTimeField(
@@ -137,24 +155,28 @@ class RelatedSermonSerializer(serializers.ModelSerializer):
 
 
 class SermonDetailSerializer(SermonSerializer):
+    audio_url = serializers.SerializerMethodField()
     transcript = TranscriptSerializer(read_only=True, allow_null=True)
     study_artifacts = StudyArtifactSerializer(many=True, read_only=True)
     scripture_references = ScriptureReferenceSerializer(many=True, read_only=True)
-    tag_suggestions = TagSuggestionSerializer(many=True, read_only=True)
     related_sermons = RelatedSermonSerializer(many=True, read_only=True)
 
     class Meta(SermonSerializer.Meta):
         fields = SermonSerializer.Meta.fields + (
+            "audio_url",
             "transcript",
             "study_artifacts",
             "scripture_references",
-            "tag_suggestions",
             "related_sermons",
         )
         read_only_fields = SermonSerializer.Meta.read_only_fields + (
+            "audio_url",
             "transcript",
             "study_artifacts",
             "scripture_references",
-            "tag_suggestions",
             "related_sermons",
         )
+
+    def get_audio_url(self, sermon: Sermon) -> str:
+        request = self.context.get("request")
+        return private_audio_url(request, sermon) if request else ""

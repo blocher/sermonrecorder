@@ -81,6 +81,7 @@ describe('server Sermon library', () => {
     await vi.advanceTimersByTimeAsync(15_000)
     expect(mocks.fetch).toHaveBeenCalledTimes(2)
     expect(library.pendingSermons.value).toEqual([])
+    expect(library.readySermons.value).toHaveLength(1)
   })
 
   it('refreshes an unexpectedly rejected access token once', async () => {

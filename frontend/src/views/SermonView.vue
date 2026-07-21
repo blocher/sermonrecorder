@@ -1,65 +1,148 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
   BookOpenText,
   CalendarDays,
   Clock3,
-  Mail,
-  MapPin,
   Pause,
-  PencilLine,
   Play,
-  RefreshCw,
-  Share2,
 } from '@lucide/vue'
-import { getSermon } from '../data/sermons'
+import { useAuth } from '../auth/useAuth'
+import {
+  loadServerSermon,
+  serverSermonDuration,
+  serverSermonTitle,
+  type ServerSermonDetail,
+  type StudyArtifactKind,
+} from '../sermons/serverSermon'
 
 type Section = 'study' | 'transcript' | 'discuss' | 'reflection'
 
 const route = useRoute()
 const router = useRouter()
-const sermon = computed(() => getSermon(String(route.params.id)))
+const { isAuthenticated } = useAuth()
+const sermon = ref<ServerSermonDetail>()
+const loading = ref(true)
+const errorMessage = ref('')
 const activeSection = ref<Section>('study')
+const audio = ref<HTMLAudioElement>()
 const playing = ref(false)
-const progress = ref(0.18)
-let playbackTimer: number | undefined
+const currentSeconds = ref(0)
+const playbackError = ref(false)
 
+const progress = computed(() =>
+  sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
+)
 const progressLabel = computed(() => `${Math.round(progress.value * 100)}%`)
+const capturedDate = computed(() =>
+  sermon.value
+    ? new Intl.DateTimeFormat(undefined, {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      }).format(new Date(sermon.value.captured_at))
+    : '',
+)
+
+function artifact(kind: StudyArtifactKind): string {
+  return sermon.value?.study_artifacts.find((candidate) => candidate.kind === kind)?.content ?? ''
+}
+
+function numberedItems(content: string): string[] {
+  return content
+    .split(/\n+/)
+    .map((item) => item.replace(/^\s*\d+\.\s*/, '').trim())
+    .filter(Boolean)
+}
+
+function paragraphs(content: string): string[] {
+  return content
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+}
+
+function timestamp(seconds: number): string {
+  const minutes = Math.floor(seconds / 60)
+  const remainder = Math.floor(seconds % 60)
+  return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+}
+
+function scriptureUrl(display: string): string {
+  return `https://www.biblegateway.com/passage/?search=${encodeURIComponent(display)}`
+}
 
 function selectSection(section: Section) {
   activeSection.value = section
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-function togglePlayback() {
-  playing.value = !playing.value
-}
-
-function seekTo(seconds: number) {
-  progress.value = Math.min(seconds / (32 * 60), 1)
-  playing.value = true
-}
-
-watch(playing, (isPlaying) => {
-  if (isPlaying) {
-    playbackTimer = window.setInterval(() => {
-      progress.value = Math.min(progress.value + 0.001, 1)
-      if (progress.value >= 1) playing.value = false
-    }, 1000)
-  } else if (playbackTimer) {
-    window.clearInterval(playbackTimer)
+async function togglePlayback(): Promise<void> {
+  if (!audio.value) return
+  playbackError.value = false
+  if (playing.value) {
+    audio.value.pause()
+    return
   }
-})
+  try {
+    await audio.value.play()
+  } catch {
+    playbackError.value = true
+  }
+}
 
-onMounted(() => {
-  if (route.hash === '#reflection') activeSection.value = 'reflection'
-})
+async function seekTo(seconds: number): Promise<void> {
+  if (!audio.value) return
+  audio.value.currentTime = seconds
+  currentSeconds.value = seconds
+  playbackError.value = false
+  try {
+    await audio.value.play()
+  } catch {
+    playbackError.value = true
+  }
+}
 
-onBeforeUnmount(() => {
-  if (playbackTimer) window.clearInterval(playbackTimer)
-})
+async function load(id: string): Promise<void> {
+  loading.value = true
+  errorMessage.value = ''
+  sermon.value = undefined
+  try {
+    const loadedSermon = await loadServerSermon(id)
+    if (loadedSermon.processing_status !== 'ready') {
+      errorMessage.value = loadedSermon.processing_message
+      return
+    }
+    sermon.value = loadedSermon
+  } catch (error) {
+    if (!isAuthenticated.value) {
+      await router.replace({
+        name: 'account',
+        query: { redirect: `/sermons/${encodeURIComponent(id)}` },
+      })
+      return
+    }
+    errorMessage.value = error instanceof Error ? error.message : 'This Sermon could not be opened.'
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(
+  () => String(route.params.id),
+  (id) => void load(id),
+  { immediate: true },
+)
+
+watch(
+  () => route.hash,
+  (hash) => {
+    if (hash === '#reflection') activeSection.value = 'reflection'
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -69,32 +152,40 @@ onBeforeUnmount(() => {
       Library
     </button>
 
-    <article>
+    <p v-if="loading" class="detail-state" role="status">Opening your Sermon…</p>
+    <section v-else-if="errorMessage" class="detail-state detail-state--error" role="alert">
+      <p class="rubric-label">Unable to open</p>
+      <h1>{{ errorMessage }}</h1>
+    </section>
+
+    <article v-else-if="sermon">
       <header class="sermon-header">
         <div class="sermon-header__rubric">
-          <span>{{ sermon.liturgicalDay }}</span>
+          <span>Pew recording</span>
           <span>Ready</span>
         </div>
-        <h1>{{ sermon.title }}</h1>
-        <p class="sermon-header__preacher">{{ sermon.preacher }}</p>
+        <h1>{{ serverSermonTitle(sermon) }}</h1>
         <div class="sermon-header__meta">
-          <span><MapPin :size="15" aria-hidden="true" />{{ sermon.church }}</span>
-          <span><CalendarDays :size="15" aria-hidden="true" />{{ sermon.date }}</span>
-          <span><Clock3 :size="15" aria-hidden="true" />{{ sermon.duration }}</span>
-        </div>
-        <div class="sermon-header__actions">
-          <button type="button" @click="router.push('/share/pewcorder-preview')">
-            <Share2 :size="17" aria-hidden="true" />
-            Share page
-          </button>
-          <button type="button" @click="router.push(`/sermons/${sermon.id}/email`)">
-            <Mail :size="17" aria-hidden="true" />
-            Email
-          </button>
+          <span><CalendarDays :size="15" aria-hidden="true" />{{ capturedDate }}</span>
+          <span>
+            <Clock3 :size="15" aria-hidden="true" />{{
+              serverSermonDuration(sermon.duration_seconds)
+            }}
+          </span>
         </div>
       </header>
 
       <section class="audio-player" aria-label="Sermon audio player">
+        <audio
+          ref="audio"
+          :src="sermon.audio_url"
+          preload="metadata"
+          @play="playing = true"
+          @pause="playing = false"
+          @ended="playing = false"
+          @timeupdate="currentSeconds = audio?.currentTime ?? 0"
+          @error="playbackError = true"
+        ></audio>
         <button
           class="audio-player__play"
           type="button"
@@ -107,11 +198,14 @@ onBeforeUnmount(() => {
         <div class="audio-player__body">
           <div class="audio-player__labels">
             <span>{{ playing ? 'Playing sermon' : 'Sermon audio' }}</span>
-            <span>{{ progressLabel }} · {{ sermon.duration }}</span>
+            <span>{{ progressLabel }} · {{ serverSermonDuration(sermon.duration_seconds) }}</span>
           </div>
           <div class="audio-player__track" aria-hidden="true">
             <span :style="{ width: progressLabel }"></span>
           </div>
+          <small v-if="playbackError" class="audio-player__error">
+            Audio could not be played. Reopen this Sermon to refresh its private link.
+          </small>
         </div>
       </section>
 
@@ -137,25 +231,24 @@ onBeforeUnmount(() => {
           <section class="artifact artifact--lead">
             <div class="artifact__heading">
               <p class="rubric-label">In brief</p>
-              <div class="artifact__tools">
-                <button type="button" aria-label="Edit short summary"><PencilLine :size="16" /></button>
-                <button type="button" aria-label="Regenerate short summary"><RefreshCw :size="16" /></button>
-              </div>
             </div>
-            <p class="artifact__summary">{{ sermon.shortSummary }}</p>
+            <p class="artifact__summary">{{ artifact('short_summary') }}</p>
           </section>
 
-          <section class="artifact">
+          <section v-if="sermon.scripture_references.length" class="artifact">
             <div class="artifact__heading">
               <h2>Scripture</h2>
-              <div class="artifact__tools">
-                <button type="button" aria-label="Edit Scripture references"><PencilLine :size="16" /></button>
-              </div>
             </div>
             <div class="scripture-links">
-              <a v-for="reference in sermon.scripture" :key="reference" href="#" @click.prevent>
+              <a
+                v-for="reference in sermon.scripture_references"
+                :key="reference.display"
+                :href="scriptureUrl(reference.display)"
+                target="_blank"
+                rel="noreferrer"
+              >
                 <BookOpenText :size="17" :stroke-width="1.6" aria-hidden="true" />
-                {{ reference }}
+                {{ reference.display }}
               </a>
             </div>
           </section>
@@ -163,26 +256,20 @@ onBeforeUnmount(() => {
           <section class="artifact">
             <div class="artifact__heading">
               <h2>Long summary</h2>
-              <div class="artifact__tools">
-                <button type="button" aria-label="Edit long summary"><PencilLine :size="16" /></button>
-                <button type="button" aria-label="Regenerate long summary"><RefreshCw :size="16" /></button>
-              </div>
             </div>
             <div class="artifact__prose">
-              <p v-for="paragraph in sermon.longSummary" :key="paragraph">{{ paragraph }}</p>
+              <p v-for="paragraph in paragraphs(artifact('long_summary'))" :key="paragraph">
+                {{ paragraph }}
+              </p>
             </div>
           </section>
 
           <section class="artifact">
             <div class="artifact__heading">
               <h2>Outline</h2>
-              <div class="artifact__tools">
-                <button type="button" aria-label="Edit outline"><PencilLine :size="16" /></button>
-                <button type="button" aria-label="Regenerate outline"><RefreshCw :size="16" /></button>
-              </div>
             </div>
             <ol class="outline">
-              <li v-for="item in sermon.outline" :key="item">
+              <li v-for="item in numberedItems(artifact('outline'))" :key="item">
                 <span>{{ item }}</span>
               </li>
             </ol>
@@ -191,13 +278,25 @@ onBeforeUnmount(() => {
           <section class="artifact">
             <div class="artifact__heading">
               <h2>Tags</h2>
-              <div class="artifact__tools">
-                <button type="button" aria-label="Edit tags"><PencilLine :size="16" /></button>
-              </div>
             </div>
             <div class="tag-list">
-              <button v-for="tag in sermon.tags" :key="tag" type="button">{{ tag }}</button>
-              <button class="tag-list__add" type="button">+ Add tag</button>
+              <span v-for="tag in sermon.tag_suggestions" :key="tag">{{ tag }}</span>
+            </div>
+          </section>
+
+          <section v-if="sermon.related_sermons.length" class="artifact">
+            <div class="artifact__heading">
+              <h2>Related Sermons</h2>
+            </div>
+            <div class="related-sermons">
+              <RouterLink
+                v-for="related in sermon.related_sermons"
+                :key="related.id"
+                :to="`/sermons/${related.id}`"
+              >
+                <strong>{{ serverSermonTitle(related) }}</strong>
+                <span>{{ related.reason }}</span>
+              </RouterLink>
             </div>
           </section>
         </template>
@@ -209,14 +308,17 @@ onBeforeUnmount(() => {
                 <p class="rubric-label">Cleaned transcript</p>
                 <h2>Follow the sermon</h2>
               </div>
-              <div class="artifact__tools">
-                <button type="button" aria-label="Edit transcript"><PencilLine :size="16" /></button>
-              </div>
             </div>
             <p class="transcript__note">Side conversations have been removed. Tap a timestamp to listen from that moment.</p>
             <div class="transcript__segments">
-              <div v-for="segment in sermon.transcript" :key="segment.time" class="transcript__segment">
-                <button type="button" @click="seekTo(segment.seconds)">{{ segment.time }}</button>
+              <div
+                v-for="segment in sermon.transcript?.segments ?? []"
+                :key="`${segment.start_seconds}-${segment.text}`"
+                class="transcript__segment"
+              >
+                <button type="button" @click="seekTo(segment.start_seconds)">
+                  {{ timestamp(segment.start_seconds) }}
+                </button>
                 <p>{{ segment.text }}</p>
               </div>
             </div>
@@ -228,14 +330,24 @@ onBeforeUnmount(() => {
             <p class="rubric-label">Around the table</p>
             <h2>Discussion questions</h2>
             <ol>
-              <li v-for="question in sermon.adultQuestions" :key="question">{{ question }}</li>
+              <li
+                v-for="question in numberedItems(artifact('adult_discussion_questions'))"
+                :key="question"
+              >
+                {{ question }}
+              </li>
             </ol>
           </section>
           <section class="artifact question-set question-set--kids">
             <p class="rubric-label">With children</p>
             <h2>Questions for younger listeners</h2>
             <ol>
-              <li v-for="question in sermon.kidsQuestions" :key="question">{{ question }}</li>
+              <li
+                v-for="question in numberedItems(artifact('kids_discussion_questions'))"
+                :key="question"
+              >
+                {{ question }}
+              </li>
             </ol>
           </section>
         </template>
@@ -246,14 +358,13 @@ onBeforeUnmount(() => {
             <h2>Reflection</h2>
             <p class="reflection__prompt">Where is this sermon asking for one faithful action?</p>
             <textarea
-              :value="sermon.reflection"
               rows="8"
               aria-label="Your private reflection"
-              placeholder="Begin writing…"
+              placeholder="Private reflection editing is coming next."
+              disabled
             ></textarea>
             <div class="reflection__footer">
-              <span>Saved privately</span>
-              <button type="button">Save reflection</button>
+              <span>Reflections will remain private to your account.</span>
             </div>
           </section>
         </template>
@@ -282,6 +393,22 @@ onBeforeUnmount(() => {
   gap: 0.4rem;
   margin-bottom: 2.5rem;
   padding: 0.5rem 0;
+}
+
+.detail-state {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  padding: 4rem 0;
+}
+
+.detail-state--error h1 {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 7vw, 4.5rem);
+  font-weight: 520;
+  letter-spacing: -0.05em;
+  line-height: 0.98;
+  max-width: 13ch;
 }
 
 .sermon-header {
@@ -423,6 +550,14 @@ onBeforeUnmount(() => {
   top: 50%;
   transform: translate(50%, -50%);
   width: 0.55rem;
+}
+
+.audio-player__error {
+  color: color-mix(in srgb, var(--color-vellum) 72%, var(--color-rubric));
+  display: block;
+  font-family: var(--font-utility);
+  font-size: 0.7rem;
+  margin-top: 0.65rem;
 }
 
 .section-tabs {
@@ -577,20 +712,40 @@ onBeforeUnmount(() => {
   margin-top: 1.25rem;
 }
 
-.tag-list button {
+.tag-list span {
   background: transparent;
   border: 0;
   border-bottom: 1px solid rgba(47, 75, 124, 0.35);
   color: var(--color-lapis);
-  cursor: pointer;
   font-family: var(--font-utility);
   font-size: 0.78rem;
   padding: 0.3rem 0;
 }
 
-.tag-list .tag-list__add {
-  border-bottom-color: transparent;
+.related-sermons {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.related-sermons a {
+  border-left: 2px solid var(--color-rule-gold);
+  color: var(--color-ink);
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.75rem 1rem;
+  text-decoration: none;
+}
+
+.related-sermons strong {
+  font-family: var(--font-reading);
+  font-size: 0.95rem;
+}
+
+.related-sermons span {
   color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.75rem;
 }
 
 .transcript__note {

@@ -5,19 +5,7 @@ import {
   refreshAuthorizedAccessToken,
   useAuth,
 } from '../auth/useAuth'
-
-export interface ServerSermon {
-  id: string
-  source_draft_id: string
-  captured_at: string
-  duration_seconds: number
-  audio_mime_type: string
-  audio_size_bytes: number
-  processing_status: 'uploaded' | 'processing' | 'ready' | 'failed'
-  processing_message: string
-  created_at: string
-  updated_at: string
-}
+import type { ServerSermon } from './serverSermon'
 
 const sermons = ref<ServerSermon[]>([])
 const loading = ref(false)
@@ -86,6 +74,9 @@ export function useServerSermons() {
     errorMessage,
     pendingSermons: computed(() =>
       sermons.value.filter((sermon) => sermon.processing_status !== 'ready'),
+    ),
+    readySermons: computed(() =>
+      sermons.value.filter((sermon) => sermon.processing_status === 'ready'),
     ),
     refresh,
     startPolling,

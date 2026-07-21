@@ -22,7 +22,9 @@ class SermonViewSet(
 
     def get_queryset(self):
         queryset = Sermon.objects.filter(owner=self.request.user)
-        if self.action == "retrieve":
+        if self.action == "list":
+            queryset = queryset.prefetch_related("study_artifacts", "tag_suggestions")
+        elif self.action == "retrieve":
             queryset = queryset.select_related("transcript").prefetch_related(
                 "study_artifacts",
                 "scripture_references",

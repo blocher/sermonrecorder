@@ -140,7 +140,7 @@ AUTH_USER_MODEL = "accounts.User"
 
 CORS_ALLOWED_ORIGINS = os.environ.get(
     "DJANGO_CORS_ALLOWED_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173",
+    "http://localhost:5173,http://127.0.0.1:5173,capacitor://localhost,http://localhost",
 ).split(",")
 
 REST_FRAMEWORK = {
@@ -172,6 +172,9 @@ SERMON_PROCESSOR = os.environ.get(
     "sermons.provider_processor.ProviderSermonProcessor",
 )
 SERMON_PROCESSING_RETRY_DELAYS = (60, 5 * 60, 15 * 60)
+SERMON_AUDIO_URL_MAX_AGE_SECONDS = int(
+    os.environ.get("SERMON_AUDIO_URL_MAX_AGE_SECONDS", str(4 * 60 * 60))
+)
 
 FFMPEG_BINARY = os.environ.get("FFMPEG_BINARY", "ffmpeg")
 SERMON_TRANSCRIPTION_CHUNK_SECONDS = int(

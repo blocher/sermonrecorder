@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CalendarDays, ChevronRight, Clock3, Mic, MapPin, Search } from '@lucide/vue'
+import { CalendarDays, ChevronRight, Clock3, Mic, Search } from '@lucide/vue'
 import { useAuth } from '../auth/useAuth'
 import LocalDraftCard from '../components/LocalDraftCard.vue'
 import ServerSermonCard from '../components/ServerSermonCard.vue'
-import { sermons } from '../data/sermons'
 import { useDraftRecorder } from '../recording/useDraftRecorder'
+import {
+  serverSermonDuration,
+  serverSermonTitle,
+  type ServerSermon,
+} from '../sermons/serverSermon'
 import { useServerSermons } from '../sermons/useServerSermons'
 import { uploadDraft } from '../upload/uploadDraft'
 
@@ -20,6 +24,7 @@ const { isAuthenticated } = useAuth()
 const { drafts, removeDraft } = useDraftRecorder()
 const {
   pendingSermons,
+  readySermons,
   errorMessage: serverError,
   refresh: refreshServerSermons,
   startPolling,
@@ -28,18 +33,13 @@ const {
 
 const visibleSermons = computed(() => {
   const needle = query.value.trim().toLowerCase()
-  if (!needle) return sermons
+  if (!needle) return readySermons.value
 
-  return sermons.filter((sermon) => {
+  return readySermons.value.filter((sermon) => {
     const searchText = [
-      sermon.title,
-      sermon.preacher,
-      sermon.church,
-      sermon.occasion,
-      sermon.liturgicalDay,
-      sermon.tags.join(' '),
-      sermon.scripture.join(' '),
-      sermon.shortSummary,
+      serverSermonTitle(sermon),
+      sermon.tag_suggestions.join(' '),
+      sermon.short_summary,
     ]
       .join(' ')
       .toLowerCase()
@@ -47,6 +47,14 @@ const visibleSermons = computed(() => {
     return searchText.includes(needle)
   })
 })
+
+function capturedDate(sermon: ServerSermon): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(sermon.captured_at))
+}
 
 function announceDraftAction(message: string): void {
   draftActionMessage.value = message
@@ -116,7 +124,7 @@ watch(
           <h1>Sermons worth returning to.</h1>
           <p>Listen again, search what was said, or continue a reflection.</p>
         </div>
-        <span class="library__count">{{ sermons.length }} sermons</span>
+        <span class="library__count">{{ readySermons.length }} sermons</span>
       </div>
     </section>
 
@@ -174,7 +182,7 @@ watch(
         ref="searchInput"
         v-model="query"
         type="search"
-        placeholder="Search words, Scripture, preachers…"
+        placeholder="Search summaries and Tags…"
         aria-label="Search your sermons"
       />
       <kbd>⌘ K</kbd>
@@ -196,19 +204,25 @@ watch(
           <span class="sermon-entry__folio">{{ String(index + 1).padStart(2, '0') }}</span>
           <div class="sermon-entry__body">
             <div class="sermon-entry__rubric">
-              <span>{{ sermon.liturgicalDay }}</span>
+              <span>Pew recording</span>
               <span class="sermon-entry__ready">Ready</span>
             </div>
-            <h3>{{ sermon.title }}</h3>
-            <p class="sermon-entry__excerpt">{{ sermon.excerpt }}</p>
+            <h3>{{ serverSermonTitle(sermon) }}</h3>
+            <p class="sermon-entry__excerpt">
+              {{ sermon.short_summary || 'Ready to revisit.' }}
+            </p>
             <div class="sermon-entry__meta">
-              <span>{{ sermon.preacher }}</span>
-              <span><MapPin :size="14" aria-hidden="true" />{{ sermon.church }}</span>
-              <span><CalendarDays :size="14" aria-hidden="true" />{{ sermon.date }}</span>
-              <span><Clock3 :size="14" aria-hidden="true" />{{ sermon.duration }}</span>
+              <span>
+                <CalendarDays :size="14" aria-hidden="true" />{{ capturedDate(sermon) }}
+              </span>
+              <span>
+                <Clock3 :size="14" aria-hidden="true" />{{
+                  serverSermonDuration(sermon.duration_seconds)
+                }}
+              </span>
             </div>
             <div class="sermon-entry__tags">
-              <span v-for="tag in sermon.tags" :key="tag">{{ tag }}</span>
+              <span v-for="tag in sermon.tag_suggestions" :key="tag">{{ tag }}</span>
             </div>
           </div>
           <ChevronRight class="sermon-entry__arrow" :size="21" :stroke-width="1.6" aria-hidden="true" />
@@ -216,9 +230,15 @@ watch(
       </div>
 
       <div v-else class="empty-search">
-        <p class="rubric-label">No match</p>
-        <h3>Nothing in your library uses “{{ query }}” yet.</h3>
-        <button type="button" @click="query = ''">Clear search</button>
+        <p class="rubric-label">{{ query ? 'No match' : 'Your library is ready' }}</p>
+        <h3>
+          {{
+            query
+              ? `Nothing in your library uses “${query}” yet.`
+              : 'Your first processed Sermon will appear here.'
+          }}
+        </h3>
+        <button v-if="query" type="button" @click="query = ''">Clear search</button>
       </div>
     </section>
   </main>
