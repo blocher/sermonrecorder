@@ -1,8 +1,11 @@
+from unittest.mock import patch
+
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
-from django.utils import timezone
 
-from .models import DeviceRegistration, SavedRecipient, User
+from .models import DeviceRegistration, ExternalIdentity, SavedRecipient, User
+from .social_auth import InvalidSocialCredential, VerifiedSocialIdentity
 from sermons.models import ProcessingAlert, Sermon
 
 
@@ -43,6 +46,116 @@ class AccountApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access", response.data)
         self.assertIn("refresh", response.data)
+
+    @patch("accounts.views.verify_social_identity")
+    def test_verified_social_identity_creates_and_reuses_one_account(self, verify):
+        verify.side_effect = (
+            VerifiedSocialIdentity(
+                provider=ExternalIdentity.Provider.GOOGLE,
+                subject="google-account-123",
+                email="listener@example.com",
+                display_name="A Listener",
+            ),
+            VerifiedSocialIdentity(
+                provider=ExternalIdentity.Provider.GOOGLE,
+                subject="google-account-123",
+                email=None,
+            ),
+        )
+
+        created = self.client.post(
+            "/api/auth/social/",
+            {"provider": "google", "id_token": "first-google-token"},
+            format="json",
+        )
+        repeated = self.client.post(
+            "/api/auth/social/",
+            {"provider": "google", "id_token": "later-google-token"},
+            format="json",
+        )
+
+        self.assertEqual(created.status_code, status.HTTP_200_OK)
+        self.assertEqual(repeated.status_code, status.HTTP_200_OK)
+        self.assertEqual(created.data["user"], repeated.data["user"])
+        self.assertIn("access", created.data)
+        self.assertIn("refresh", created.data)
+        user = User.objects.get()
+        self.assertEqual(user.email, "listener@example.com")
+        self.assertEqual(user.display_name, "A Listener")
+        self.assertFalse(user.has_usable_password())
+        self.assertEqual(user.external_identities.count(), 1)
+
+    @patch("accounts.views.verify_social_identity")
+    def test_social_identity_links_a_matching_existing_private_library(self, verify):
+        user = User.objects.create_user(
+            email="listener@example.com",
+            password="existing-password",
+            display_name="Existing Listener",
+        )
+        verify.return_value = VerifiedSocialIdentity(
+            provider=ExternalIdentity.Provider.APPLE,
+            subject="apple-private-subject",
+            email="LISTENER@example.com",
+        )
+
+        response = self.client.post(
+            "/api/auth/social/",
+            {"provider": "apple", "id_token": "apple-token"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["user"]["id"], str(user.id))
+        self.assertTrue(user.has_usable_password())
+        self.assertTrue(
+            ExternalIdentity.objects.filter(
+                owner=user,
+                provider=ExternalIdentity.Provider.APPLE,
+                subject="apple-private-subject",
+            ).exists()
+        )
+
+    @patch("accounts.views.verify_social_identity")
+    def test_rejected_provider_credential_never_creates_an_account(self, verify):
+        verify.side_effect = InvalidSocialCredential(
+            "Google rejected this sign-in credential."
+        )
+
+        response = self.client.post(
+            "/api/auth/social/",
+            {"provider": "google", "id_token": "forged-token"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(User.objects.exists())
+        self.assertFalse(ExternalIdentity.objects.exists())
+
+    @patch("accounts.views.verify_social_identity")
+    def test_social_sign_in_respects_account_deactivation(self, verify):
+        user = User.objects.create_user(
+            email="inactive@example.com",
+            password=None,
+            is_active=False,
+        )
+        ExternalIdentity.objects.create(
+            owner=user,
+            provider=ExternalIdentity.Provider.GOOGLE,
+            subject="inactive-google-subject",
+        )
+        verify.return_value = VerifiedSocialIdentity(
+            provider=ExternalIdentity.Provider.GOOGLE,
+            subject="inactive-google-subject",
+            email="inactive@example.com",
+        )
+
+        response = self.client.post(
+            "/api/auth/social/",
+            {"provider": "google", "id_token": "valid-provider-token"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class SavedRecipientApiTests(APITestCase):

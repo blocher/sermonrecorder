@@ -45,6 +45,35 @@ class User(AbstractUser):
         return self.email
 
 
+class ExternalIdentity(models.Model):
+    class Provider(models.TextChoices):
+        APPLE = "apple", "Apple"
+        GOOGLE = "google", "Google"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="external_identities",
+    )
+    provider = models.CharField(max_length=16, choices=Provider)
+    subject = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("provider", "created_at")
+        constraints = (
+            models.UniqueConstraint(
+                fields=("provider", "subject"),
+                name="unique_external_identity_subject",
+            ),
+        )
+
+    def __str__(self) -> str:
+        return f"{self.get_provider_display()} · {self.owner}"
+
+
 class SavedRecipient(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(

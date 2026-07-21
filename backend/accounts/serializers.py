@@ -2,7 +2,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 
-from .models import DeviceRegistration, SavedRecipient, User
+from .models import DeviceRegistration, ExternalIdentity, SavedRecipient, User
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -24,6 +24,15 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         return User.objects.create_user(**validated_data)
+
+
+class SocialLoginSerializer(serializers.Serializer):
+    provider = serializers.ChoiceField(choices=ExternalIdentity.Provider)
+    id_token = serializers.CharField(
+        max_length=16_384,
+        trim_whitespace=False,
+        write_only=True,
+    )
 
 
 class SavedRecipientSerializer(serializers.ModelSerializer):

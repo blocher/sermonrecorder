@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
-from .models import DeviceRegistration, SavedRecipient, User
+from .models import DeviceRegistration, ExternalIdentity, SavedRecipient, User
 
 
 @admin.register(User)
@@ -57,3 +57,11 @@ class DeviceRegistrationAdmin(admin.ModelAdmin):
     search_fields = ("owner__email",)
     list_filter = ("platform", "active", "updated_at")
     readonly_fields = ("token",)
+
+
+@admin.register(ExternalIdentity)
+class ExternalIdentityAdmin(admin.ModelAdmin):
+    list_display = ("provider", "owner", "created_at")
+    search_fields = ("owner__email", "subject")
+    list_filter = ("provider", "created_at")
+    readonly_fields = ("provider", "subject", "owner", "created_at", "updated_at")

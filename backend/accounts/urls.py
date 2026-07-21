@@ -8,10 +8,12 @@ from .views import (
     RegisterView,
     SavedRecipientDetailView,
     SavedRecipientListCreateView,
+    SocialLoginView,
 )
 
 urlpatterns = [
     path("register/", RegisterView.as_view(), name="register"),
+    path("social/", SocialLoginView.as_view(), name="social-login"),
     path("token/", TokenObtainPairView.as_view(), name="token"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
     path("me/", CurrentUserView.as_view(), name="current-user"),

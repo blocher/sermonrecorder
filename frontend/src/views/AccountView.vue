@@ -2,6 +2,10 @@
 import { computed, ref } from 'vue'
 import { BellRing, LogOut, ShieldCheck } from '@lucide/vue'
 import { useRoute, useRouter } from 'vue-router'
+import {
+  availableSocialProviders,
+  type SocialProvider,
+} from '../auth/socialLogin'
 import { useAuth } from '../auth/useAuth'
 import { useProcessingAlerts } from '../notifications/useProcessingAlerts'
 
@@ -12,7 +16,16 @@ const email = ref('')
 const password = ref('')
 const displayName = ref('')
 const alertBusy = ref(false)
-const { user, busy, errorMessage, isAuthenticated, login, register, logout } = useAuth()
+const {
+  user,
+  busy,
+  errorMessage,
+  isAuthenticated,
+  login,
+  loginWithSocial,
+  register,
+  logout,
+} = useAuth()
 const {
   available: alertsAvailable,
   state: alertState,
@@ -38,6 +51,15 @@ async function submit(): Promise<void> {
     await router.replace(redirectPath.value)
   } catch {
     // The shared auth state presents the server's actionable error.
+  }
+}
+
+async function continueWith(provider: SocialProvider): Promise<void> {
+  try {
+    await loginWithSocial(provider)
+    await router.replace(redirectPath.value)
+  } catch {
+    // The shared auth state presents provider and server errors.
   }
 }
 
@@ -125,6 +147,22 @@ async function signOut(): Promise<void> {
         </button>
       </div>
 
+      <div v-if="availableSocialProviders.length" class="social-login">
+        <button
+          v-for="provider in availableSocialProviders"
+          :key="provider"
+          type="button"
+          :disabled="busy"
+          @click="continueWith(provider)"
+        >
+          Continue with {{ provider === 'apple' ? 'Apple' : 'Google' }}
+        </button>
+      </div>
+      <p v-if="errorMessage" class="account-form__error" role="alert">{{ errorMessage }}</p>
+      <div v-if="availableSocialProviders.length" class="account-form__divider">
+        <span>or use email</span>
+      </div>
+
       <form @submit.prevent="submit">
         <label v-if="mode === 'register'">
           <span>Your name</span>
@@ -144,9 +182,6 @@ async function signOut(): Promise<void> {
             required
           />
         </label>
-
-        <p v-if="errorMessage" class="account-form__error" role="alert">{{ errorMessage }}</p>
-
         <button class="account-form__submit" type="submit" :disabled="busy">
           {{ busy ? 'Please wait…' : mode === 'sign-in' ? 'Sign in' : 'Create private library' }}
         </button>
@@ -308,6 +343,51 @@ async function signOut(): Promise<void> {
 .account-form__tabs button.active {
   border-bottom-color: var(--color-rubric);
   color: var(--color-ink);
+}
+
+.social-login {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.social-login button {
+  background: var(--color-ink);
+  border: 1px solid var(--color-ink);
+  color: var(--color-vellum-light);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-weight: 700;
+  min-height: 3rem;
+}
+
+.social-login button:last-child {
+  background: var(--color-vellum);
+  border-color: var(--color-margin);
+  color: var(--color-ink);
+}
+
+.social-login button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.account-form__divider {
+  align-items: center;
+  color: var(--color-ink-muted);
+  display: grid;
+  font-family: var(--font-utility);
+  font-size: 0.7rem;
+  gap: 0.75rem;
+  grid-template-columns: 1fr auto 1fr;
+  margin: 1.25rem 0;
+  text-transform: uppercase;
+}
+
+.account-form__divider::before,
+.account-form__divider::after {
+  background: var(--color-margin);
+  content: '';
+  height: 1px;
 }
 
 .account-form label,

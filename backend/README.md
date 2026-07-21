@@ -10,7 +10,9 @@ uv run python manage.py runserver
 
 Run `uv run python manage.py test` for the API suite, `uv run ruff check .` for linting, and `uv run black --check .` for formatting.
 
-Email/password registration and JWT endpoints live under `/api/auth/`. `POST /api/sermons/` accepts multipart audio plus `source_draft_id`, `captured_at`, and `duration_seconds` as form fields or query parameters. Repeating the same Draft ID for one Congregant returns the original Sermon, making upload retries idempotent.
+Email/password registration and JWT endpoints live under `/api/auth/`. Apple and Google identity tokens can be exchanged at `/api/auth/social/`; Django verifies their signature, issuer, expiry, allowlisted audience, and verified email before issuing the same Pewcorder JWT pair. Set comma-separated `APPLE_OAUTH_CLIENT_IDS` and `GOOGLE_OAUTH_CLIENT_IDS` to every native/web audience in use. Provider subjects are linked durably, while a first verified social sign-in links to an existing account with the same normalized verified email instead of creating a second private library.
+
+`POST /api/sermons/` accepts multipart audio plus `source_draft_id`, `captured_at`, and `duration_seconds` as form fields or query parameters. Repeating the same Draft ID for one Congregant returns the original Sermon, making upload retries idempotent.
 
 ## Processing workers
 

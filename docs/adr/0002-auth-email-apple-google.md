@@ -1,3 +1,5 @@
 # Email/password plus Sign in with Apple and Google
 
 Congregants must authenticate before upload creates a server Sermon, while Drafts remain usable logged out. V1 uses email/password plus Sign in with Apple and Google so account creation is low-friction on both stores; Apple is included because offering other third-party login on iOS generally requires it. Passwordless magic link is deferred.
+
+The native/web client obtains a short-lived provider identity token and exchanges it with Django. Django, not the client, verifies signature, issuer, expiry, audience, subject, and verified-email claims before issuing the normal Pewcorder JWT pair. A durable provider-plus-subject link remains authoritative on later sign-ins, including when Apple no longer returns an email. On first sign-in only, a verified provider email may link an existing email/password account so one Congregant does not accidentally split one private Library across two accounts. Provider access tokens are neither stored nor used to authorize Pewcorder APIs.

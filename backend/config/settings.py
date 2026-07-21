@@ -156,6 +156,16 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": False,
 }
+GOOGLE_OAUTH_CLIENT_IDS = tuple(
+    value.strip()
+    for value in os.environ.get("GOOGLE_OAUTH_CLIENT_IDS", "").split(",")
+    if value.strip()
+)
+APPLE_OAUTH_CLIENT_IDS = tuple(
+    value.strip()
+    for value in os.environ.get("APPLE_OAUTH_CLIENT_IDS", "").split(",")
+    if value.strip()
+)
 
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
 CELERY_TASK_IGNORE_RESULT = True

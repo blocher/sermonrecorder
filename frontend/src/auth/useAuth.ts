@@ -1,5 +1,9 @@
 import { Capacitor } from '@capacitor/core'
 import { computed, ref } from 'vue'
+import {
+  acquireSocialIdToken,
+  type SocialProvider,
+} from './socialLogin'
 
 interface Congregant {
   id: string
@@ -167,6 +171,29 @@ async function register(email: string, password: string, displayName: string): P
   }
 }
 
+async function loginWithSocial(provider: SocialProvider): Promise<void> {
+  busy.value = true
+  errorMessage.value = ''
+  try {
+    const idToken = await acquireSocialIdToken(provider)
+    const session = await postJson<AuthSession>('/api/auth/social/', {
+      provider,
+      id_token: idToken,
+    })
+    accessToken.value = session.access
+    refreshToken.value = session.refresh
+    user.value = session.user
+    saveSession()
+  } catch (error) {
+    logout()
+    errorMessage.value =
+      error instanceof Error ? error.message : `${provider} sign-in failed.`
+    throw error
+  } finally {
+    busy.value = false
+  }
+}
+
 function logout(): void {
   accessToken.value = ''
   refreshToken.value = ''
@@ -182,6 +209,7 @@ export function useAuth() {
     errorMessage,
     isAuthenticated: computed(() => Boolean(accessToken.value && user.value)),
     login,
+    loginWithSocial,
     register,
     logout,
   }
