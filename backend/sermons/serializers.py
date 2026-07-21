@@ -112,6 +112,34 @@ class SermonContextUpdateSerializer(serializers.Serializer):
         return " ".join(liturgical_day.split())
 
 
+class LibrarySearchQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(max_length=500, required=False, allow_blank=True)
+    church = serializers.UUIDField(required=False)
+    preacher = serializers.UUIDField(required=False)
+    occasion = serializers.ChoiceField(
+        choices=Sermon.OccasionKind,
+        required=False,
+    )
+    tag = serializers.CharField(max_length=80, required=False)
+    date_from = serializers.DateField(required=False)
+    date_to = serializers.DateField(required=False)
+    processing_status = serializers.ChoiceField(
+        choices=Sermon.ProcessingStatus,
+        required=False,
+    )
+
+    def validate(self, attrs):
+        if (
+            attrs.get("date_from")
+            and attrs.get("date_to")
+            and attrs["date_from"] > attrs["date_to"]
+        ):
+            raise serializers.ValidationError(
+                "The start date must not be after the end date."
+            )
+        return attrs
+
+
 class SermonSerializer(serializers.ModelSerializer):
     audio = serializers.FileField(write_only=True)
     processing_message = serializers.SerializerMethodField()

@@ -36,4 +36,6 @@ Congregants can keep an owner-private list of Saved Recipients and send each rec
 
 Churches and Preachers are reusable, owner-private personal-book records. A Sermon can reference either and can store a standard Occasion kind plus an optional free-text Liturgical day. These fields are optional, editable after capture, and included in owner, Share-page, and email projections without becoming prerequisites for recording.
 
+The authenticated Sermon list accepts `search`, `church`, `preacher`, `occasion`, `tag`, `date_from`, and `date_to` query parameters. Search remains owner-scoped while matching Transcript text, generated Study artifacts, Scripture references, Tags, private Reflections, related-Sermon reasons, and structured Sermon context.
+
 SQLite and local media storage are development defaults. Production must provide `DJANGO_SECRET_KEY`, persistent database/object storage, HTTPS hosts, and worker infrastructure.

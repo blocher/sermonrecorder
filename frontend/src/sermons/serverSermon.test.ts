@@ -27,6 +27,7 @@ import {
   loadServerSermon,
   revokeShareLink,
   saveReflection,
+  searchServerSermons,
   sendSermonEmail,
   serverSermonDuration,
   serverSermonTitle,
@@ -100,6 +101,29 @@ describe('server Sermon detail', () => {
   it('uses clear date and duration labels without invented metadata', () => {
     expect(serverSermonTitle(detail)).toContain('Sermon')
     expect(serverSermonDuration(detail.duration_seconds)).toBe('45 min')
+  })
+
+  it('searches Ready Sermons with private Library filters', async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify([detail]), { status: 200 }),
+    )
+
+    await expect(
+      searchServerSermons({
+        search: '  mustard welcome  ',
+        church: 'church-id',
+        preacher: '',
+        occasion: 'sunday',
+        tag: 'Welcome',
+        date_from: '2026-01-01',
+        date_to: '2026-01-31',
+      }),
+    ).resolves.toEqual([detail])
+
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/sermons/?processing_status=ready&search=mustard+welcome&church=church-id&occasion=sunday&tag=Welcome&date_from=2026-01-01&date_to=2026-01-31',
+      { headers: { Authorization: 'Bearer access-token' } },
+    )
   })
 
   it('persists one independently edited Study artifact', async () => {

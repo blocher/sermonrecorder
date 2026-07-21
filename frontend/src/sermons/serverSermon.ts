@@ -135,6 +135,16 @@ export interface SermonEmailResult {
   share_url: string
 }
 
+export interface ServerSermonSearchFilters {
+  search?: string
+  church?: string
+  preacher?: string
+  occasion?: OccasionKind | ''
+  tag?: string
+  date_from?: string
+  date_to?: string
+}
+
 export function serverSermonTitle(sermon: Pick<ServerSermon, 'captured_at'>): string {
   const captured = new Date(sermon.captured_at)
   return `${new Intl.DateTimeFormat(undefined, {
@@ -188,6 +198,21 @@ export async function loadServerSermon(id: string): Promise<ServerSermonDetail> 
     `/api/sermons/${encodeURIComponent(id)}/`,
     {},
     'This Sermon could not be opened.',
+  )
+}
+
+export async function searchServerSermons(
+  filters: ServerSermonSearchFilters,
+): Promise<ServerSermon[]> {
+  const query = new URLSearchParams({ processing_status: 'ready' })
+  for (const [key, value] of Object.entries(filters)) {
+    const normalizedValue = value?.trim()
+    if (normalizedValue) query.set(key, normalizedValue)
+  }
+  return authorizedJson<ServerSermon[]>(
+    `/api/sermons/?${query}`,
+    {},
+    'Your Sermon library could not be searched.',
   )
 }
 
