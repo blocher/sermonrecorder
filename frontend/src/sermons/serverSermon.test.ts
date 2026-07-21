@@ -15,7 +15,11 @@ vi.mock('../auth/useAuth', () => ({
 vi.stubGlobal('fetch', mocks.fetch)
 
 import {
+  createChurch,
+  createPreacher,
   createSavedRecipient,
+  loadChurches,
+  loadPreachers,
   createShareLink,
   loadSavedRecipients,
   loadSharedSermon,
@@ -27,6 +31,7 @@ import {
   serverSermonDuration,
   serverSermonTitle,
   updateStudyArtifact,
+  updateSermonContext,
   type ServerSermonDetail,
 } from './serverSermon'
 
@@ -37,6 +42,10 @@ const detail: ServerSermonDetail = {
   duration_seconds: 2700,
   audio_mime_type: 'audio/mp4',
   audio_size_bytes: 1024,
+  church: null,
+  preacher: null,
+  occasion_kind: '',
+  liturgical_day: '',
   processing_status: 'ready',
   processing_message: 'Ready to revisit.',
   short_summary: 'Grace meets us here.',
@@ -173,6 +182,10 @@ describe('server Sermon detail', () => {
     const sharedDetail = {
       captured_at: detail.captured_at,
       duration_seconds: detail.duration_seconds,
+      church: null,
+      preacher: null,
+      occasion_kind: '',
+      liturgical_day: '',
       audio_url: 'http://api.example.test/api/shares/signed-token/audio/',
       transcript: detail.transcript,
       study_artifacts: [],
@@ -236,6 +249,66 @@ describe('server Sermon detail', () => {
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({ Authorization: 'Bearer access-token' }),
+      }),
+    )
+  })
+
+  it('reuses personal Church and Preacher records when saving Sermon context', async () => {
+    const church = {
+      id: 'church-id',
+      name: 'Grace Parish',
+      address: '1 Main Street',
+      latitude: null,
+      longitude: null,
+      created_at: '2026-07-20T16:00:00Z',
+      updated_at: '2026-07-20T16:00:00Z',
+    }
+    const preacher = {
+      id: 'preacher-id',
+      name: 'Rev. Miriam Cho',
+      created_at: '2026-07-20T16:00:00Z',
+      updated_at: '2026-07-20T16:00:00Z',
+    }
+    const contextualized = {
+      ...detail,
+      church,
+      preacher,
+      occasion_kind: 'sunday',
+      liturgical_day: 'Third Sunday of Ordinary Time',
+    }
+    mocks.fetch
+      .mockResolvedValueOnce(new Response(JSON.stringify([church]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(church), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([preacher]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(preacher), { status: 201 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(contextualized), { status: 200 }),
+      )
+
+    await expect(loadChurches()).resolves.toEqual([church])
+    await expect(
+      createChurch({ name: church.name, address: church.address }),
+    ).resolves.toEqual(church)
+    await expect(loadPreachers()).resolves.toEqual([preacher])
+    await expect(createPreacher(preacher.name)).resolves.toEqual(preacher)
+    await expect(
+      updateSermonContext('ready-sermon', {
+        church_id: church.id,
+        preacher_id: preacher.id,
+        occasion_kind: 'sunday',
+        liturgical_day: 'Third Sunday of Ordinary Time',
+      }),
+    ).resolves.toEqual(contextualized)
+    expect(mocks.fetch).toHaveBeenLastCalledWith(
+      'http://api.example.test/api/sermons/ready-sermon/context/',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          church_id: church.id,
+          preacher_id: preacher.id,
+          occasion_kind: 'sunday',
+          liturgical_day: 'Third Sunday of Ordinary Time',
+        }),
       }),
     )
   })

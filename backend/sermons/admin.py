@@ -1,6 +1,8 @@
 from django.contrib import admin
 
 from .models import (
+    Church,
+    Preacher,
     Reflection,
     RelatedSermon,
     ScriptureReference,
@@ -68,9 +70,18 @@ class SermonAdmin(admin.ModelAdmin):
         "processing_attempts",
         "duration_seconds",
         "audio_size_bytes",
+        "church",
+        "preacher",
+        "occasion_kind",
     )
-    list_filter = ("processing_status", "captured_at")
-    search_fields = ("owner__email", "source_draft_id")
+    list_filter = ("processing_status", "occasion_kind", "captured_at")
+    search_fields = (
+        "owner__email",
+        "source_draft_id",
+        "church__name",
+        "preacher__name",
+        "liturgical_day",
+    )
     readonly_fields = (
         "id",
         "audio_mime_type",
@@ -82,3 +93,15 @@ class SermonAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
+
+
+@admin.register(Church)
+class ChurchAdmin(admin.ModelAdmin):
+    list_display = ("name", "address", "owner", "updated_at")
+    search_fields = ("name", "address", "owner__email")
+
+
+@admin.register(Preacher)
+class PreacherAdmin(admin.ModelAdmin):
+    list_display = ("name", "owner", "updated_at")
+    search_fields = ("name", "owner__email")

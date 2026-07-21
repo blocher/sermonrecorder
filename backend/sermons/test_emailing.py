@@ -9,7 +9,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import SavedRecipient, User
 
-from .models import Reflection, Sermon, ShareLink, StudyArtifact
+from .models import Church, Preacher, Reflection, Sermon, ShareLink, StudyArtifact
 
 
 @override_settings(
@@ -33,6 +33,14 @@ class SermonEmailTests(APITestCase):
             email="email-other@example.com",
             password="safe-test-password",
         )
+        church = Church.objects.create(
+            owner=self.owner,
+            name="Grace Parish",
+        )
+        preacher = Preacher.objects.create(
+            owner=self.owner,
+            name="Rev. Miriam Cho",
+        )
         self.sermon = Sermon.objects.create(
             owner=self.owner,
             source_draft_id="email-ready-sermon",
@@ -45,6 +53,10 @@ class SermonEmailTests(APITestCase):
             ),
             audio_mime_type="audio/mp4",
             audio_size_bytes=len(b"email-sermon-audio"),
+            church=church,
+            preacher=preacher,
+            occasion_kind=Sermon.OccasionKind.SUNDAY,
+            liturgical_day="Third Sunday of Ordinary Time",
             processing_status=Sermon.ProcessingStatus.READY,
         )
         StudyArtifact.objects.create(
@@ -114,6 +126,9 @@ class SermonEmailTests(APITestCase):
             html = message.alternatives[0].content
             self.assertIn("background:#f1eee4", html)
             self.assertIn("Read and listen", html)
+            self.assertIn("Third Sunday of Ordinary Time", html)
+            self.assertIn("Rev. Miriam Cho", html)
+            self.assertIn("Grace Parish", html)
             self.assertNotIn("Private words must stay private.", html)
 
     def test_email_rejects_foreign_recipients_and_non_owned_sermons(self):

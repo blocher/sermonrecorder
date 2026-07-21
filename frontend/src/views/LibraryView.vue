@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CalendarDays, ChevronRight, Clock3, Mic, Search } from '@lucide/vue'
+import {
+  CalendarDays,
+  ChevronRight,
+  Clock3,
+  MapPin,
+  Mic,
+  Search,
+  UserRound,
+} from '@lucide/vue'
 import { useAuth } from '../auth/useAuth'
 import LocalDraftCard from '../components/LocalDraftCard.vue'
 import ServerSermonCard from '../components/ServerSermonCard.vue'
@@ -40,6 +48,11 @@ const visibleSermons = computed(() => {
       serverSermonTitle(sermon),
       sermon.tag_suggestions.join(' '),
       sermon.short_summary,
+      sermon.church?.name,
+      sermon.church?.address,
+      sermon.preacher?.name,
+      sermon.occasion_kind,
+      sermon.liturgical_day,
     ]
       .join(' ')
       .toLowerCase()
@@ -204,7 +217,7 @@ watch(
           <span class="sermon-entry__folio">{{ String(index + 1).padStart(2, '0') }}</span>
           <div class="sermon-entry__body">
             <div class="sermon-entry__rubric">
-              <span>Pew recording</span>
+              <span>{{ sermon.liturgical_day || sermon.occasion_kind || 'Pew recording' }}</span>
               <span class="sermon-entry__ready">Ready</span>
             </div>
             <h3>{{ serverSermonTitle(sermon) }}</h3>
@@ -212,6 +225,12 @@ watch(
               {{ sermon.short_summary || 'Ready to revisit.' }}
             </p>
             <div class="sermon-entry__meta">
+              <span v-if="sermon.preacher">
+                <UserRound :size="14" aria-hidden="true" />{{ sermon.preacher.name }}
+              </span>
+              <span v-if="sermon.church">
+                <MapPin :size="14" aria-hidden="true" />{{ sermon.church.name }}
+              </span>
               <span>
                 <CalendarDays :size="14" aria-hidden="true" />{{ capturedDate(sermon) }}
               </span>

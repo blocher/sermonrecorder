@@ -54,7 +54,9 @@ class SermonEmailView(APIView):
 
     def post(self, request: Request, sermon_id: UUID) -> Response:
         sermon = get_object_or_404(
-            Sermon.objects.prefetch_related("study_artifacts"),
+            Sermon.objects.select_related("church", "preacher").prefetch_related(
+                "study_artifacts"
+            ),
             id=sermon_id,
             owner=request.user,
             processing_status=Sermon.ProcessingStatus.READY,

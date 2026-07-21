@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { BookOpenText, CalendarDays, Clock3, Pause, Play } from '@lucide/vue'
+import {
+  BookOpenText,
+  CalendarDays,
+  Clock3,
+  MapPin,
+  Pause,
+  Play,
+  UserRound,
+} from '@lucide/vue'
 import BrandMark from '../components/BrandMark.vue'
 import {
   loadSharedSermon,
@@ -62,6 +70,11 @@ function timestamp(seconds: number): string {
 
 function scriptureUrl(display: string): string {
   return `https://www.biblegateway.com/passage/?search=${encodeURIComponent(display)}`
+}
+
+function occasionLabel(kind: SharedSermonDetail['occasion_kind']): string {
+  if (!kind) return ''
+  return kind.charAt(0).toUpperCase() + kind.slice(1)
 }
 
 async function togglePlayback(): Promise<void> {
@@ -148,9 +161,17 @@ onBeforeUnmount(() => {
 
     <article v-else-if="sermon" class="share-document">
       <header class="share-title page-gather">
-        <p class="rubric-label">Shared sermon</p>
+        <p class="rubric-label">
+          {{ sermon.liturgical_day || occasionLabel(sermon.occasion_kind) || 'Shared sermon' }}
+        </p>
         <h1>{{ serverSermonTitle(sermon) }}</h1>
         <div class="share-title__meta">
+          <span v-if="sermon.preacher">
+            <UserRound :size="15" aria-hidden="true" />{{ sermon.preacher.name }}
+          </span>
+          <span v-if="sermon.church">
+            <MapPin :size="15" aria-hidden="true" />{{ sermon.church.name }}
+          </span>
           <span><CalendarDays :size="15" aria-hidden="true" />{{ capturedDate }}</span>
           <span>
             <Clock3 :size="15" aria-hidden="true" />{{

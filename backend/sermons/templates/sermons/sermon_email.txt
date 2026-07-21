@@ -3,6 +3,11 @@ Hello {{ recipient.name }},
 {% if note %}{{ note }}
 
 {% endif %}{{ sermon.captured_at|date:"l, F j" }} Sermon
+{% if sermon.liturgical_day %}{{ sermon.liturgical_day }}
+{% elif sermon.occasion_kind %}{{ sermon.get_occasion_kind_display }}
+{% endif %}{% if sermon.preacher %}{{ sermon.preacher.name }}
+{% endif %}{% if sermon.church %}{{ sermon.church.name }}
+{% endif %}
 {{ sermon.captured_at|date:"F j, Y" }} · {{ duration_minutes }} min
 
 {% if summary %}In brief

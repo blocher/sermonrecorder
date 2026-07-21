@@ -10,6 +10,8 @@ from rest_framework.test import APITestCase
 from accounts.models import User
 
 from .models import (
+    Church,
+    Preacher,
     Reflection,
     ScriptureReference,
     Sermon,
@@ -39,6 +41,14 @@ class SermonSharingTests(APITestCase):
             password="safe-test-password",
         )
         self.audio = b"shared-sermon-audio"
+        self.church = Church.objects.create(
+            owner=self.owner,
+            name="Grace Parish",
+        )
+        self.preacher = Preacher.objects.create(
+            owner=self.owner,
+            name="Rev. Miriam Cho",
+        )
         self.sermon = Sermon.objects.create(
             owner=self.owner,
             source_draft_id="shared-ready-sermon",
@@ -51,6 +61,10 @@ class SermonSharingTests(APITestCase):
             ),
             audio_mime_type="audio/mp4",
             audio_size_bytes=len(self.audio),
+            church=self.church,
+            preacher=self.preacher,
+            occasion_kind=Sermon.OccasionKind.SUNDAY,
+            liturgical_day="Third Sunday of Ordinary Time",
             processing_status=Sermon.ProcessingStatus.READY,
         )
         Transcript.objects.create(
@@ -160,6 +174,13 @@ class SermonSharingTests(APITestCase):
             "Luke 14:12–24",
         )
         self.assertEqual(response.data["tag_suggestions"], ["Welcome"])
+        self.assertEqual(response.data["church"]["name"], "Grace Parish")
+        self.assertEqual(response.data["preacher"]["name"], "Rev. Miriam Cho")
+        self.assertEqual(response.data["occasion_kind"], "sunday")
+        self.assertEqual(
+            response.data["liturgical_day"],
+            "Third Sunday of Ordinary Time",
+        )
         self.assertIn(f"/api/shares/{token}/audio/", response.data["audio_url"])
         self.assertEqual(response["Cache-Control"], "private, no-store")
         self.assertNotIn("reflections", response.data)

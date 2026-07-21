@@ -34,4 +34,6 @@ Ready Sermons can also publish one active unlisted Share Link. The public payloa
 
 Congregants can keep an owner-private list of Saved Recipients and send each recipient an individual HTML/text handout linking to that Share page. Configure `DJANGO_EMAIL_BACKEND`, `DJANGO_DEFAULT_FROM_EMAIL`, and the provider-specific SMTP or transactional-email environment in production; the development default prints messages to the console.
 
+Churches and Preachers are reusable, owner-private personal-book records. A Sermon can reference either and can store a standard Occasion kind plus an optional free-text Liturgical day. These fields are optional, editable after capture, and included in owner, Share-page, and email projections without becoming prerequisites for recording.
+
 SQLite and local media storage are development defaults. Production must provide `DJANGO_SECRET_KEY`, persistent database/object storage, HTTPS hosts, and worker infrastructure.

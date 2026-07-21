@@ -21,7 +21,10 @@ class SermonViewSet(
     serializer_class = SermonSerializer
 
     def get_queryset(self):
-        queryset = Sermon.objects.filter(owner=self.request.user)
+        queryset = Sermon.objects.filter(owner=self.request.user).select_related(
+            "church",
+            "preacher",
+        )
         if self.action == "list":
             queryset = queryset.prefetch_related("study_artifacts", "tag_suggestions")
         elif self.action == "retrieve":

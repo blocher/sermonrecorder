@@ -9,16 +9,22 @@ import {
   Clock3,
   Copy,
   Mail,
+  MapPin,
   PencilLine,
   Pause,
   Play,
   Share2,
   Trash2,
+  UserRound,
   X,
 } from '@lucide/vue'
 import { useAuth } from '../auth/useAuth'
 import {
+  createChurch,
+  createPreacher,
   createShareLink,
+  loadChurches,
+  loadPreachers,
   loadShareLink,
   loadServerSermon,
   revokeShareLink,
@@ -26,6 +32,10 @@ import {
   serverSermonDuration,
   serverSermonTitle,
   updateStudyArtifact,
+  updateSermonContext,
+  type OccasionKind,
+  type ServerChurch,
+  type ServerPreacher,
   type ServerShareLink,
   type ServerSermonDetail,
   type StudyArtifactKind,
@@ -57,6 +67,21 @@ const shareLink = ref<ServerShareLink | null>(null)
 const shareLoading = ref(false)
 const shareBusy = ref(false)
 const shareMessage = ref('')
+const contextPanelOpen = ref(false)
+const contextLoading = ref(false)
+const contextSaving = ref(false)
+const contextMessage = ref('')
+const churches = ref<ServerChurch[]>([])
+const preachers = ref<ServerPreacher[]>([])
+const selectedChurchId = ref('')
+const selectedPreacherId = ref('')
+const selectedOccasionKind = ref<OccasionKind | ''>('')
+const liturgicalDay = ref('')
+const addingChurch = ref(false)
+const newChurchName = ref('')
+const newChurchAddress = ref('')
+const addingPreacher = ref(false)
+const newPreacherName = ref('')
 
 const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
@@ -71,6 +96,18 @@ const capturedDate = computed(() =>
       }).format(new Date(sermon.value.captured_at))
     : '',
 )
+const occasionOptions: [OccasionKind, string][] = [
+  ['sunday', 'Sunday'],
+  ['feast', 'Feast'],
+  ['wedding', 'Wedding'],
+  ['funeral', 'Funeral'],
+  ['midweek', 'Midweek'],
+  ['other', 'Other'],
+]
+
+function occasionLabel(kind: OccasionKind | ''): string {
+  return occasionOptions.find(([value]) => value === kind)?.[1] ?? ''
+}
 
 function artifact(kind: StudyArtifactKind): string {
   return sermon.value?.study_artifacts.find((candidate) => candidate.kind === kind)?.content ?? ''
@@ -267,6 +304,98 @@ async function unpublishShareLink(): Promise<void> {
   }
 }
 
+async function toggleContextPanel(): Promise<void> {
+  contextPanelOpen.value = !contextPanelOpen.value
+  contextMessage.value = ''
+  if (!contextPanelOpen.value || !sermon.value) return
+  selectedChurchId.value = sermon.value.church?.id ?? ''
+  selectedPreacherId.value = sermon.value.preacher?.id ?? ''
+  selectedOccasionKind.value = sermon.value.occasion_kind
+  liturgicalDay.value = sermon.value.liturgical_day
+  contextLoading.value = true
+  try {
+    const [savedChurches, savedPreachers] = await Promise.all([
+      loadChurches(),
+      loadPreachers(),
+    ])
+    churches.value = savedChurches
+    preachers.value = savedPreachers
+  } catch (error) {
+    contextMessage.value =
+      error instanceof Error ? error.message : 'Sermon details could not be loaded.'
+  } finally {
+    contextLoading.value = false
+  }
+}
+
+async function saveNewChurch(): Promise<void> {
+  if (!newChurchName.value.trim() || contextSaving.value) return
+  contextSaving.value = true
+  contextMessage.value = ''
+  try {
+    const saved = await createChurch({
+      name: newChurchName.value,
+      address: newChurchAddress.value,
+    })
+    churches.value.push(saved)
+    churches.value.sort((left, right) => left.name.localeCompare(right.name))
+    selectedChurchId.value = saved.id
+    newChurchName.value = ''
+    newChurchAddress.value = ''
+    addingChurch.value = false
+    contextMessage.value = 'Church saved to your personal place book.'
+  } catch (error) {
+    contextMessage.value =
+      error instanceof Error ? error.message : 'This Church could not be saved.'
+  } finally {
+    contextSaving.value = false
+  }
+}
+
+async function saveNewPreacher(): Promise<void> {
+  if (!newPreacherName.value.trim() || contextSaving.value) return
+  contextSaving.value = true
+  contextMessage.value = ''
+  try {
+    const saved = await createPreacher(newPreacherName.value)
+    preachers.value.push(saved)
+    preachers.value.sort((left, right) => left.name.localeCompare(right.name))
+    selectedPreacherId.value = saved.id
+    newPreacherName.value = ''
+    addingPreacher.value = false
+    contextMessage.value = 'Preacher saved to your personal preacher book.'
+  } catch (error) {
+    contextMessage.value =
+      error instanceof Error ? error.message : 'This Preacher could not be saved.'
+  } finally {
+    contextSaving.value = false
+  }
+}
+
+async function saveContext(): Promise<void> {
+  if (!sermon.value || contextSaving.value) return
+  contextSaving.value = true
+  contextMessage.value = ''
+  try {
+    const saved = await updateSermonContext(sermon.value.id, {
+      church_id: selectedChurchId.value || null,
+      preacher_id: selectedPreacherId.value || null,
+      occasion_kind: selectedOccasionKind.value,
+      liturgical_day: liturgicalDay.value,
+    })
+    sermon.value.church = saved.church
+    sermon.value.preacher = saved.preacher
+    sermon.value.occasion_kind = saved.occasion_kind
+    sermon.value.liturgical_day = saved.liturgical_day
+    contextPanelOpen.value = false
+  } catch (error) {
+    contextMessage.value =
+      error instanceof Error ? error.message : 'These Sermon details could not be saved.'
+  } finally {
+    contextSaving.value = false
+  }
+}
+
 async function load(id: string): Promise<void> {
   loading.value = true
   errorMessage.value = ''
@@ -277,6 +406,8 @@ async function load(id: string): Promise<void> {
   sharePanelOpen.value = false
   shareLink.value = null
   shareMessage.value = ''
+  contextPanelOpen.value = false
+  contextMessage.value = ''
   try {
     const loadedSermon = await loadServerSermon(id)
     if (loadedSermon.processing_status !== 'ready') {
@@ -330,11 +461,18 @@ watch(
     <article v-else-if="sermon">
       <header class="sermon-header">
         <div class="sermon-header__rubric">
-          <span>Pew recording</span>
+          <span>{{ sermon.liturgical_day || 'Pew recording' }}</span>
+          <span v-if="sermon.occasion_kind">{{ occasionLabel(sermon.occasion_kind) }}</span>
           <span>Ready</span>
         </div>
         <h1>{{ serverSermonTitle(sermon) }}</h1>
         <div class="sermon-header__meta">
+          <span v-if="sermon.preacher">
+            <UserRound :size="15" aria-hidden="true" />{{ sermon.preacher.name }}
+          </span>
+          <span v-if="sermon.church">
+            <MapPin :size="15" aria-hidden="true" />{{ sermon.church.name }}
+          </span>
           <span><CalendarDays :size="15" aria-hidden="true" />{{ capturedDate }}</span>
           <span>
             <Clock3 :size="15" aria-hidden="true" />{{
@@ -343,6 +481,10 @@ watch(
           </span>
         </div>
         <div class="sermon-header__actions">
+          <button type="button" @click="toggleContextPanel">
+            <PencilLine :size="16" aria-hidden="true" />
+            {{ contextPanelOpen ? 'Close details' : 'Edit details' }}
+          </button>
           <button type="button" @click="toggleSharePanel">
             <Share2 :size="16" aria-hidden="true" />
             {{ sharePanelOpen ? 'Close sharing' : 'Share sermon' }}
@@ -353,6 +495,106 @@ watch(
           </button>
         </div>
       </header>
+
+      <section v-if="contextPanelOpen" class="context-panel" aria-label="Sermon details">
+        <div class="context-panel__heading">
+          <p class="rubric-label">Personal context</p>
+          <h2>Where and when you heard it</h2>
+          <p>Reuse Churches and Preachers from your private books. None of these details block recording.</p>
+        </div>
+        <p v-if="contextLoading" class="context-panel__status" role="status">
+          Opening your saved details…
+        </p>
+        <div v-else class="context-fields">
+          <div class="context-field">
+            <label for="sermon-church">Church</label>
+            <select id="sermon-church" v-model="selectedChurchId">
+              <option value="">Unassigned</option>
+              <option v-for="church in churches" :key="church.id" :value="church.id">
+                {{ church.name }}{{ church.address ? ` · ${church.address}` : '' }}
+              </option>
+            </select>
+            <button type="button" @click="addingChurch = !addingChurch">
+              {{ addingChurch ? 'Cancel new Church' : 'Add a Church' }}
+            </button>
+            <div v-if="addingChurch" class="context-new">
+              <input
+                v-model="newChurchName"
+                type="text"
+                placeholder="Church name"
+                aria-label="New Church name"
+              />
+              <input
+                v-model="newChurchAddress"
+                type="text"
+                placeholder="Address (optional)"
+                aria-label="New Church address"
+              />
+              <button
+                type="button"
+                :disabled="contextSaving || !newChurchName.trim()"
+                @click="saveNewChurch"
+              >
+                Save Church
+              </button>
+            </div>
+          </div>
+
+          <div class="context-field">
+            <label for="sermon-preacher">Preacher</label>
+            <select id="sermon-preacher" v-model="selectedPreacherId">
+              <option value="">Unassigned</option>
+              <option v-for="preacher in preachers" :key="preacher.id" :value="preacher.id">
+                {{ preacher.name }}
+              </option>
+            </select>
+            <button type="button" @click="addingPreacher = !addingPreacher">
+              {{ addingPreacher ? 'Cancel new Preacher' : 'Add a Preacher' }}
+            </button>
+            <div v-if="addingPreacher" class="context-new">
+              <input
+                v-model="newPreacherName"
+                type="text"
+                placeholder="Preacher name"
+                aria-label="New Preacher name"
+              />
+              <button
+                type="button"
+                :disabled="contextSaving || !newPreacherName.trim()"
+                @click="saveNewPreacher"
+              >
+                Save Preacher
+              </button>
+            </div>
+          </div>
+
+          <div class="context-field">
+            <label for="sermon-occasion">Occasion kind</label>
+            <select id="sermon-occasion" v-model="selectedOccasionKind">
+              <option value="">Unassigned</option>
+              <option v-for="[value, label] in occasionOptions" :key="value" :value="value">
+                {{ label }}
+              </option>
+            </select>
+          </div>
+
+          <div class="context-field">
+            <label for="sermon-liturgical-day">Liturgical day</label>
+            <input
+              id="sermon-liturgical-day"
+              v-model="liturgicalDay"
+              type="text"
+              placeholder="e.g. Third Sunday of Ordinary Time"
+            />
+          </div>
+        </div>
+        <div class="context-panel__footer">
+          <span role="status">{{ contextMessage }}</span>
+          <button type="button" :disabled="contextSaving || contextLoading" @click="saveContext">
+            {{ contextSaving ? 'Saving…' : 'Save details' }}
+          </button>
+        </div>
+      </section>
 
       <section v-if="sharePanelOpen" class="share-panel" aria-label="Share this Sermon">
         <div>
@@ -830,6 +1072,124 @@ watch(
   gap: 0.5rem;
   min-height: 2.75rem;
   padding: 0.6rem 0.9rem;
+}
+
+.context-panel {
+  background: var(--color-vellum-light);
+  border: 1px solid var(--color-margin);
+  margin: 1.5rem 0;
+  padding: clamp(1.25rem, 4vw, 2rem);
+}
+
+.context-panel__heading h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.65rem, 4vw, 2.25rem);
+  font-variation-settings: 'opsz' 38, 'SOFT' 48;
+  font-weight: 540;
+  letter-spacing: -0.035em;
+  margin: 0.35rem 0 0;
+}
+
+.context-panel__heading > p:last-child {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  line-height: 1.6;
+  margin: 0.8rem 0 1.25rem;
+  max-width: 44rem;
+}
+
+.context-fields {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.context-field > label {
+  color: var(--color-rubric);
+  display: block;
+  font-family: var(--font-utility);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.45rem;
+  text-transform: uppercase;
+}
+
+.context-field > input,
+.context-field > select,
+.context-new input {
+  background: var(--color-vellum);
+  border: 1px solid var(--color-margin);
+  color: var(--color-ink);
+  font-family: var(--font-reading);
+  font-size: 0.9rem;
+  min-height: 2.75rem;
+  padding: 0.6rem 0.75rem;
+  width: 100%;
+}
+
+.context-field > input:focus,
+.context-field > select:focus,
+.context-new input:focus {
+  border-color: var(--color-lapis);
+  outline: 2px solid rgba(47, 75, 124, 0.12);
+}
+
+.context-field > button {
+  background: transparent;
+  border: 0;
+  color: var(--color-lapis);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.74rem;
+  font-weight: 650;
+  min-height: 2.5rem;
+  padding: 0.4rem 0;
+}
+
+.context-new {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.context-new button,
+.context-panel__footer button {
+  background: var(--color-lapis);
+  border: 1px solid var(--color-lapis);
+  color: var(--color-vellum-light);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.78rem;
+  font-weight: 650;
+  min-height: 2.55rem;
+  padding: 0.55rem 0.8rem;
+}
+
+.context-new button {
+  justify-self: start;
+}
+
+.context-panel__footer {
+  align-items: center;
+  border-top: 1px solid var(--color-margin);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+}
+
+.context-panel__footer span,
+.context-panel__status {
+  color: var(--color-lapis);
+  font-family: var(--font-utility);
+  font-size: 0.76rem;
+}
+
+.context-new button:disabled,
+.context-panel__footer button:disabled {
+  cursor: wait;
+  opacity: 0.58;
 }
 
 .share-panel {
@@ -1364,6 +1724,15 @@ watch(
 
   .sermon-header h1 {
     font-size: clamp(2.9rem, 14vw, 4.3rem);
+  }
+
+  .context-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .context-panel__footer {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .section-tabs {

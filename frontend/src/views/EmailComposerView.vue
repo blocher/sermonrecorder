@@ -53,6 +53,13 @@ const capturedDate = computed(() =>
       }).format(new Date(sermon.value.captured_at))
     : '',
 )
+const sermonByline = computed(() =>
+  sermon.value
+    ? [sermon.value.preacher?.name, sermon.value.church?.name, capturedDate.value]
+        .filter(Boolean)
+        .join(' · ')
+    : '',
+)
 
 async function load(): Promise<void> {
   const sermonId = String(route.params.id)
@@ -246,7 +253,7 @@ watch(
           <div class="email-preview__rule"></div>
           <p class="email-preview__from">Shared with you from a sermon journal</p>
           <h2>{{ serverSermonTitle(sermon) }}</h2>
-          <p class="email-preview__byline">{{ capturedDate }}</p>
+          <p class="email-preview__byline">{{ sermonByline }}</p>
           <p class="email-preview__note">{{ note }}</p>
           <div class="email-preview__summary">
             <span>In brief</span>

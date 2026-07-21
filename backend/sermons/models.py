@@ -11,12 +11,102 @@ def sermon_audio_path(sermon: "Sermon", filename: str) -> str:
     return f"sermons/{sermon.owner_id}/{sermon.id}/original{suffix}"
 
 
+def normalize_personal_book_value(value: str) -> str:
+    return " ".join(value.split()).casefold()
+
+
+class Church(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="churches",
+    )
+    name = models.CharField(max_length=160)
+    normalized_name = models.CharField(max_length=160, editable=False)
+    address = models.CharField(max_length=255, blank=True)
+    normalized_address = models.CharField(max_length=255, blank=True, editable=False)
+    latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=(MinValueValidator(-90), MaxValueValidator(90)),
+    )
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=(MinValueValidator(-180), MaxValueValidator(180)),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("name", "address")
+        constraints = (
+            models.UniqueConstraint(
+                fields=("owner", "normalized_name", "normalized_address"),
+                name="unique_owner_church_identity",
+            ),
+        )
+
+    def save(self, *args, **kwargs):
+        self.name = " ".join(self.name.split())
+        self.address = " ".join(self.address.split())
+        self.normalized_name = normalize_personal_book_value(self.name)
+        self.normalized_address = normalize_personal_book_value(self.address)
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Preacher(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="preachers",
+    )
+    name = models.CharField(max_length=160)
+    normalized_name = models.CharField(max_length=160, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("name",)
+        constraints = (
+            models.UniqueConstraint(
+                fields=("owner", "normalized_name"),
+                name="unique_owner_preacher_identity",
+            ),
+        )
+
+    def save(self, *args, **kwargs):
+        self.name = " ".join(self.name.split())
+        self.normalized_name = normalize_personal_book_value(self.name)
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class Sermon(models.Model):
     class ProcessingStatus(models.TextChoices):
         UPLOADED = "uploaded", "Uploaded"
         PROCESSING = "processing", "Processing"
         READY = "ready", "Ready"
         FAILED = "failed", "Failed"
+
+    class OccasionKind(models.TextChoices):
+        SUNDAY = "sunday", "Sunday"
+        FEAST = "feast", "Feast"
+        WEDDING = "wedding", "Wedding"
+        FUNERAL = "funeral", "Funeral"
+        MIDWEEK = "midweek", "Midweek"
+        OTHER = "other", "Other"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(
@@ -32,6 +122,26 @@ class Sermon(models.Model):
     audio = models.FileField(upload_to=sermon_audio_path, max_length=500)
     audio_mime_type = models.CharField(max_length=120)
     audio_size_bytes = models.PositiveBigIntegerField()
+    church = models.ForeignKey(
+        Church,
+        on_delete=models.PROTECT,
+        related_name="sermons",
+        null=True,
+        blank=True,
+    )
+    preacher = models.ForeignKey(
+        Preacher,
+        on_delete=models.PROTECT,
+        related_name="sermons",
+        null=True,
+        blank=True,
+    )
+    occasion_kind = models.CharField(
+        max_length=20,
+        choices=OccasionKind,
+        blank=True,
+    )
+    liturgical_day = models.CharField(max_length=160, blank=True)
     processing_status = models.CharField(
         max_length=20,
         choices=ProcessingStatus,

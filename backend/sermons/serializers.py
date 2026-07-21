@@ -2,12 +2,15 @@ from rest_framework import serializers
 from django.urls import reverse
 
 from .models import (
+    Church,
+    Preacher,
     Reflection,
     RelatedSermon,
     ScriptureReference,
     Sermon,
     StudyArtifact,
     Transcript,
+    normalize_personal_book_value,
 )
 from .private_audio import private_audio_url
 
@@ -22,11 +25,100 @@ SUPPORTED_AUDIO_TYPES = {
 }
 
 
+class ChurchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Church
+        fields = (
+            "id",
+            "name",
+            "address",
+            "latitude",
+            "longitude",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "created_at", "updated_at")
+
+    def validate_name(self, name: str) -> str:
+        name = " ".join(name.split())
+        if not name:
+            raise serializers.ValidationError("Give this Church a name.")
+        return name
+
+    def validate(self, attrs):
+        latitude = attrs.get("latitude", getattr(self.instance, "latitude", None))
+        longitude = attrs.get("longitude", getattr(self.instance, "longitude", None))
+        if (latitude is None) != (longitude is None):
+            raise serializers.ValidationError(
+                "Save latitude and longitude together, or leave both blank."
+            )
+
+        request = self.context["request"]
+        name = attrs.get("name", getattr(self.instance, "name", ""))
+        address = attrs.get("address", getattr(self.instance, "address", ""))
+        existing = Church.objects.filter(
+            owner=request.user,
+            normalized_name=normalize_personal_book_value(name),
+            normalized_address=normalize_personal_book_value(address),
+        )
+        if self.instance:
+            existing = existing.exclude(id=self.instance.id)
+        if existing.exists():
+            raise serializers.ValidationError(
+                "This Church is already in your personal place book."
+            )
+        return attrs
+
+
+class PreacherSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Preacher
+        fields = ("id", "name", "created_at", "updated_at")
+        read_only_fields = ("id", "created_at", "updated_at")
+
+    def validate_name(self, name: str) -> str:
+        name = " ".join(name.split())
+        if not name:
+            raise serializers.ValidationError("Give this Preacher a name.")
+        request = self.context["request"]
+        existing = Preacher.objects.filter(
+            owner=request.user,
+            normalized_name=normalize_personal_book_value(name),
+        )
+        if self.instance:
+            existing = existing.exclude(id=self.instance.id)
+        if existing.exists():
+            raise serializers.ValidationError(
+                "This Preacher is already in your personal preacher book."
+            )
+        return name
+
+
+class SermonContextUpdateSerializer(serializers.Serializer):
+    church_id = serializers.UUIDField(required=False, allow_null=True)
+    preacher_id = serializers.UUIDField(required=False, allow_null=True)
+    occasion_kind = serializers.ChoiceField(
+        choices=Sermon.OccasionKind,
+        required=False,
+        allow_blank=True,
+    )
+    liturgical_day = serializers.CharField(
+        max_length=160,
+        required=False,
+        allow_blank=True,
+    )
+
+    def validate_liturgical_day(self, liturgical_day: str) -> str:
+        return " ".join(liturgical_day.split())
+
+
 class SermonSerializer(serializers.ModelSerializer):
     audio = serializers.FileField(write_only=True)
     processing_message = serializers.SerializerMethodField()
     short_summary = serializers.SerializerMethodField()
     tag_suggestions = serializers.SerializerMethodField()
+    church = ChurchSerializer(read_only=True)
+    preacher = PreacherSerializer(read_only=True)
 
     class Meta:
         model = Sermon
@@ -38,6 +130,10 @@ class SermonSerializer(serializers.ModelSerializer):
             "audio",
             "audio_mime_type",
             "audio_size_bytes",
+            "church",
+            "preacher",
+            "occasion_kind",
+            "liturgical_day",
             "processing_status",
             "processing_message",
             "short_summary",
@@ -49,6 +145,10 @@ class SermonSerializer(serializers.ModelSerializer):
             "id",
             "audio_mime_type",
             "audio_size_bytes",
+            "church",
+            "preacher",
+            "occasion_kind",
+            "liturgical_day",
             "processing_status",
             "processing_message",
             "short_summary",
@@ -225,6 +325,8 @@ class SermonDetailSerializer(SermonSerializer):
 
 class PublicSharedSermonSerializer(serializers.ModelSerializer):
     audio_url = serializers.SerializerMethodField()
+    church = ChurchSerializer(read_only=True)
+    preacher = PreacherSerializer(read_only=True)
     transcript = TranscriptSerializer(read_only=True, allow_null=True)
     study_artifacts = StudyArtifactSerializer(many=True, read_only=True)
     scripture_references = ScriptureReferenceSerializer(many=True, read_only=True)
@@ -235,6 +337,10 @@ class PublicSharedSermonSerializer(serializers.ModelSerializer):
         fields = (
             "captured_at",
             "duration_seconds",
+            "church",
+            "preacher",
+            "occasion_kind",
+            "liturgical_day",
             "audio_url",
             "transcript",
             "study_artifacts",

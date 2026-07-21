@@ -5,6 +5,24 @@ import {
 } from '../auth/useAuth'
 
 export type ProcessingStatus = 'uploaded' | 'processing' | 'ready' | 'failed'
+export type OccasionKind = 'sunday' | 'feast' | 'wedding' | 'funeral' | 'midweek' | 'other'
+
+export interface ServerChurch {
+  id: string
+  name: string
+  address: string
+  latitude: string | null
+  longitude: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ServerPreacher {
+  id: string
+  name: string
+  created_at: string
+  updated_at: string
+}
 
 export interface ServerSermon {
   id: string
@@ -13,6 +31,10 @@ export interface ServerSermon {
   duration_seconds: number
   audio_mime_type: string
   audio_size_bytes: number
+  church: ServerChurch | null
+  preacher: ServerPreacher | null
+  occasion_kind: OccasionKind | ''
+  liturgical_day: string
   processing_status: ProcessingStatus
   processing_message: string
   short_summary: string
@@ -88,6 +110,10 @@ export interface ServerShareLink {
 export interface SharedSermonDetail {
   captured_at: string
   duration_seconds: number
+  church: ServerChurch | null
+  preacher: ServerPreacher | null
+  occasion_kind: OccasionKind | ''
+  liturgical_day: string
   audio_url: string
   transcript: ServerTranscript | null
   study_artifacts: ServerStudyArtifact[]
@@ -278,5 +304,67 @@ export async function sendSermonEmail(
       body: JSON.stringify(message),
     },
     'This Sermon email could not be sent.',
+  )
+}
+
+export async function loadChurches(): Promise<ServerChurch[]> {
+  return authorizedJson<ServerChurch[]>(
+    '/api/sermons/churches/',
+    {},
+    'Your personal Church list could not be loaded.',
+  )
+}
+
+export async function createChurch(
+  church: Pick<ServerChurch, 'name' | 'address'>,
+): Promise<ServerChurch> {
+  return authorizedJson<ServerChurch>(
+    '/api/sermons/churches/',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(church),
+    },
+    'This Church could not be saved.',
+  )
+}
+
+export async function loadPreachers(): Promise<ServerPreacher[]> {
+  return authorizedJson<ServerPreacher[]>(
+    '/api/sermons/preachers/',
+    {},
+    'Your personal Preacher list could not be loaded.',
+  )
+}
+
+export async function createPreacher(name: string): Promise<ServerPreacher> {
+  return authorizedJson<ServerPreacher>(
+    '/api/sermons/preachers/',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    },
+    'This Preacher could not be saved.',
+  )
+}
+
+export async function updateSermonContext(
+  sermonId: string,
+  context: {
+    church_id: string | null
+    preacher_id: string | null
+    occasion_kind: OccasionKind | ''
+    liturgical_day: string
+  },
+): Promise<ServerSermon> {
+  return authorizedJson<ServerSermon>(
+    `/api/sermons/${encodeURIComponent(sermonId)}/context/`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(context),
+    },
+    'These Sermon details could not be saved.',
   )
 }

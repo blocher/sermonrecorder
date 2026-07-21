@@ -1,6 +1,13 @@
 from django.urls import path
 from rest_framework.routers import SimpleRouter
 
+from .context_views import (
+    ChurchDetailView,
+    ChurchListCreateView,
+    PreacherDetailView,
+    PreacherListCreateView,
+    SermonContextView,
+)
 from .editing_views import (
     ReflectionDetailView,
     ReflectionListCreateView,
@@ -15,6 +22,31 @@ router = SimpleRouter()
 router.register("", SermonViewSet, basename="sermon")
 
 urlpatterns = [
+    path(
+        "churches/",
+        ChurchListCreateView.as_view(),
+        name="churches",
+    ),
+    path(
+        "churches/<uuid:pk>/",
+        ChurchDetailView.as_view(),
+        name="church",
+    ),
+    path(
+        "preachers/",
+        PreacherListCreateView.as_view(),
+        name="preachers",
+    ),
+    path(
+        "preachers/<uuid:pk>/",
+        PreacherDetailView.as_view(),
+        name="preacher",
+    ),
+    path(
+        "<uuid:sermon_id>/context/",
+        SermonContextView.as_view(),
+        name="sermon-context",
+    ),
     path(
         "<uuid:sermon_id>/email/",
         SermonEmailView.as_view(),

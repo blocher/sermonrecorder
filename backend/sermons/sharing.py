@@ -71,7 +71,11 @@ def _active_share_link(token: str) -> ShareLink:
         raise NotFound() from error
 
     return get_object_or_404(
-        ShareLink.objects.select_related("sermon").prefetch_related(
+        ShareLink.objects.select_related(
+            "sermon",
+            "sermon__church",
+            "sermon__preacher",
+        ).prefetch_related(
             "sermon__study_artifacts",
             "sermon__scripture_references",
             "sermon__tag_suggestions",
