@@ -9,14 +9,16 @@ from .models import (
     Transcript,
 )
 from .processing import PermanentProcessingError, ProcessedSermon
+from .tagging import normalize_tag
 
 
 def _normalized_tag(name: str) -> tuple[str, str]:
-    display_name = " ".join(name.split())
-    normalized_name = display_name.casefold()
-    if not display_name or len(display_name) > 80:
-        raise PermanentProcessingError("A suggested Tag is empty or too long.")
-    return display_name, normalized_name
+    try:
+        return normalize_tag(name)
+    except ValueError as error:
+        raise PermanentProcessingError(
+            "A suggested Tag is empty or too long."
+        ) from error
 
 
 def _validate_result(sermon: Sermon, result: ProcessedSermon) -> None:

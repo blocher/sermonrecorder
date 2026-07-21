@@ -256,6 +256,22 @@ export async function updateTranscript(
   )
 }
 
+export async function updateTags(
+  sermonId: string,
+  tags: string[],
+): Promise<string[]> {
+  const response = await authorizedJson<{ tags: string[] }>(
+    `/api/sermons/${encodeURIComponent(sermonId)}/tags/`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags }),
+    },
+    'Your Tags could not be saved.',
+  )
+  return response.tags
+}
+
 export async function saveReflection(
   sermonId: string,
   reflection: Pick<ServerReflection, 'prompt' | 'content'> & { id?: string },

@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -7,10 +8,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Reflection, Sermon, StudyArtifact, Transcript
+from .models import Reflection, Sermon, StudyArtifact, TagSuggestion, Transcript
 from .serializers import (
     ReflectionSerializer,
     StudyArtifactEditSerializer,
+    TagsEditSerializer,
     TranscriptEditSerializer,
     TranscriptSerializer,
 )
@@ -60,6 +62,28 @@ class TranscriptDetailView(APIView):
         transcript.text = " ".join(segment["text"] for segment in transcript.segments)
         transcript.save(update_fields=("segments", "text", "updated_at"))
         return Response(TranscriptSerializer(transcript).data)
+
+
+class TagsDetailView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    @transaction.atomic
+    def put(self, request: Request, sermon_id: UUID) -> Response:
+        sermon = _owned_ready_sermon(request, sermon_id)
+        serializer = TagsEditSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        tags = serializer.validated_data["tags"]
+        sermon.tag_suggestions.all().delete()
+        TagSuggestion.objects.bulk_create(
+            TagSuggestion(
+                sermon=sermon,
+                name=tag["name"],
+                normalized_name=tag["normalized_name"],
+                sort_order=index,
+            )
+            for index, tag in enumerate(tags)
+        )
+        return Response({"tags": [tag["name"] for tag in tags]})
 
 
 class ReflectionListCreateView(APIView):

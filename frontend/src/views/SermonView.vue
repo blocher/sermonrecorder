@@ -14,6 +14,7 @@ import {
   PencilLine,
   Pause,
   Play,
+  Plus,
   Share2,
   Trash2,
   UserRound,
@@ -35,6 +36,7 @@ import {
   serverSermonTitle,
   updateStudyArtifact,
   updateSermonContext,
+  updateTags,
   updateTranscript,
   type OccasionKind,
   type ChurchSuggestion,
@@ -67,6 +69,11 @@ const editingTranscript = ref(false)
 const transcriptEdits = ref<Pick<ServerTranscriptSegment, 'start_seconds' | 'text'>[]>([])
 const savingTranscript = ref(false)
 const transcriptMessage = ref('')
+const editingTags = ref(false)
+const tagEdits = ref<string[]>([])
+const newTag = ref('')
+const savingTags = ref(false)
+const tagMessage = ref('')
 const reflectionPrompt = 'Where is this sermon asking for one faithful action?'
 const reflectionContent = ref('')
 const savingReflection = ref(false)
@@ -211,6 +218,60 @@ async function saveTranscriptEdit(): Promise<void> {
       error instanceof Error ? error.message : 'Transcript corrections could not be saved.'
   } finally {
     savingTranscript.value = false
+  }
+}
+
+function beginTagEdit(): void {
+  tagEdits.value = [...(sermon.value?.tag_suggestions ?? [])]
+  newTag.value = ''
+  tagMessage.value = ''
+  editingTags.value = true
+}
+
+function cancelTagEdit(): void {
+  tagEdits.value = []
+  newTag.value = ''
+  tagMessage.value = ''
+  editingTags.value = false
+}
+
+function addTagEdit(): void {
+  const tag = newTag.value.trim().replace(/\s+/g, ' ')
+  if (!tag) return
+  if (tagEdits.value.length >= 12) {
+    tagMessage.value = 'A Sermon can have up to 12 Tags.'
+    return
+  }
+  if (
+    tagEdits.value.some(
+      (existing) => existing.toLocaleLowerCase() === tag.toLocaleLowerCase(),
+    )
+  ) {
+    tagMessage.value = 'That Tag is already here.'
+    return
+  }
+  tagEdits.value.push(tag)
+  newTag.value = ''
+  tagMessage.value = ''
+}
+
+function removeTagEdit(index: number): void {
+  tagEdits.value.splice(index, 1)
+  tagMessage.value = ''
+}
+
+async function saveTagEdit(): Promise<void> {
+  if (!sermon.value || savingTags.value) return
+  savingTags.value = true
+  tagMessage.value = ''
+  try {
+    sermon.value.tag_suggestions = await updateTags(sermon.value.id, tagEdits.value)
+    editingTags.value = false
+    tagMessage.value = 'Tags saved to this Sermon.'
+  } catch (error) {
+    tagMessage.value = error instanceof Error ? error.message : 'Your Tags could not be saved.'
+  } finally {
+    savingTags.value = false
   }
 }
 
@@ -498,6 +559,10 @@ async function load(id: string): Promise<void> {
   sermon.value = undefined
   editingKind.value = undefined
   editMessage.value = ''
+  editingTags.value = false
+  tagEdits.value = []
+  newTag.value = ''
+  tagMessage.value = ''
   reflectionMessage.value = ''
   sharePanelOpen.value = false
   shareLink.value = null
@@ -921,10 +986,61 @@ watch(
           <section class="artifact">
             <div class="artifact__heading">
               <h2>Tags</h2>
+              <button
+                v-if="!editingTags"
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit Tags"
+                @click="beginTagEdit"
+              >
+                <PencilLine :size="16" />
+              </button>
             </div>
-            <div class="tag-list">
+            <div v-if="editingTags" class="tag-editor">
+              <div class="tag-editor__list">
+                <span v-for="(tag, index) in tagEdits" :key="`${tag}-${index}`">
+                  {{ tag }}
+                  <button
+                    type="button"
+                    :aria-label="`Remove ${tag}`"
+                    @click="removeTagEdit(index)"
+                  >
+                    <X :size="13" aria-hidden="true" />
+                  </button>
+                </span>
+              </div>
+              <div class="tag-editor__add">
+                <input
+                  v-model="newTag"
+                  maxlength="80"
+                  placeholder="Add a Tag"
+                  aria-label="New Tag"
+                  @keydown.enter.prevent="addTagEdit"
+                />
+                <button
+                  type="button"
+                  :disabled="!newTag.trim() || tagEdits.length >= 12"
+                  @click="addTagEdit"
+                >
+                  <Plus :size="15" aria-hidden="true" /> Add
+                </button>
+              </div>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelTagEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingTags" @click="saveTagEdit">
+                  <Check :size="15" />{{ savingTags ? 'Saving…' : 'Save Tags' }}
+                </button>
+              </div>
+            </div>
+            <div v-else-if="sermon.tag_suggestions.length" class="tag-list">
               <span v-for="tag in sermon.tag_suggestions" :key="tag">{{ tag }}</span>
             </div>
+            <p v-else class="tag-list__empty">No Tags saved yet.</p>
+            <p v-if="tagMessage" class="artifact__message" role="status">
+              {{ tagMessage }}
+            </p>
           </section>
 
           <section v-if="sermon.related_sermons.length" class="artifact">
@@ -1767,6 +1883,84 @@ watch(
   font-family: var(--font-utility);
   font-size: 0.78rem;
   padding: 0.3rem 0;
+}
+
+.tag-list__empty {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  font-style: italic;
+  margin: 1.25rem 0 0;
+}
+
+.tag-editor {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.tag-editor__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.tag-editor__list span {
+  align-items: center;
+  border: 1px solid var(--color-margin);
+  color: var(--color-lapis);
+  display: inline-flex;
+  font-family: var(--font-utility);
+  font-size: 0.78rem;
+  gap: 0.4rem;
+  padding: 0.35rem 0.45rem 0.35rem 0.65rem;
+}
+
+.tag-editor__list button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--color-rubric);
+  cursor: pointer;
+  display: inline-flex;
+  padding: 0;
+}
+
+.tag-editor__add {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.tag-editor__add input {
+  background: var(--color-vellum);
+  border: 1px solid var(--color-margin);
+  color: var(--color-ink);
+  flex: 1;
+  font-family: var(--font-utility);
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+}
+
+.tag-editor__add input:focus {
+  border-color: var(--color-lapis);
+  outline: 2px solid rgba(47, 75, 124, 0.12);
+}
+
+.tag-editor__add button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--color-lapis);
+  color: var(--color-lapis);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font-utility);
+  font-weight: 700;
+  gap: 0.35rem;
+  padding: 0.55rem 0.8rem;
+}
+
+.tag-editor__add button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .related-sermons {

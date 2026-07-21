@@ -34,6 +34,7 @@ import {
   serverSermonTitle,
   updateStudyArtifact,
   updateSermonContext,
+  updateTags,
   updateTranscript,
   type ServerSermonDetail,
 } from './serverSermon'
@@ -177,6 +178,25 @@ describe('server Sermon detail', () => {
         body: JSON.stringify({
           segments: [{ start_seconds: 0, text: 'Corrected words.' }],
         }),
+      }),
+    )
+  })
+
+  it('replaces AI Tag suggestions with the Congregant curated list', async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ tags: ['Mercy', 'Prayer'] }), {
+        status: 200,
+      }),
+    )
+
+    await expect(
+      updateTags('ready-sermon', ['Mercy', 'Prayer']),
+    ).resolves.toEqual(['Mercy', 'Prayer'])
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/sermons/ready-sermon/tags/',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ tags: ['Mercy', 'Prayer'] }),
       }),
     )
   })

@@ -13,6 +13,7 @@ from .models import (
     normalize_personal_book_value,
 )
 from .private_audio import private_audio_url
+from .tagging import normalize_tag
 
 MAX_AUDIO_SIZE_BYTES = 500 * 1024 * 1024
 SUPPORTED_AUDIO_TYPES = {
@@ -272,6 +273,36 @@ class TranscriptEditSerializer(serializers.Serializer):
                 )
             updated.append({**current, "text": edited["text"]})
         return updated
+
+
+class TagsEditSerializer(serializers.Serializer):
+    tags = serializers.ListField(
+        child=serializers.CharField(
+            max_length=80,
+            trim_whitespace=True,
+        ),
+        allow_empty=True,
+        max_length=12,
+    )
+
+    def validate_tags(self, tags):
+        normalized = []
+        seen = set()
+        for tag in tags:
+            try:
+                name, normalized_name = normalize_tag(tag)
+            except ValueError as error:
+                raise serializers.ValidationError(str(error)) from error
+            if normalized_name in seen:
+                raise serializers.ValidationError("Tags must be unique.")
+            seen.add(normalized_name)
+            normalized.append(
+                {
+                    "name": name,
+                    "normalized_name": normalized_name,
+                }
+            )
+        return normalized
 
 
 class StudyArtifactSerializer(serializers.ModelSerializer):

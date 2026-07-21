@@ -13,6 +13,7 @@ from .editing_views import (
     ReflectionDetailView,
     ReflectionListCreateView,
     StudyArtifactDetailView,
+    TagsDetailView,
     TranscriptDetailView,
 )
 from .emailing import SermonEmailView
@@ -73,6 +74,11 @@ urlpatterns = [
         "<uuid:sermon_id>/transcript/",
         TranscriptDetailView.as_view(),
         name="sermon-transcript",
+    ),
+    path(
+        "<uuid:sermon_id>/tags/",
+        TagsDetailView.as_view(),
+        name="sermon-tags",
     ),
     path(
         "<uuid:sermon_id>/reflections/",

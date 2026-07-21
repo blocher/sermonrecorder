@@ -8,7 +8,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import User
 
-from .models import Reflection, Sermon, StudyArtifact, Transcript
+from .models import Reflection, Sermon, StudyArtifact, TagSuggestion, Transcript
 
 
 class SermonEditingApiTests(APITestCase):
@@ -52,6 +52,18 @@ class SermonEditingApiTests(APITestCase):
                 {"start_seconds": 0, "end_seconds": 5, "text": "First segment."},
                 {"start_seconds": 5, "end_seconds": 10, "text": "Second segment."},
             ],
+        )
+        TagSuggestion.objects.create(
+            sermon=self.sermon,
+            name="Grace",
+            normalized_name="grace",
+            sort_order=0,
+        )
+        TagSuggestion.objects.create(
+            sermon=self.sermon,
+            name="Hope",
+            normalized_name="hope",
+            sort_order=1,
         )
 
     def test_owner_can_edit_one_study_artifact_without_replacing_others(self):
@@ -172,3 +184,86 @@ class SermonEditingApiTests(APITestCase):
             "Corrected first segment. Corrected second segment.",
         )
         self.assertEqual(self.transcript.segments[0]["end_seconds"], 5)
+
+    def test_owner_replaces_ai_suggestions_with_curated_tags(self):
+        url = f"/api/sermons/{self.sermon.id}/tags/"
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.put(
+            url,
+            {"tags": ["  Mercy  and   justice ", "Prayer"]},
+            format="json",
+        )
+        detail = self.client.get(f"/api/sermons/{self.sermon.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, {"tags": ["Mercy and justice", "Prayer"]})
+        self.assertEqual(
+            list(
+                TagSuggestion.objects.filter(sermon=self.sermon).values_list(
+                    "name",
+                    "normalized_name",
+                    "sort_order",
+                )
+            ),
+            [
+                ("Mercy and justice", "mercy and justice", 0),
+                ("Prayer", "prayer", 1),
+            ],
+        )
+        self.assertEqual(
+            detail.data["tag_suggestions"],
+            ["Mercy and justice", "Prayer"],
+        )
+
+        cleared = self.client.put(url, {"tags": []}, format="json")
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK)
+        self.assertFalse(TagSuggestion.objects.filter(sermon=self.sermon).exists())
+
+    def test_tag_curation_rejects_duplicates_and_nonowners(self):
+        url = f"/api/sermons/{self.sermon.id}/tags/"
+        self.client.force_authenticate(user=self.user)
+        duplicate = self.client.put(
+            url,
+            {"tags": ["Mercy", " mercy "]},
+            format="json",
+        )
+        too_many = self.client.put(
+            url,
+            {"tags": [f"Tag {index}" for index in range(13)]},
+            format="json",
+        )
+        too_long = self.client.put(
+            url,
+            {"tags": ["t" * 81]},
+            format="json",
+        )
+        self.client.force_authenticate(user=self.other_user)
+        private = self.client.put(
+            url,
+            {"tags": ["Intrusion"]},
+            format="json",
+        )
+        self.sermon.processing_status = Sermon.ProcessingStatus.UPLOADED
+        self.sermon.save(update_fields=("processing_status", "updated_at"))
+        self.client.force_authenticate(user=self.user)
+        not_ready = self.client.put(
+            url,
+            {"tags": ["Too early"]},
+            format="json",
+        )
+
+        self.assertEqual(duplicate.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(too_many.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(too_long.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(private.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(not_ready.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            list(
+                TagSuggestion.objects.filter(sermon=self.sermon).values_list(
+                    "name",
+                    flat=True,
+                )
+            ),
+            ["Grace", "Hope"],
+        )
