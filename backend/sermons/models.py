@@ -321,3 +321,54 @@ class ShareLink(models.Model):
                 name="one_active_share_link_per_sermon",
             ),
         )
+
+
+class ProcessingAlert(models.Model):
+    class DeliveryStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        DELIVERING = "delivering", "Delivering"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sermon = models.ForeignKey(
+        Sermon,
+        on_delete=models.CASCADE,
+        related_name="processing_alerts",
+    )
+    device = models.ForeignKey(
+        "accounts.DeviceRegistration",
+        on_delete=models.CASCADE,
+        related_name="processing_alerts",
+    )
+    processing_status = models.CharField(
+        max_length=16,
+        choices=(
+            (Sermon.ProcessingStatus.READY, "Ready"),
+            (Sermon.ProcessingStatus.FAILED, "Failed"),
+        ),
+    )
+    delivery_status = models.CharField(
+        max_length=16,
+        choices=DeliveryStatus,
+        default=DeliveryStatus.PENDING,
+    )
+    delivery_attempts = models.PositiveSmallIntegerField(default=0)
+    delivery_error = models.TextField(blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("created_at",)
+        constraints = (
+            models.UniqueConstraint(
+                fields=("sermon", "device", "processing_status"),
+                name="unique_sermon_device_processing_alert",
+            ),
+        )
+        indexes = (
+            models.Index(fields=("delivery_status", "next_attempt_at")),
+            models.Index(fields=("delivery_status", "updated_at")),
+        )

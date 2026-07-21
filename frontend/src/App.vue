@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { UserRound } from '@lucide/vue'
 import { useAuth } from './auth/useAuth'
 import AppNavigation from './components/AppNavigation.vue'
 import BrandMark from './components/BrandMark.vue'
 import RecordSeal from './components/RecordSeal.vue'
+import {
+  initializeProcessingAlerts,
+  syncProcessingAlerts,
+} from './notifications/useProcessingAlerts'
 import { useDraftRecorder } from './recording/useDraftRecorder'
 
 const route = useRoute()
+const router = useRouter()
 const publicRoute = computed(() => route.meta.public === true)
 const draftSaved = ref(false)
 const { isAuthenticated } = useAuth()
@@ -38,7 +43,17 @@ watch(lastSavedDraft, (draft) => {
   }, 3200)
 })
 
-onMounted(initialize)
+watch(isAuthenticated, (authenticated) => {
+  if (authenticated) void syncProcessingAlerts()
+})
+
+onMounted(() => {
+  void initialize()
+  void initializeProcessingAlerts((sermonId) => {
+    void router.push(`/sermons/${encodeURIComponent(sermonId)}`)
+  })
+  if (isAuthenticated.value) void syncProcessingAlerts()
+})
 </script>
 
 <template>

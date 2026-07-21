@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     Church,
     Preacher,
+    ProcessingAlert,
     Reflection,
     RelatedSermon,
     ScriptureReference,
@@ -52,6 +53,22 @@ class ShareLinkInline(admin.TabularInline):
     readonly_fields = ("id", "created_at", "revoked_at")
 
 
+class ProcessingAlertInline(admin.TabularInline):
+    model = ProcessingAlert
+    extra = 0
+    readonly_fields = (
+        "device",
+        "processing_status",
+        "delivery_status",
+        "delivery_attempts",
+        "delivery_error",
+        "next_attempt_at",
+        "sent_at",
+        "created_at",
+        "updated_at",
+    )
+
+
 @admin.register(Sermon)
 class SermonAdmin(admin.ModelAdmin):
     inlines = (
@@ -62,6 +79,7 @@ class SermonAdmin(admin.ModelAdmin):
         RelatedSermonInline,
         ReflectionInline,
         ShareLinkInline,
+        ProcessingAlertInline,
     )
     list_display = (
         "captured_at",

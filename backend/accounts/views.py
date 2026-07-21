@@ -2,8 +2,9 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import SavedRecipient
+from .models import DeviceRegistration, SavedRecipient
 from .serializers import (
+    DeviceRegistrationSerializer,
     RegisterSerializer,
     SavedRecipientSerializer,
     UserSerializer,
@@ -54,3 +55,16 @@ class SavedRecipientDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return SavedRecipient.objects.filter(owner=self.request.user)
+
+
+class DeviceRegistrationCreateView(generics.CreateAPIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    serializer_class = DeviceRegistrationSerializer
+
+
+class DeviceRegistrationDeleteView(generics.DestroyAPIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    serializer_class = DeviceRegistrationSerializer
+
+    def get_queryset(self):
+        return DeviceRegistration.objects.filter(owner=self.request.user)

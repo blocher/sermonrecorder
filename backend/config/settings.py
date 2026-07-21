@@ -165,6 +165,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "sermons.tasks.dispatch_uploaded_sermons",
         "schedule": 30.0,
     },
+    "recover-processing-alerts": {
+        "task": "sermons.tasks.dispatch_pending_processing_alerts",
+        "schedule": 30.0,
+    },
 }
 
 SERMON_PROCESSOR = os.environ.get(
@@ -172,6 +176,11 @@ SERMON_PROCESSOR = os.environ.get(
     "sermons.provider_processor.ProviderSermonProcessor",
 )
 SERMON_PROCESSING_RETRY_DELAYS = (60, 5 * 60, 15 * 60)
+PUSH_ALERT_SENDER = os.environ.get(
+    "PUSH_ALERT_SENDER",
+    "sermons.push_alerts.LoggingPushAlertSender",
+)
+PUSH_ALERT_RETRY_DELAYS = (30, 2 * 60, 10 * 60, 30 * 60, 60 * 60)
 SERMON_AUDIO_URL_MAX_AGE_SECONDS = int(
     os.environ.get("SERMON_AUDIO_URL_MAX_AGE_SECONDS", str(4 * 60 * 60))
 )

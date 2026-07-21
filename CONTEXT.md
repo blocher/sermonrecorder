@@ -68,6 +68,10 @@ _Avoid_: Recommended sermon (implies global/catalog), similar sermon (vague)
 The Sermon state when processing is complete enough to notify the Congregant: pew recording stored, Transcript, all Study artifacts, Scripture references, Tag suggestions applied or available, and Related Sermons computed. One alert fires at Ready — not at partial milestones.
 _Avoid_: Processed, complete, done (vague); staged "transcript ready" alerts (not v1)
 
+**Processing alert**:
+A durable owner-private notification created when a Sermon first reaches Ready or terminal Failed. Delivery to each enabled native device retries independently and never changes the Sermon's processing result. Tapping it opens that Sermon in the authenticated app.
+_Avoid_: Processing update (partial milestones do not alert), email notification, global push
+
 **Library search**:
 Full-text search over a Congregant's own Sermons — metadata, Study artifacts, Transcript, and Reflections — plus filters for Preacher, Church, Tag, Occasion kind, and date. Does not search other Congregants' content.
 _Avoid_: Global search, catalog search, semantic search (as the v1 requirement)

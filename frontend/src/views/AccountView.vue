@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { LogOut, ShieldCheck } from '@lucide/vue'
+import { BellRing, LogOut, ShieldCheck } from '@lucide/vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../auth/useAuth'
+import { useProcessingAlerts } from '../notifications/useProcessingAlerts'
 
 const route = useRoute()
 const router = useRouter()
@@ -10,7 +11,16 @@ const mode = ref<'sign-in' | 'register'>('sign-in')
 const email = ref('')
 const password = ref('')
 const displayName = ref('')
+const alertBusy = ref(false)
 const { user, busy, errorMessage, isAuthenticated, login, register, logout } = useAuth()
+const {
+  available: alertsAvailable,
+  state: alertState,
+  errorMessage: alertError,
+  enabled: alertsEnabled,
+  enable: enableAlerts,
+  disconnect: disconnectAlerts,
+} = useProcessingAlerts()
 
 const heading = computed(() => (mode.value === 'sign-in' ? 'Return to your library.' : 'Begin your library.'))
 const redirectPath = computed(() => {
@@ -28,6 +38,25 @@ async function submit(): Promise<void> {
     await router.replace(redirectPath.value)
   } catch {
     // The shared auth state presents the server's actionable error.
+  }
+}
+
+async function requestAlerts(): Promise<void> {
+  alertBusy.value = true
+  try {
+    await enableAlerts()
+  } finally {
+    alertBusy.value = false
+  }
+}
+
+async function signOut(): Promise<void> {
+  alertBusy.value = true
+  try {
+    await disconnectAlerts()
+  } finally {
+    logout()
+    alertBusy.value = false
   }
 }
 </script>
@@ -50,7 +79,29 @@ async function submit(): Promise<void> {
       <p class="rubric-label">Signed in</p>
       <h2>{{ user.display_name || 'Pewcorder listener' }}</h2>
       <p>{{ user.email }}</p>
-      <button type="button" @click="logout">
+      <div v-if="alertsAvailable" class="completion-alerts">
+        <BellRing :size="21" :stroke-width="1.6" aria-hidden="true" />
+        <div>
+          <strong>Completion alerts</strong>
+          <p v-if="alertsEnabled">This device will tell you when processing finishes.</p>
+          <p v-else-if="alertState === 'denied'">
+            Notifications are off in this device’s system settings.
+          </p>
+          <p v-else>Let Pewcorder tell you when a Sermon is ready or needs attention.</p>
+          <p v-if="alertError" class="completion-alerts__error" role="alert">
+            {{ alertError }}
+          </p>
+        </div>
+        <button
+          v-if="!alertsEnabled && alertState !== 'denied'"
+          type="button"
+          :disabled="alertBusy || alertState === 'registering'"
+          @click="requestAlerts"
+        >
+          {{ alertBusy || alertState === 'registering' ? 'Connecting…' : 'Enable' }}
+        </button>
+      </div>
+      <button type="button" :disabled="alertBusy" @click="signOut">
         <LogOut :size="17" aria-hidden="true" />
         Sign out
       </button>
@@ -171,6 +222,49 @@ async function submit(): Promise<void> {
   font-family: var(--font-utility);
 }
 
+.completion-alerts {
+  align-items: start;
+  background: var(--color-vellum);
+  border-left: 2px solid var(--color-lapis);
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: auto 1fr auto;
+  margin-top: 1.5rem;
+  padding: 1rem;
+  text-align: left;
+}
+
+.completion-alerts > svg {
+  color: var(--color-lapis);
+  margin-top: 0.1rem;
+}
+
+.completion-alerts strong,
+.completion-alerts p {
+  font-family: var(--font-utility);
+}
+
+.completion-alerts strong {
+  font-size: 0.82rem;
+}
+
+.completion-alerts p {
+  color: var(--color-ink-muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+  margin: 0.2rem 0 0;
+}
+
+.completion-alerts .completion-alerts__error {
+  color: var(--color-rubric);
+}
+
+.account-card .completion-alerts button {
+  margin: 0;
+  min-height: 2.3rem;
+  padding: 0.4rem 0.7rem;
+}
+
 .account-card button,
 .account-form__submit {
   align-items: center;
@@ -186,6 +280,11 @@ async function submit(): Promise<void> {
   margin-top: 1.5rem;
   min-height: 3rem;
   padding: 0.75rem 1.15rem;
+}
+
+.account-card button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .account-form__tabs {

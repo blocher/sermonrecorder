@@ -1,7 +1,9 @@
 from rest_framework import status
 from rest_framework.test import APITestCase
+from django.utils import timezone
 
-from .models import SavedRecipient, User
+from .models import DeviceRegistration, SavedRecipient, User
+from sermons.models import ProcessingAlert, Sermon
 
 
 class AccountApiTests(APITestCase):
@@ -93,3 +95,69 @@ class SavedRecipientApiTests(APITestCase):
         self.assertEqual(denied_delete.status_code, status.HTTP_404_NOT_FOUND)
         recipient.refresh_from_db()
         self.assertEqual(recipient.name, "Anna")
+
+
+class DeviceRegistrationApiTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="device-owner@example.com",
+            password="strong-password",
+        )
+        self.other_user = User.objects.create_user(
+            email="device-other@example.com",
+            password="strong-password",
+        )
+
+    def test_native_token_is_private_and_follows_the_current_account(self):
+        self.client.force_authenticate(user=self.user)
+        created = self.client.post(
+            "/api/auth/devices/",
+            {"platform": "ios", "token": "  native-push-token  "},
+            format="json",
+        )
+        registration = DeviceRegistration.objects.get()
+        sermon = Sermon.objects.create(
+            owner=self.user,
+            source_draft_id="device-registration-alert",
+            captured_at=timezone.now(),
+            duration_seconds=60,
+            audio_mime_type="audio/mp4",
+            audio_size_bytes=1,
+        )
+        ProcessingAlert.objects.create(
+            sermon=sermon,
+            device=registration,
+            processing_status=Sermon.ProcessingStatus.READY,
+        )
+        self.client.force_authenticate(user=self.other_user)
+        reassigned = self.client.post(
+            "/api/auth/devices/",
+            {"platform": "android", "token": "native-push-token"},
+            format="json",
+        )
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertNotIn("token", created.data)
+        self.assertEqual(reassigned.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(reassigned.data["id"], created.data["id"])
+        registration.refresh_from_db()
+        self.assertEqual(registration.owner, self.other_user)
+        self.assertEqual(registration.platform, DeviceRegistration.Platform.ANDROID)
+        self.assertTrue(registration.active)
+        self.assertFalse(ProcessingAlert.objects.exists())
+
+    def test_device_registration_deletion_is_owner_only(self):
+        registration = DeviceRegistration.objects.create(
+            owner=self.user,
+            platform=DeviceRegistration.Platform.IOS,
+            token="private-native-token",
+        )
+        url = f"/api/auth/devices/{registration.id}/"
+        self.client.force_authenticate(user=self.other_user)
+        hidden = self.client.delete(url)
+        self.client.force_authenticate(user=self.user)
+        removed = self.client.delete(url)
+
+        self.assertEqual(hidden.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(removed.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(DeviceRegistration.objects.exists())

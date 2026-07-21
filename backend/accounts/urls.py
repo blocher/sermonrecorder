@@ -3,6 +3,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .views import (
     CurrentUserView,
+    DeviceRegistrationCreateView,
+    DeviceRegistrationDeleteView,
     RegisterView,
     SavedRecipientDetailView,
     SavedRecipientListCreateView,
@@ -13,6 +15,16 @@ urlpatterns = [
     path("token/", TokenObtainPairView.as_view(), name="token"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
     path("me/", CurrentUserView.as_view(), name="current-user"),
+    path(
+        "devices/",
+        DeviceRegistrationCreateView.as_view(),
+        name="device-registration",
+    ),
+    path(
+        "devices/<uuid:pk>/",
+        DeviceRegistrationDeleteView.as_view(),
+        name="device-registration-delete",
+    ),
     path(
         "recipients/",
         SavedRecipientListCreateView.as_view(),

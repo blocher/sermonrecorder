@@ -15,4 +15,6 @@ Browser recordings are saved as audio `Blob`s in IndexedDB. Native recordings us
 
 Set `VITE_API_URL` to the Django API origin. Email/password authentication uses short-lived JWT access tokens, and Draft uploads are idempotent by local Draft ID. Browser audio uses multipart `fetch`; native audio streams directly from the app file through `@capacitor/file-transfer` so long recordings are not copied into JavaScript memory.
 
+Signed-in users can explicitly enable native Ready/Failed completion alerts from Account. iOS forwards APNs registration through `AppDelegate.swift` and includes the Push Notifications entitlement; the Apple Developer App ID and provisioning profiles must also enable Push Notifications. Android requires the deployment's Firebase `google-services.json` in `android/app/`. Signing out removes the owner-private backend registration and unregisters the native token.
+
 The native projects compile from `ios/App/App.xcodeproj` and `android/`; Android builds require JDK 21. Background behavior and microphone interruptions must also be exercised on physical iOS and Android devices before release.

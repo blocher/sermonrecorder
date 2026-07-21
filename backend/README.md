@@ -38,4 +38,6 @@ Churches and Preachers are reusable, owner-private personal-book records. A Serm
 
 The authenticated Sermon list accepts `search`, `church`, `preacher`, `occasion`, `tag`, `date_from`, and `date_to` query parameters. Search remains owner-scoped while matching Transcript text, generated Study artifacts, Scripture references, Tags, private Reflections, related-Sermon reasons, and structured Sermon context.
 
+Native device registrations are owner-private and their tokens are never returned by the API. Ready and terminal Failed transitions create one durable `ProcessingAlert` per active device; Celery retries delivery independently from Sermon processing and Beat recovers unsent or abandoned delivery claims. Development uses `sermons.push_alerts.LoggingPushAlertSender`. Production must set `PUSH_ALERT_SENDER` to a `PushAlertSender` implementation backed by the selected APNs/FCM gateway.
+
 SQLite and local media storage are development defaults. Production must provide `DJANGO_SECRET_KEY`, persistent database/object storage, HTTPS hosts, and worker infrastructure.
