@@ -1,14 +1,19 @@
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
-from rest_framework import generics, permissions
+from rest_framework import generics, permissions, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .church_suggestions import (
+    ChurchSuggestionUnavailable,
+    get_church_suggestion_provider,
+)
 from .models import Church, Preacher, Sermon
 from .serializers import (
     ChurchSerializer,
+    ChurchSuggestionQuerySerializer,
     PreacherSerializer,
     SermonContextUpdateSerializer,
     SermonSerializer,
@@ -32,6 +37,29 @@ class ChurchDetailView(generics.RetrieveUpdateAPIView):
 
     def get_queryset(self):
         return Church.objects.filter(owner=self.request.user)
+
+
+class ChurchSuggestionView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def post(self, request: Request) -> Response:
+        serializer = ChurchSuggestionQuerySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        values = serializer.validated_data
+        try:
+            suggestions = get_church_suggestion_provider().nearby(
+                values["latitude"],
+                values["longitude"],
+                values["radius_meters"],
+            )
+        except ChurchSuggestionUnavailable as error:
+            return Response(
+                {"detail": str(error)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        response = Response([suggestion.payload() for suggestion in suggestions])
+        response["Cache-Control"] = "private, no-store"
+        return response
 
 
 class PreacherListCreateView(generics.ListCreateAPIView):

@@ -26,6 +26,8 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Pewcorder uses the microphone to record sermons you choose to capture.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Pewcorder uses your location only when you ask it to suggest nearby Churches.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

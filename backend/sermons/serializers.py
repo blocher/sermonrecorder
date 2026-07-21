@@ -94,6 +94,17 @@ class PreacherSerializer(serializers.ModelSerializer):
         return name
 
 
+class ChurchSuggestionQuerySerializer(serializers.Serializer):
+    latitude = serializers.FloatField(min_value=-90, max_value=90)
+    longitude = serializers.FloatField(min_value=-180, max_value=180)
+    radius_meters = serializers.IntegerField(
+        min_value=100,
+        max_value=5_000,
+        required=False,
+        default=1_500,
+    )
+
+
 class SermonContextUpdateSerializer(serializers.Serializer):
     church_id = serializers.UUIDField(required=False, allow_null=True)
     preacher_id = serializers.UUIDField(required=False, allow_null=True)

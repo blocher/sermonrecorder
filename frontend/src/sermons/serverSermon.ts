@@ -24,6 +24,15 @@ export interface ServerPreacher {
   updated_at: string
 }
 
+export interface ChurchSuggestion {
+  provider_id: string
+  name: string
+  address: string
+  latitude: number
+  longitude: number
+  distance_meters: number
+}
+
 export interface ServerSermon {
   id: string
   source_draft_id: string
@@ -341,7 +350,8 @@ export async function loadChurches(): Promise<ServerChurch[]> {
 }
 
 export async function createChurch(
-  church: Pick<ServerChurch, 'name' | 'address'>,
+  church: Pick<ServerChurch, 'name' | 'address'> &
+    Partial<Pick<ServerChurch, 'latitude' | 'longitude'>>,
 ): Promise<ServerChurch> {
   return authorizedJson<ServerChurch>(
     '/api/sermons/churches/',
@@ -351,6 +361,21 @@ export async function createChurch(
       body: JSON.stringify(church),
     },
     'This Church could not be saved.',
+  )
+}
+
+export async function loadNearbyChurches(
+  latitude: number,
+  longitude: number,
+): Promise<ChurchSuggestion[]> {
+  return authorizedJson<ChurchSuggestion[]>(
+    '/api/sermons/churches/suggestions/',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ latitude, longitude }),
+    },
+    'Nearby Churches could not be suggested.',
   )
 }
 

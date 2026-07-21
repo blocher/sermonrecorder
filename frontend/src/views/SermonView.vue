@@ -8,6 +8,7 @@ import {
   Check,
   Clock3,
   Copy,
+  LocateFixed,
   Mail,
   MapPin,
   PencilLine,
@@ -19,6 +20,7 @@ import {
   X,
 } from '@lucide/vue'
 import { useAuth } from '../auth/useAuth'
+import { findNearbyChurches } from '../location/findNearbyChurches'
 import {
   createChurch,
   createPreacher,
@@ -34,6 +36,7 @@ import {
   updateStudyArtifact,
   updateSermonContext,
   type OccasionKind,
+  type ChurchSuggestion,
   type ServerChurch,
   type ServerPreacher,
   type ServerShareLink,
@@ -80,6 +83,8 @@ const liturgicalDay = ref('')
 const addingChurch = ref(false)
 const newChurchName = ref('')
 const newChurchAddress = ref('')
+const churchSuggestions = ref<ChurchSuggestion[]>([])
+const findingChurches = ref(false)
 const addingPreacher = ref(false)
 const newPreacherName = ref('')
 
@@ -307,6 +312,7 @@ async function unpublishShareLink(): Promise<void> {
 async function toggleContextPanel(): Promise<void> {
   contextPanelOpen.value = !contextPanelOpen.value
   contextMessage.value = ''
+  churchSuggestions.value = []
   if (!contextPanelOpen.value || !sermon.value) return
   selectedChurchId.value = sermon.value.church?.id ?? ''
   selectedPreacherId.value = sermon.value.preacher?.id ?? ''
@@ -344,6 +350,59 @@ async function saveNewChurch(): Promise<void> {
     newChurchAddress.value = ''
     addingChurch.value = false
     contextMessage.value = 'Church saved to your personal place book.'
+  } catch (error) {
+    contextMessage.value =
+      error instanceof Error ? error.message : 'This Church could not be saved.'
+  } finally {
+    contextSaving.value = false
+  }
+}
+
+async function suggestNearbyChurches(): Promise<void> {
+  if (findingChurches.value) return
+  findingChurches.value = true
+  churchSuggestions.value = []
+  contextMessage.value = ''
+  try {
+    churchSuggestions.value = await findNearbyChurches()
+    contextMessage.value = churchSuggestions.value.length
+      ? 'Choose a nearby Church to add it to your private place book.'
+      : 'No nearby Churches were found. You can still add one manually.'
+  } catch (error) {
+    contextMessage.value =
+      error instanceof Error ? error.message : 'Nearby Churches could not be suggested.'
+  } finally {
+    findingChurches.value = false
+  }
+}
+
+async function chooseChurchSuggestion(suggestion: ChurchSuggestion): Promise<void> {
+  const normalized = (value: string) => value.trim().toLocaleLowerCase()
+  const existing = churches.value.find(
+    (church) =>
+      normalized(church.name) === normalized(suggestion.name) &&
+      normalized(church.address) === normalized(suggestion.address),
+  )
+  if (existing) {
+    selectedChurchId.value = existing.id
+    churchSuggestions.value = []
+    contextMessage.value = 'This Church is already in your private place book.'
+    return
+  }
+
+  contextSaving.value = true
+  try {
+    const saved = await createChurch({
+      name: suggestion.name,
+      address: suggestion.address,
+      latitude: suggestion.latitude.toFixed(7),
+      longitude: suggestion.longitude.toFixed(7),
+    })
+    churches.value.push(saved)
+    churches.value.sort((left, right) => left.name.localeCompare(right.name))
+    selectedChurchId.value = saved.id
+    churchSuggestions.value = []
+    contextMessage.value = 'Church saved. Save details to assign it to this Sermon.'
   } catch (error) {
     contextMessage.value =
       error instanceof Error ? error.message : 'This Church could not be saved.'
@@ -514,6 +573,29 @@ watch(
                 {{ church.name }}{{ church.address ? ` · ${church.address}` : '' }}
               </option>
             </select>
+            <button
+              class="context-field__locate"
+              type="button"
+              :disabled="findingChurches || contextSaving"
+              @click="suggestNearbyChurches"
+            >
+              <LocateFixed :size="15" aria-hidden="true" />
+              {{ findingChurches ? 'Finding nearby…' : 'Find nearby Churches' }}
+            </button>
+            <div v-if="churchSuggestions.length" class="church-suggestions">
+              <button
+                v-for="suggestion in churchSuggestions"
+                :key="suggestion.provider_id"
+                type="button"
+                @click="chooseChurchSuggestion(suggestion)"
+              >
+                <span>
+                  <strong>{{ suggestion.name }}</strong>
+                  <small v-if="suggestion.address">{{ suggestion.address }}</small>
+                </span>
+                <small>{{ suggestion.distance_meters }} m</small>
+              </button>
+            </div>
             <button type="button" @click="addingChurch = !addingChurch">
               {{ addingChurch ? 'Cancel new Church' : 'Add a Church' }}
             </button>
@@ -1145,6 +1227,56 @@ watch(
   font-weight: 650;
   min-height: 2.5rem;
   padding: 0.4rem 0;
+}
+
+.context-field > .context-field__locate {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.context-field > button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.church-suggestions {
+  border: 1px solid var(--color-margin);
+  display: grid;
+}
+
+.church-suggestions button {
+  align-items: center;
+  background: var(--color-vellum);
+  border: 0;
+  border-bottom: 1px solid var(--color-margin);
+  color: var(--color-ink);
+  cursor: pointer;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 0.7rem 0.8rem;
+  text-align: left;
+}
+
+.church-suggestions button:last-child {
+  border-bottom: 0;
+}
+
+.church-suggestions span,
+.church-suggestions strong,
+.church-suggestions small {
+  display: block;
+}
+
+.church-suggestions strong {
+  font: 650 0.82rem var(--font-utility);
+}
+
+.church-suggestions small {
+  color: var(--color-ink-muted);
+  font: 0.7rem var(--font-utility);
+  margin-top: 0.15rem;
 }
 
 .context-new {

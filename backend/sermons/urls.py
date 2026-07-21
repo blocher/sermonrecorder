@@ -4,6 +4,7 @@ from rest_framework.routers import SimpleRouter
 from .context_views import (
     ChurchDetailView,
     ChurchListCreateView,
+    ChurchSuggestionView,
     PreacherDetailView,
     PreacherListCreateView,
     SermonContextView,
@@ -26,6 +27,11 @@ urlpatterns = [
         "churches/",
         ChurchListCreateView.as_view(),
         name="churches",
+    ),
+    path(
+        "churches/suggestions/",
+        ChurchSuggestionView.as_view(),
+        name="church-suggestions",
     ),
     path(
         "churches/<uuid:pk>/",

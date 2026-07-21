@@ -17,4 +17,6 @@ Set `VITE_API_URL` to the Django API origin. Email/password authentication uses 
 
 Signed-in users can explicitly enable native Ready/Failed completion alerts from Account. iOS forwards APNs registration through `AppDelegate.swift` and includes the Push Notifications entitlement; the Apple Developer App ID and provisioning profiles must also enable Push Notifications. Android requires the deployment's Firebase `google-services.json` in `android/app/`. Signing out removes the owner-private backend registration and unregisters the native token.
 
+Sermon details offer an explicit “Find nearby Churches” action. Only that action requests foreground precise-location permission and sends one coordinate pair for a non-persisting provider lookup; denied permission leaves the manual Church flow intact. A selected suggestion is saved to the Congregant's private place book and remains editable.
+
 The native projects compile from `ios/App/App.xcodeproj` and `android/`; Android builds require JDK 21. Background behavior and microphone interruptions must also be exercised on physical iOS and Android devices before release.

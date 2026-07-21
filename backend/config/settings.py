@@ -199,6 +199,22 @@ APNS_USE_SANDBOX = (
 )
 FCM_PROJECT_ID = os.environ.get("FCM_PROJECT_ID", "")
 FCM_SERVICE_ACCOUNT_FILE = os.environ.get("FCM_SERVICE_ACCOUNT_FILE", "")
+CHURCH_SUGGESTION_PROVIDER = os.environ.get(
+    "CHURCH_SUGGESTION_PROVIDER",
+    "sermons.church_suggestions.OverpassChurchSuggestionProvider",
+)
+OVERPASS_API_URL = os.environ.get(
+    "OVERPASS_API_URL",
+    "https://overpass-api.de/api/interpreter",
+)
+OVERPASS_USER_AGENT = os.environ.get(
+    "OVERPASS_USER_AGENT",
+    "Pewcorder/0.1 (contact: support@pewcorder.app)",
+)
+CHURCH_SUGGESTION_TIMEOUT_SECONDS = float(
+    os.environ.get("CHURCH_SUGGESTION_TIMEOUT_SECONDS", "20")
+)
+CHURCH_SUGGESTION_LIMIT = int(os.environ.get("CHURCH_SUGGESTION_LIMIT", "5"))
 SERMON_AUDIO_URL_MAX_AGE_SECONDS = int(
     os.environ.get("SERMON_AUDIO_URL_MAX_AGE_SECONDS", str(4 * 60 * 60))
 )

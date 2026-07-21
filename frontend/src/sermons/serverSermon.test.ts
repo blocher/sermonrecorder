@@ -19,6 +19,7 @@ import {
   createPreacher,
   createSavedRecipient,
   loadChurches,
+  loadNearbyChurches,
   loadPreachers,
   createShareLink,
   loadSavedRecipients,
@@ -333,6 +334,29 @@ describe('server Sermon detail', () => {
           occasion_kind: 'sunday',
           liturgical_day: 'Third Sunday of Ordinary Time',
         }),
+      }),
+    )
+  })
+
+  it('loads nearby Church suggestions without persisting the precise fix', async () => {
+    const suggestion = {
+      provider_id: 'osm:node:42',
+      name: 'Grace Parish',
+      address: '12 Cedar Lane',
+      latitude: 40.001,
+      longitude: -75.001,
+      distance_meters: 140,
+    }
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify([suggestion]), { status: 200 }),
+    )
+
+    await expect(loadNearbyChurches(40, -75)).resolves.toEqual([suggestion])
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/sermons/churches/suggestions/',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ latitude: 40, longitude: -75 }),
       }),
     )
   })
