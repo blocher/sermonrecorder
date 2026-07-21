@@ -272,6 +272,24 @@ export async function updateTags(
   return response.tags
 }
 
+export async function updateScriptureReferences(
+  sermonId: string,
+  scriptureReferences: Omit<ServerScriptureReference, 'display'>[],
+): Promise<ServerScriptureReference[]> {
+  const response = await authorizedJson<{
+    scripture_references: ServerScriptureReference[]
+  }>(
+    `/api/sermons/${encodeURIComponent(sermonId)}/scripture-references/`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scripture_references: scriptureReferences }),
+    },
+    'Your Scripture references could not be saved.',
+  )
+  return response.scripture_references
+}
+
 export async function saveReflection(
   sermonId: string,
   reflection: Pick<ServerReflection, 'prompt' | 'content'> & { id?: string },

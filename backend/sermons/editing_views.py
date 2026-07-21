@@ -8,9 +8,18 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Reflection, Sermon, StudyArtifact, TagSuggestion, Transcript
+from .models import (
+    Reflection,
+    ScriptureReference,
+    Sermon,
+    StudyArtifact,
+    TagSuggestion,
+    Transcript,
+)
 from .serializers import (
     ReflectionSerializer,
+    ScriptureReferenceSerializer,
+    ScriptureReferencesEditSerializer,
     StudyArtifactEditSerializer,
     TagsEditSerializer,
     TranscriptEditSerializer,
@@ -84,6 +93,39 @@ class TagsDetailView(APIView):
             for index, tag in enumerate(tags)
         )
         return Response({"tags": [tag["name"] for tag in tags]})
+
+
+class ScriptureReferencesDetailView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    @transaction.atomic
+    def put(self, request: Request, sermon_id: UUID) -> Response:
+        sermon = _owned_ready_sermon(request, sermon_id)
+        serializer = ScriptureReferencesEditSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        references = serializer.validated_data["scripture_references"]
+        sermon.scripture_references.all().delete()
+        ScriptureReference.objects.bulk_create(
+            ScriptureReference(
+                sermon=sermon,
+                book=reference["book"],
+                chapter_start=reference["chapter_start"],
+                verse_start=reference["verse_start"],
+                chapter_end=reference["chapter_end"],
+                verse_end=reference["verse_end"],
+                sort_order=index,
+            )
+            for index, reference in enumerate(references)
+        )
+        saved = sermon.scripture_references.all()
+        return Response(
+            {
+                "scripture_references": ScriptureReferenceSerializer(
+                    saved,
+                    many=True,
+                ).data
+            }
+        )
 
 
 class ReflectionListCreateView(APIView):

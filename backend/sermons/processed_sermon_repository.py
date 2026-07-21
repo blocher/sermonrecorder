@@ -9,6 +9,7 @@ from .models import (
     Transcript,
 )
 from .processing import PermanentProcessingError, ProcessedSermon
+from .scripture import normalize_scripture_reference
 from .tagging import normalize_tag
 
 
@@ -61,20 +62,18 @@ def _validate_result(sermon: Sermon, result: ProcessedSermon) -> None:
         )
 
     for reference in result.scripture_references:
-        if (
-            not reference.book.strip()
-            or len(reference.book.strip()) > 64
-            or reference.chapter_start < 1
-            or reference.verse_start is not None
-            and reference.verse_start < 1
-            or reference.chapter_end is not None
-            and reference.chapter_end < reference.chapter_start
-            or reference.verse_end is not None
-            and reference.verse_end < 1
-        ):
+        try:
+            normalize_scripture_reference(
+                book=reference.book,
+                chapter_start=reference.chapter_start,
+                verse_start=reference.verse_start,
+                chapter_end=reference.chapter_end,
+                verse_end=reference.verse_end,
+            )
+        except ValueError as error:
             raise PermanentProcessingError(
                 "The processor returned an invalid Scripture reference."
-            )
+            ) from error
 
     related_ids = [related.sermon_id for related in result.related_sermons]
     if sermon.id in related_ids or len(related_ids) != len(set(related_ids)):
@@ -133,17 +132,27 @@ def persist_processed_sermon(sermon: Sermon, result: ProcessedSermon) -> None:
             )
 
         locked_sermon.scripture_references.all().delete()
-        ScriptureReference.objects.bulk_create(
-            ScriptureReference(
-                sermon=locked_sermon,
-                book=reference.book.strip(),
+        normalized_references = [
+            normalize_scripture_reference(
+                book=reference.book,
                 chapter_start=reference.chapter_start,
                 verse_start=reference.verse_start,
                 chapter_end=reference.chapter_end,
                 verse_end=reference.verse_end,
+            )
+            for reference in result.scripture_references
+        ]
+        ScriptureReference.objects.bulk_create(
+            ScriptureReference(
+                sermon=locked_sermon,
+                book=reference["book"],
+                chapter_start=reference["chapter_start"],
+                verse_start=reference["verse_start"],
+                chapter_end=reference["chapter_end"],
+                verse_end=reference["verse_end"],
                 sort_order=sort_order,
             )
-            for sort_order, reference in enumerate(result.scripture_references)
+            for sort_order, reference in enumerate(normalized_references)
         )
 
         locked_sermon.tag_suggestions.all().delete()

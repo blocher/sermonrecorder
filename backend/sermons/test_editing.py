@@ -8,7 +8,14 @@ from rest_framework.test import APITestCase
 
 from accounts.models import User
 
-from .models import Reflection, Sermon, StudyArtifact, TagSuggestion, Transcript
+from .models import (
+    Reflection,
+    ScriptureReference,
+    Sermon,
+    StudyArtifact,
+    TagSuggestion,
+    Transcript,
+)
 
 
 class SermonEditingApiTests(APITestCase):
@@ -64,6 +71,13 @@ class SermonEditingApiTests(APITestCase):
             name="Hope",
             normalized_name="hope",
             sort_order=1,
+        )
+        ScriptureReference.objects.create(
+            sermon=self.sermon,
+            book="Luke",
+            chapter_start=15,
+            verse_start=11,
+            verse_end=32,
         )
 
     def test_owner_can_edit_one_study_artifact_without_replacing_others(self):
@@ -266,4 +280,108 @@ class SermonEditingApiTests(APITestCase):
                 )
             ),
             ["Grace", "Hope"],
+        )
+
+    def test_owner_replaces_scripture_references_with_structured_corrections(self):
+        url = f"/api/sermons/{self.sermon.id}/scripture-references/"
+        self.client.force_authenticate(user=self.user)
+        response = self.client.put(
+            url,
+            {
+                "scripture_references": [
+                    {
+                        "book": "  Romans ",
+                        "chapter_start": 8,
+                        "verse_start": 31,
+                        "chapter_end": 8,
+                        "verse_end": 39,
+                    },
+                    {
+                        "book": "Psalm",
+                        "chapter_start": 23,
+                    },
+                ]
+            },
+            format="json",
+        )
+        detail = self.client.get(f"/api/sermons/{self.sermon.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [
+                reference["display"]
+                for reference in response.data["scripture_references"]
+            ],
+            ["Romans 8:31–39", "Psalm 23"],
+        )
+        self.assertIsNone(response.data["scripture_references"][0]["chapter_end"])
+        self.assertEqual(
+            [reference["display"] for reference in detail.data["scripture_references"]],
+            ["Romans 8:31–39", "Psalm 23"],
+        )
+        self.assertEqual(
+            list(
+                ScriptureReference.objects.filter(sermon=self.sermon).values_list(
+                    "book",
+                    "sort_order",
+                )
+            ),
+            [("Romans", 0), ("Psalm", 1)],
+        )
+
+        cleared = self.client.put(
+            url,
+            {"scripture_references": []},
+            format="json",
+        )
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK)
+        self.assertFalse(ScriptureReference.objects.filter(sermon=self.sermon).exists())
+
+    def test_scripture_reference_edits_are_validated_and_owner_only(self):
+        url = f"/api/sermons/{self.sermon.id}/scripture-references/"
+        invalid_range = {
+            "book": "John",
+            "chapter_start": 3,
+            "verse_start": 16,
+            "verse_end": 10,
+        }
+        self.client.force_authenticate(user=self.user)
+        invalid = self.client.put(
+            url,
+            {"scripture_references": [invalid_range]},
+            format="json",
+        )
+        duplicate = self.client.put(
+            url,
+            {
+                "scripture_references": [
+                    {
+                        "book": "Luke",
+                        "chapter_start": 15,
+                        "verse_start": 11,
+                        "verse_end": 32,
+                    },
+                    {
+                        "book": " luke ",
+                        "chapter_start": 15,
+                        "verse_start": 11,
+                        "verse_end": 32,
+                    },
+                ]
+            },
+            format="json",
+        )
+        self.client.force_authenticate(user=self.other_user)
+        private = self.client.put(
+            url,
+            {"scripture_references": []},
+            format="json",
+        )
+
+        self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(duplicate.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(private.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            ScriptureReference.objects.get(sermon=self.sermon).book,
+            "Luke",
         )

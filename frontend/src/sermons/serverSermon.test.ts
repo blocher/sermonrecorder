@@ -34,6 +34,7 @@ import {
   serverSermonTitle,
   updateStudyArtifact,
   updateSermonContext,
+  updateScriptureReferences,
   updateTags,
   updateTranscript,
   type ServerSermonDetail,
@@ -197,6 +198,53 @@ describe('server Sermon detail', () => {
       expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify({ tags: ['Mercy', 'Prayer'] }),
+      }),
+    )
+  })
+
+  it('replaces AI Scripture references with structured corrections', async () => {
+    const corrected = [
+      {
+        book: 'Romans',
+        chapter_start: 8,
+        verse_start: 31,
+        chapter_end: null,
+        verse_end: 39,
+        display: 'Romans 8:31–39',
+      },
+    ]
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ scripture_references: corrected }), {
+        status: 200,
+      }),
+    )
+
+    await expect(
+      updateScriptureReferences('ready-sermon', [
+        {
+          book: 'Romans',
+          chapter_start: 8,
+          verse_start: 31,
+          chapter_end: null,
+          verse_end: 39,
+        },
+      ]),
+    ).resolves.toEqual(corrected)
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/sermons/ready-sermon/scripture-references/',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          scripture_references: [
+            {
+              book: 'Romans',
+              chapter_start: 8,
+              verse_start: 31,
+              chapter_end: null,
+              verse_end: 39,
+            },
+          ],
+        }),
       }),
     )
   })

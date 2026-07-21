@@ -12,6 +12,7 @@ from .context_views import (
 from .editing_views import (
     ReflectionDetailView,
     ReflectionListCreateView,
+    ScriptureReferencesDetailView,
     StudyArtifactDetailView,
     TagsDetailView,
     TranscriptDetailView,
@@ -79,6 +80,11 @@ urlpatterns = [
         "<uuid:sermon_id>/tags/",
         TagsDetailView.as_view(),
         name="sermon-tags",
+    ),
+    path(
+        "<uuid:sermon_id>/scripture-references/",
+        ScriptureReferencesDetailView.as_view(),
+        name="sermon-scripture-references",
     ),
     path(
         "<uuid:sermon_id>/reflections/",

@@ -36,6 +36,7 @@ import {
   serverSermonTitle,
   updateStudyArtifact,
   updateSermonContext,
+  updateScriptureReferences,
   updateTags,
   updateTranscript,
   type OccasionKind,
@@ -44,11 +45,21 @@ import {
   type ServerPreacher,
   type ServerShareLink,
   type ServerSermonDetail,
+  type ServerScriptureReference,
   type ServerTranscriptSegment,
   type StudyArtifactKind,
 } from '../sermons/serverSermon'
 
 type Section = 'study' | 'transcript' | 'discuss' | 'reflection'
+type ScriptureReferenceDraft = Omit<
+  ServerScriptureReference,
+  'display' | 'chapter_start' | 'verse_start' | 'chapter_end' | 'verse_end'
+> & {
+  chapter_start: number | ''
+  verse_start: number | ''
+  chapter_end: number | ''
+  verse_end: number | ''
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -74,6 +85,10 @@ const tagEdits = ref<string[]>([])
 const newTag = ref('')
 const savingTags = ref(false)
 const tagMessage = ref('')
+const editingScripture = ref(false)
+const scriptureEdits = ref<ScriptureReferenceDraft[]>([])
+const savingScripture = ref(false)
+const scriptureMessage = ref('')
 const reflectionPrompt = 'Where is this sermon asking for one faithful action?'
 const reflectionContent = ref('')
 const savingReflection = ref(false)
@@ -272,6 +287,79 @@ async function saveTagEdit(): Promise<void> {
     tagMessage.value = error instanceof Error ? error.message : 'Your Tags could not be saved.'
   } finally {
     savingTags.value = false
+  }
+}
+
+function beginScriptureEdit(): void {
+  scriptureEdits.value = (sermon.value?.scripture_references ?? []).map(
+    (reference) => ({
+      book: reference.book,
+      chapter_start: reference.chapter_start,
+      verse_start: reference.verse_start ?? '',
+      chapter_end: reference.chapter_end ?? '',
+      verse_end: reference.verse_end ?? '',
+    }),
+  )
+  scriptureMessage.value = ''
+  editingScripture.value = true
+}
+
+function cancelScriptureEdit(): void {
+  scriptureEdits.value = []
+  scriptureMessage.value = ''
+  editingScripture.value = false
+}
+
+function addScriptureEdit(): void {
+  if (scriptureEdits.value.length >= 20) {
+    scriptureMessage.value = 'A Sermon can have up to 20 Scripture references.'
+    return
+  }
+  scriptureEdits.value.push({
+    book: '',
+    chapter_start: '',
+    verse_start: '',
+    chapter_end: '',
+    verse_end: '',
+  })
+  scriptureMessage.value = ''
+}
+
+function removeScriptureEdit(index: number): void {
+  scriptureEdits.value.splice(index, 1)
+  scriptureMessage.value = ''
+}
+
+async function saveScriptureEdit(): Promise<void> {
+  if (!sermon.value || savingScripture.value) return
+  if (
+    scriptureEdits.value.some(
+      (reference) => !reference.book.trim() || reference.chapter_start === '',
+    )
+  ) {
+    scriptureMessage.value = 'Each reference needs a book and starting chapter.'
+    return
+  }
+  savingScripture.value = true
+  scriptureMessage.value = ''
+  try {
+    sermon.value.scripture_references = await updateScriptureReferences(
+      sermon.value.id,
+      scriptureEdits.value.map((reference) => ({
+        book: reference.book.trim().replace(/\s+/g, ' '),
+        chapter_start: reference.chapter_start as number,
+        verse_start: reference.verse_start === '' ? null : reference.verse_start,
+        chapter_end: reference.chapter_end === '' ? null : reference.chapter_end,
+        verse_end: reference.verse_end === '' ? null : reference.verse_end,
+      })),
+    )
+    editingScripture.value = false
+    scriptureMessage.value = 'Scripture references saved.'
+  } catch (error) {
+    scriptureMessage.value =
+      error instanceof Error ? error.message : 'Your Scripture references could not be saved.'
+  } finally {
+    savingScripture.value = false
   }
 }
 
@@ -563,6 +651,9 @@ async function load(id: string): Promise<void> {
   tagEdits.value = []
   newTag.value = ''
   tagMessage.value = ''
+  editingScripture.value = false
+  scriptureEdits.value = []
+  scriptureMessage.value = ''
   reflectionMessage.value = ''
   sharePanelOpen.value = false
   shareLink.value = null
@@ -905,11 +996,103 @@ watch(
             <p v-else class="artifact__summary">{{ artifact('short_summary') }}</p>
           </section>
 
-          <section v-if="sermon.scripture_references.length" class="artifact">
+          <section class="artifact">
             <div class="artifact__heading">
               <h2>Scripture</h2>
+              <button
+                v-if="!editingScripture"
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit Scripture references"
+                @click="beginScriptureEdit"
+              >
+                <PencilLine :size="16" />
+              </button>
             </div>
-            <div class="scripture-links">
+            <div v-if="editingScripture" class="scripture-editor">
+              <div
+                v-for="(reference, index) in scriptureEdits"
+                :key="index"
+                class="scripture-editor__row"
+              >
+                <label class="scripture-editor__book">
+                  <span>Book</span>
+                  <input v-model="reference.book" maxlength="64" placeholder="Luke" />
+                </label>
+                <label>
+                  <span>Chapter</span>
+                  <input
+                    v-model.number="reference.chapter_start"
+                    type="number"
+                    min="1"
+                    max="32767"
+                    inputmode="numeric"
+                  />
+                </label>
+                <label>
+                  <span>Verse</span>
+                  <input
+                    v-model.number="reference.verse_start"
+                    type="number"
+                    min="1"
+                    max="32767"
+                    inputmode="numeric"
+                    placeholder="—"
+                  />
+                </label>
+                <label>
+                  <span>Through chapter</span>
+                  <input
+                    v-model.number="reference.chapter_end"
+                    type="number"
+                    min="1"
+                    max="32767"
+                    inputmode="numeric"
+                    placeholder="—"
+                  />
+                </label>
+                <label>
+                  <span>Through verse</span>
+                  <input
+                    v-model.number="reference.verse_end"
+                    type="number"
+                    min="1"
+                    max="32767"
+                    inputmode="numeric"
+                    placeholder="—"
+                  />
+                </label>
+                <button
+                  class="scripture-editor__remove"
+                  type="button"
+                  :aria-label="`Remove Scripture reference ${index + 1}`"
+                  @click="removeScriptureEdit(index)"
+                >
+                  <Trash2 :size="16" aria-hidden="true" />
+                </button>
+              </div>
+              <button
+                class="scripture-editor__add"
+                type="button"
+                :disabled="scriptureEdits.length >= 20"
+                @click="addScriptureEdit"
+              >
+                <Plus :size="15" aria-hidden="true" /> Add reference
+              </button>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelScriptureEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button
+                  type="button"
+                  :disabled="savingScripture"
+                  @click="saveScriptureEdit"
+                >
+                  <Check :size="15" />{{ savingScripture ? 'Saving…' : 'Save references' }}
+                </button>
+              </div>
+            </div>
+            <div v-else-if="sermon.scripture_references.length" class="scripture-links">
               <a
                 v-for="reference in sermon.scripture_references"
                 :key="reference.display"
@@ -921,6 +1104,10 @@ watch(
                 {{ reference.display }}
               </a>
             </div>
+            <p v-else class="scripture-links__empty">No Scripture references saved yet.</p>
+            <p v-if="scriptureMessage" class="artifact__message" role="status">
+              {{ scriptureMessage }}
+            </p>
           </section>
 
           <section class="artifact">
@@ -1840,6 +2027,90 @@ watch(
   gap: 0.45rem;
   padding-bottom: 0.25rem;
   text-decoration: none;
+}
+
+.scripture-links__empty {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  font-style: italic;
+  margin: 1.25rem 0 0;
+}
+
+.scripture-editor {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.scripture-editor__row {
+  background: var(--color-vellum);
+  border: 1px solid var(--color-margin);
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: 1fr 1fr;
+  padding: 1rem;
+  position: relative;
+}
+
+.scripture-editor__book {
+  grid-column: 1 / -1;
+  padding-right: 2rem;
+}
+
+.scripture-editor label span {
+  color: var(--color-ink-muted);
+  display: block;
+  font-family: var(--font-utility);
+  font-size: 0.68rem;
+  font-weight: 700;
+  margin-bottom: 0.3rem;
+}
+
+.scripture-editor input {
+  background: var(--color-vellum-light);
+  border: 1px solid var(--color-margin);
+  color: var(--color-ink);
+  font-family: var(--font-utility);
+  min-height: 2.6rem;
+  padding: 0.55rem 0.6rem;
+  width: 100%;
+}
+
+.scripture-editor input:focus {
+  border-color: var(--color-lapis);
+  outline: 2px solid rgba(47, 75, 124, 0.12);
+}
+
+.scripture-editor__remove {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--color-rubric);
+  cursor: pointer;
+  display: inline-flex;
+  padding: 0.25rem;
+  position: absolute;
+  right: 0.5rem;
+  top: 0.5rem;
+}
+
+.scripture-editor__add {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--color-lapis);
+  color: var(--color-lapis);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font-utility);
+  font-weight: 700;
+  gap: 0.35rem;
+  justify-self: start;
+  padding: 0.55rem 0.8rem;
+}
+
+.scripture-editor__add:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .outline {

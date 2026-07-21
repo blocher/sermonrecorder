@@ -13,6 +13,7 @@ from .models import (
     normalize_personal_book_value,
 )
 from .private_audio import private_audio_url
+from .scripture import MAX_SCRIPTURE_NUMBER, normalize_scripture_reference
 from .tagging import normalize_tag
 
 MAX_AUDIO_SIZE_BYTES = 500 * 1024 * 1024
@@ -372,6 +373,64 @@ class ScriptureReferenceSerializer(serializers.ModelSerializer):
         elif reference.verse_end is not None:
             display += f"–{reference.verse_end}"
         return display
+
+
+class ScriptureReferenceEditSerializer(serializers.Serializer):
+    book = serializers.CharField(max_length=64, trim_whitespace=True)
+    chapter_start = serializers.IntegerField(
+        min_value=1,
+        max_value=MAX_SCRIPTURE_NUMBER,
+    )
+    verse_start = serializers.IntegerField(
+        min_value=1,
+        max_value=MAX_SCRIPTURE_NUMBER,
+        allow_null=True,
+        required=False,
+        default=None,
+    )
+    chapter_end = serializers.IntegerField(
+        min_value=1,
+        max_value=MAX_SCRIPTURE_NUMBER,
+        allow_null=True,
+        required=False,
+        default=None,
+    )
+    verse_end = serializers.IntegerField(
+        min_value=1,
+        max_value=MAX_SCRIPTURE_NUMBER,
+        allow_null=True,
+        required=False,
+        default=None,
+    )
+
+    def validate(self, attrs):
+        try:
+            return normalize_scripture_reference(**attrs)
+        except ValueError as error:
+            raise serializers.ValidationError(str(error)) from error
+
+
+class ScriptureReferencesEditSerializer(serializers.Serializer):
+    scripture_references = ScriptureReferenceEditSerializer(
+        many=True,
+        allow_empty=True,
+        max_length=20,
+    )
+
+    def validate_scripture_references(self, references):
+        identities = [
+            (
+                reference["book"].casefold(),
+                reference["chapter_start"],
+                reference["verse_start"],
+                reference["chapter_end"],
+                reference["verse_end"],
+            )
+            for reference in references
+        ]
+        if len(identities) != len(set(identities)):
+            raise serializers.ValidationError("Scripture references must be unique.")
+        return references
 
 
 class RelatedSermonSerializer(serializers.ModelSerializer):
