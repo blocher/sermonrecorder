@@ -250,6 +250,30 @@ class TranscriptSerializer(serializers.ModelSerializer):
         fields = ("text", "segments", "updated_at")
 
 
+class TranscriptSegmentEditSerializer(serializers.Serializer):
+    start_seconds = serializers.FloatField(min_value=0)
+    text = serializers.CharField(max_length=10_000, trim_whitespace=True)
+
+
+class TranscriptEditSerializer(serializers.Serializer):
+    segments = TranscriptSegmentEditSerializer(many=True, allow_empty=False)
+
+    def validate_segments(self, segments):
+        current_segments = self.context["transcript"].segments
+        if len(segments) != len(current_segments):
+            raise serializers.ValidationError(
+                "Transcript segment boundaries cannot be added or removed."
+            )
+        updated = []
+        for current, edited in zip(current_segments, segments, strict=True):
+            if abs(float(current["start_seconds"]) - edited["start_seconds"]) > 0.001:
+                raise serializers.ValidationError(
+                    "Transcript timestamps cannot be changed."
+                )
+            updated.append({**current, "text": edited["text"]})
+        return updated
+
+
 class StudyArtifactSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudyArtifact

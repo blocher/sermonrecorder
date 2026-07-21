@@ -241,6 +241,21 @@ export async function updateStudyArtifact(
   )
 }
 
+export async function updateTranscript(
+  sermonId: string,
+  segments: Pick<ServerTranscriptSegment, 'start_seconds' | 'text'>[],
+): Promise<ServerTranscript> {
+  return authorizedJson<ServerTranscript>(
+    `/api/sermons/${encodeURIComponent(sermonId)}/transcript/`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ segments }),
+    },
+    'Your Transcript edit could not be saved.',
+  )
+}
+
 export async function saveReflection(
   sermonId: string,
   reflection: Pick<ServerReflection, 'prompt' | 'content'> & { id?: string },

@@ -7,8 +7,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Reflection, Sermon, StudyArtifact
-from .serializers import ReflectionSerializer, StudyArtifactEditSerializer
+from .models import Reflection, Sermon, StudyArtifact, Transcript
+from .serializers import (
+    ReflectionSerializer,
+    StudyArtifactEditSerializer,
+    TranscriptEditSerializer,
+    TranscriptSerializer,
+)
 
 
 def _owned_ready_sermon(request: Request, sermon_id: UUID) -> Sermon:
@@ -38,6 +43,23 @@ class StudyArtifactDetailView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save(edited_at=timezone.now())
         return Response(serializer.data)
+
+
+class TranscriptDetailView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def patch(self, request: Request, sermon_id: UUID) -> Response:
+        sermon = _owned_ready_sermon(request, sermon_id)
+        transcript = get_object_or_404(Transcript, sermon=sermon)
+        serializer = TranscriptEditSerializer(
+            data=request.data,
+            context={"transcript": transcript},
+        )
+        serializer.is_valid(raise_exception=True)
+        transcript.segments = serializer.validated_data["segments"]
+        transcript.text = " ".join(segment["text"] for segment in transcript.segments)
+        transcript.save(update_fields=("segments", "text", "updated_at"))
+        return Response(TranscriptSerializer(transcript).data)
 
 
 class ReflectionListCreateView(APIView):

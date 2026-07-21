@@ -34,6 +34,7 @@ import {
   serverSermonTitle,
   updateStudyArtifact,
   updateSermonContext,
+  updateTranscript,
   type ServerSermonDetail,
 } from './serverSermon'
 
@@ -150,6 +151,32 @@ describe('server Sermon detail', () => {
       expect.objectContaining({
         method: 'PATCH',
         body: JSON.stringify({ content: 'My corrected summary.' }),
+      }),
+    )
+  })
+
+  it('saves corrected Transcript words against existing timestamps', async () => {
+    const corrected = {
+      ...detail.transcript!,
+      text: 'Corrected words.',
+      segments: [{ start_seconds: 0, end_seconds: 3, text: 'Corrected words.' }],
+    }
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify(corrected), { status: 200 }),
+    )
+
+    await expect(
+      updateTranscript('ready-sermon', [
+        { start_seconds: 0, text: 'Corrected words.' },
+      ]),
+    ).resolves.toEqual(corrected)
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/sermons/ready-sermon/transcript/',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          segments: [{ start_seconds: 0, text: 'Corrected words.' }],
+        }),
       }),
     )
   })

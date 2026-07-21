@@ -8,7 +8,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import User
 
-from .models import Reflection, Sermon, StudyArtifact
+from .models import Reflection, Sermon, StudyArtifact, Transcript
 
 
 class SermonEditingApiTests(APITestCase):
@@ -44,6 +44,14 @@ class SermonEditingApiTests(APITestCase):
             sermon=self.sermon,
             kind=StudyArtifact.Kind.SHORT_SUMMARY,
             content="Generated summary.",
+        )
+        self.transcript = Transcript.objects.create(
+            sermon=self.sermon,
+            text="First segment. Second segment.",
+            segments=[
+                {"start_seconds": 0, "end_seconds": 5, "text": "First segment."},
+                {"start_seconds": 5, "end_seconds": 10, "text": "Second segment."},
+            ],
         )
 
     def test_owner_can_edit_one_study_artifact_without_replacing_others(self):
@@ -124,3 +132,43 @@ class SermonEditingApiTests(APITestCase):
         self.assertEqual(
             Reflection.objects.get().content, "I will make room before I feel ready."
         )
+
+    def test_owner_edits_transcript_words_without_changing_timestamps(self):
+        url = f"/api/sermons/{self.sermon.id}/transcript/"
+        self.client.force_authenticate(user=self.user)
+        response = self.client.patch(
+            url,
+            {
+                "segments": [
+                    {"start_seconds": 0, "text": "Corrected first segment."},
+                    {"start_seconds": 5, "text": "Corrected second segment."},
+                ]
+            },
+            format="json",
+        )
+        changed_timestamp = self.client.patch(
+            url,
+            {
+                "segments": [
+                    {"start_seconds": 1, "text": "Moved."},
+                    {"start_seconds": 5, "text": "Second."},
+                ]
+            },
+            format="json",
+        )
+        self.client.force_authenticate(user=self.other_user)
+        private = self.client.patch(
+            url,
+            {"segments": [{"start_seconds": 0, "text": "Intrusion"}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(changed_timestamp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(private.status_code, status.HTTP_404_NOT_FOUND)
+        self.transcript.refresh_from_db()
+        self.assertEqual(
+            self.transcript.text,
+            "Corrected first segment. Corrected second segment.",
+        )
+        self.assertEqual(self.transcript.segments[0]["end_seconds"], 5)

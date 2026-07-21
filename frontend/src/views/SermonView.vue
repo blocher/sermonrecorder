@@ -35,12 +35,14 @@ import {
   serverSermonTitle,
   updateStudyArtifact,
   updateSermonContext,
+  updateTranscript,
   type OccasionKind,
   type ChurchSuggestion,
   type ServerChurch,
   type ServerPreacher,
   type ServerShareLink,
   type ServerSermonDetail,
+  type ServerTranscriptSegment,
   type StudyArtifactKind,
 } from '../sermons/serverSermon'
 
@@ -61,6 +63,10 @@ const editingKind = ref<StudyArtifactKind>()
 const editContent = ref('')
 const savingEdit = ref(false)
 const editMessage = ref('')
+const editingTranscript = ref(false)
+const transcriptEdits = ref<Pick<ServerTranscriptSegment, 'start_seconds' | 'text'>[]>([])
+const savingTranscript = ref(false)
+const transcriptMessage = ref('')
 const reflectionPrompt = 'Where is this sermon asking for one faithful action?'
 const reflectionContent = ref('')
 const savingReflection = ref(false)
@@ -174,6 +180,37 @@ async function saveArtifactEdit(): Promise<void> {
     editMessage.value = error instanceof Error ? error.message : 'This edit could not be saved.'
   } finally {
     savingEdit.value = false
+  }
+}
+
+function beginTranscriptEdit(): void {
+  transcriptEdits.value = (sermon.value?.transcript?.segments ?? []).map((segment) => ({
+    start_seconds: segment.start_seconds,
+    text: segment.text,
+  }))
+  transcriptMessage.value = ''
+  editingTranscript.value = true
+}
+
+function cancelTranscriptEdit(): void {
+  transcriptEdits.value = []
+  transcriptMessage.value = ''
+  editingTranscript.value = false
+}
+
+async function saveTranscriptEdit(): Promise<void> {
+  if (!sermon.value || savingTranscript.value) return
+  savingTranscript.value = true
+  transcriptMessage.value = ''
+  try {
+    sermon.value.transcript = await updateTranscript(sermon.value.id, transcriptEdits.value)
+    editingTranscript.value = false
+    transcriptMessage.value = 'Transcript corrections saved.'
+  } catch (error) {
+    transcriptMessage.value =
+      error instanceof Error ? error.message : 'Transcript corrections could not be saved.'
+  } finally {
+    savingTranscript.value = false
   }
 }
 
@@ -914,9 +951,39 @@ watch(
                 <p class="rubric-label">Cleaned transcript</p>
                 <h2>Follow the sermon</h2>
               </div>
+              <button
+                v-if="sermon.transcript?.segments.length"
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit Transcript"
+                @click="beginTranscriptEdit"
+              >
+                <PencilLine :size="16" />
+              </button>
             </div>
             <p class="transcript__note">Side conversations have been removed. Tap a timestamp to listen from that moment.</p>
-            <div class="transcript__segments">
+            <div v-if="editingTranscript" class="transcript-editor">
+              <label
+                v-for="(segment, index) in transcriptEdits"
+                :key="segment.start_seconds"
+              >
+                <span>{{ timestamp(segment.start_seconds) }}</span>
+                <textarea
+                  v-model="transcriptEdits[index]!.text"
+                  rows="3"
+                  :aria-label="`Transcript at ${timestamp(segment.start_seconds)}`"
+                ></textarea>
+              </label>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelTranscriptEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingTranscript" @click="saveTranscriptEdit">
+                  <Check :size="15" />{{ savingTranscript ? 'Saving…' : 'Save corrections' }}
+                </button>
+              </div>
+            </div>
+            <div v-else class="transcript__segments">
               <div
                 v-for="segment in sermon.transcript?.segments ?? []"
                 :key="`${segment.start_seconds}-${segment.text}`"
@@ -928,6 +995,9 @@ watch(
                 <p>{{ segment.text }}</p>
               </div>
             </div>
+            <p v-if="transcriptMessage" class="artifact__message" role="status">
+              {{ transcriptMessage }}
+            </p>
           </section>
         </template>
 
@@ -1731,6 +1801,44 @@ watch(
   font-size: 0.82rem;
   line-height: 1.5;
   margin: 1rem 0 2.5rem;
+}
+
+.transcript-editor {
+  display: grid;
+  gap: 1rem;
+}
+
+.transcript-editor label {
+  align-items: start;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 3.2rem 1fr;
+}
+
+.transcript-editor label > span {
+  color: var(--color-lapis);
+  font-family: var(--font-utility);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  padding-top: 0.7rem;
+}
+
+.transcript-editor textarea {
+  background: var(--color-vellum);
+  border: 1px solid var(--color-margin);
+  color: var(--color-ink);
+  font-family: var(--font-reading);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  padding: 0.65rem 0.75rem;
+  resize: vertical;
+  width: 100%;
+}
+
+.transcript-editor textarea:focus {
+  border-color: var(--color-lapis);
+  outline: 2px solid rgba(47, 75, 124, 0.12);
 }
 
 .transcript__segment {

@@ -13,6 +13,7 @@ from .editing_views import (
     ReflectionDetailView,
     ReflectionListCreateView,
     StudyArtifactDetailView,
+    TranscriptDetailView,
 )
 from .emailing import SermonEmailView
 from .private_audio import sermon_private_audio
@@ -67,6 +68,11 @@ urlpatterns = [
         "<uuid:sermon_id>/artifacts/<str:kind>/",
         StudyArtifactDetailView.as_view(),
         name="sermon-study-artifact",
+    ),
+    path(
+        "<uuid:sermon_id>/transcript/",
+        TranscriptDetailView.as_view(),
+        name="sermon-transcript",
     ),
     path(
         "<uuid:sermon_id>/reflections/",
