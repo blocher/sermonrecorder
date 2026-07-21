@@ -190,3 +190,24 @@ class Reflection(models.Model):
 
     class Meta:
         ordering = ("created_at",)
+
+
+class ShareLink(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sermon = models.ForeignKey(
+        Sermon,
+        on_delete=models.CASCADE,
+        related_name="share_links",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        constraints = (
+            models.UniqueConstraint(
+                fields=("sermon",),
+                condition=models.Q(revoked_at__isnull=True),
+                name="one_active_share_link_per_sermon",
+            ),
+        )

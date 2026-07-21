@@ -1,11 +1,131 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { BookOpenText, CalendarDays, Clock3, MapPin, Pause, Play } from '@lucide/vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { BookOpenText, CalendarDays, Clock3, Pause, Play } from '@lucide/vue'
 import BrandMark from '../components/BrandMark.vue'
-import { getSermon } from '../data/sermons'
+import {
+  loadSharedSermon,
+  serverSermonDuration,
+  serverSermonTitle,
+  type SharedSermonDetail,
+  type StudyArtifactKind,
+} from '../sermons/serverSermon'
 
-const sermon = getSermon('come-and-rest')
+const route = useRoute()
+const sermon = ref<SharedSermonDetail>()
+const loading = ref(true)
+const errorMessage = ref('')
+const audio = ref<HTMLAudioElement>()
 const playing = ref(false)
+const currentSeconds = ref(0)
+const playbackError = ref(false)
+let robotsMeta: HTMLMetaElement | null = null
+let previousRobotsContent: string | null = null
+
+const progress = computed(() =>
+  sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
+)
+const progressLabel = computed(() => `${Math.round(progress.value * 100)}%`)
+const capturedDate = computed(() =>
+  sermon.value
+    ? new Intl.DateTimeFormat(undefined, {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      }).format(new Date(sermon.value.captured_at))
+    : '',
+)
+
+function artifact(kind: StudyArtifactKind): string {
+  return sermon.value?.study_artifacts.find((candidate) => candidate.kind === kind)?.content ?? ''
+}
+
+function numberedItems(content: string): string[] {
+  return content
+    .split(/\n+/)
+    .map((item) => item.replace(/^\s*\d+\.\s*/, '').trim())
+    .filter(Boolean)
+}
+
+function paragraphs(content: string): string[] {
+  return content
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+}
+
+function timestamp(seconds: number): string {
+  const minutes = Math.floor(seconds / 60)
+  const remainder = Math.floor(seconds % 60)
+  return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+}
+
+function scriptureUrl(display: string): string {
+  return `https://www.biblegateway.com/passage/?search=${encodeURIComponent(display)}`
+}
+
+async function togglePlayback(): Promise<void> {
+  if (!audio.value) return
+  playbackError.value = false
+  if (playing.value) {
+    audio.value.pause()
+    return
+  }
+  try {
+    await audio.value.play()
+  } catch {
+    playbackError.value = true
+  }
+}
+
+async function seekTo(seconds: number): Promise<void> {
+  if (!audio.value) return
+  audio.value.currentTime = seconds
+  currentSeconds.value = seconds
+  playbackError.value = false
+  try {
+    await audio.value.play()
+  } catch {
+    playbackError.value = true
+  }
+}
+
+async function load(token: string): Promise<void> {
+  loading.value = true
+  errorMessage.value = ''
+  sermon.value = undefined
+  try {
+    sermon.value = await loadSharedSermon(token)
+  } catch (error) {
+    errorMessage.value =
+      error instanceof Error ? error.message : 'This shared Sermon is unavailable.'
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(
+  () => String(route.params.token),
+  (token) => void load(token),
+  { immediate: true },
+)
+
+onMounted(() => {
+  robotsMeta = document.querySelector('meta[name="robots"]')
+  previousRobotsContent = robotsMeta?.getAttribute('content') ?? null
+  if (!robotsMeta) {
+    robotsMeta = document.createElement('meta')
+    robotsMeta.name = 'robots'
+    document.head.append(robotsMeta)
+  }
+  robotsMeta.content = 'noindex,nofollow'
+})
+
+onBeforeUnmount(() => {
+  if (!robotsMeta) return
+  if (previousRobotsContent === null) robotsMeta.remove()
+  else robotsMeta.content = previousRobotsContent
+})
 </script>
 
 <template>
@@ -15,44 +135,90 @@ const playing = ref(false)
       <span class="share-header__note">Shared sermon</span>
     </header>
 
-    <article class="share-document">
+    <article v-if="loading" class="share-state" role="status">
+      <p class="rubric-label">Shared sermon</p>
+      <h1>Opening the illuminated page…</h1>
+    </article>
+
+    <article v-else-if="errorMessage" class="share-state share-state--error" role="alert">
+      <p class="rubric-label">Link unavailable</p>
+      <h1>{{ errorMessage }}</h1>
+      <p>The Congregant may have revoked this unlisted link.</p>
+    </article>
+
+    <article v-else-if="sermon" class="share-document">
       <header class="share-title page-gather">
-        <p class="rubric-label">{{ sermon.liturgicalDay }}</p>
-        <h1>{{ sermon.title }}</h1>
-        <p class="share-title__preacher">{{ sermon.preacher }}</p>
+        <p class="rubric-label">Shared sermon</p>
+        <h1>{{ serverSermonTitle(sermon) }}</h1>
         <div class="share-title__meta">
-          <span><MapPin :size="15" aria-hidden="true" />{{ sermon.church }}</span>
-          <span><CalendarDays :size="15" aria-hidden="true" />{{ sermon.date }}</span>
-          <span><Clock3 :size="15" aria-hidden="true" />{{ sermon.duration }}</span>
+          <span><CalendarDays :size="15" aria-hidden="true" />{{ capturedDate }}</span>
+          <span>
+            <Clock3 :size="15" aria-hidden="true" />{{
+              serverSermonDuration(sermon.duration_seconds)
+            }}
+          </span>
         </div>
       </header>
 
       <section class="share-section share-section--lead page-gather">
         <p class="rubric-label">In brief</p>
-        <p class="share-summary">{{ sermon.shortSummary }}</p>
+        <p class="share-summary">{{ artifact('short_summary') }}</p>
+      </section>
+
+      <section v-if="sermon.scripture_references.length" class="share-section page-gather">
+        <h2>Scripture</h2>
+        <div class="share-scripture">
+          <a
+            v-for="reference in sermon.scripture_references"
+            :key="reference.display"
+            :href="scriptureUrl(reference.display)"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <BookOpenText :size="18" :stroke-width="1.6" aria-hidden="true" />
+            {{ reference.display }}
+          </a>
+        </div>
       </section>
 
       <section class="share-section page-gather">
-        <h2>Scripture</h2>
-        <div class="share-scripture">
-          <a v-for="reference in sermon.scripture" :key="reference" href="#" @click.prevent>
-            <BookOpenText :size="18" :stroke-width="1.6" aria-hidden="true" />
-            {{ reference }}
-          </a>
+        <h2>Long summary</h2>
+        <div class="share-prose">
+          <p v-for="paragraph in paragraphs(artifact('long_summary'))" :key="paragraph">
+            {{ paragraph }}
+          </p>
         </div>
       </section>
 
       <section class="share-section page-gather">
         <h2>Outline</h2>
         <ol class="share-outline">
-          <li v-for="item in sermon.outline" :key="item">{{ item }}</li>
+          <li v-for="item in numberedItems(artifact('outline'))" :key="item">{{ item }}</li>
         </ol>
       </section>
 
       <section class="share-section page-gather">
         <h2>Discussion</h2>
         <ol class="share-questions">
-          <li v-for="question in sermon.adultQuestions" :key="question">{{ question }}</li>
+          <li
+            v-for="question in numberedItems(artifact('adult_discussion_questions'))"
+            :key="question"
+          >
+            {{ question }}
+          </li>
+        </ol>
+      </section>
+
+      <section class="share-section page-gather">
+        <p class="rubric-label">With children</p>
+        <h2>Questions for younger listeners</h2>
+        <ol class="share-questions">
+          <li
+            v-for="question in numberedItems(artifact('kids_discussion_questions'))"
+            :key="question"
+          >
+            {{ question }}
+          </li>
         </ol>
       </section>
 
@@ -60,8 +226,13 @@ const playing = ref(false)
         <p class="rubric-label">Cleaned transcript</p>
         <h2>Follow the sermon</h2>
         <div class="share-transcript__segments">
-          <div v-for="segment in sermon.transcript" :key="segment.time">
-            <button type="button">{{ segment.time }}</button>
+          <div
+            v-for="segment in sermon.transcript?.segments ?? []"
+            :key="`${segment.start_seconds}-${segment.text}`"
+          >
+            <button type="button" @click="seekTo(segment.start_seconds)">
+              {{ timestamp(segment.start_seconds) }}
+            </button>
             <p>{{ segment.text }}</p>
           </div>
         </div>
@@ -70,24 +241,42 @@ const playing = ref(false)
 
     <footer class="share-footer">
       <BrandMark compact />
-      <p>This private link was shared by a Pewcorder listener.</p>
+      <p>This unlisted link was shared by a Pewcorder listener.</p>
       <RouterLink to="/">Open Pewcorder</RouterLink>
     </footer>
 
-    <section class="share-player" aria-label="Shared sermon audio">
+    <section v-if="sermon" class="share-player" aria-label="Shared sermon audio">
+      <audio
+        ref="audio"
+        :src="sermon.audio_url"
+        preload="metadata"
+        @play="playing = true"
+        @pause="playing = false"
+        @ended="playing = false"
+        @timeupdate="currentSeconds = audio?.currentTime ?? 0"
+        @error="playbackError = true"
+      ></audio>
       <button
         type="button"
         :aria-label="playing ? 'Pause sermon' : 'Play sermon'"
-        @click="playing = !playing"
+        @click="togglePlayback"
       >
         <Pause v-if="playing" :size="20" fill="currentColor" aria-hidden="true" />
         <Play v-else :size="20" fill="currentColor" aria-hidden="true" />
       </button>
       <div>
-        <strong>{{ sermon.title }}</strong>
-        <span>{{ playing ? 'Playing · 05:48' : `Listen · ${sermon.duration}` }}</span>
+        <strong>{{ serverSermonTitle(sermon) }}</strong>
+        <span>
+          {{
+            playbackError
+              ? 'Audio unavailable'
+              : `${playing ? 'Playing' : 'Listen'} · ${serverSermonDuration(sermon.duration_seconds)}`
+          }}
+        </span>
       </div>
-      <div class="share-player__line" aria-hidden="true"><span></span></div>
+      <div class="share-player__line" aria-hidden="true">
+        <span :style="{ width: progressLabel }"></span>
+      </div>
     </section>
   </main>
 </template>
@@ -118,6 +307,31 @@ const playing = ref(false)
   font-weight: 650;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+.share-state {
+  margin: 0 auto;
+  max-width: 46rem;
+  padding: 7rem clamp(1.5rem, 7vw, 4.5rem);
+}
+
+.share-state h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 7vw, 4.8rem);
+  font-variation-settings: 'opsz' 72, 'SOFT' 43;
+  font-weight: 500;
+  letter-spacing: -0.05em;
+  line-height: 1;
+  margin: 0.8rem 0 1rem;
+}
+
+.share-state p:last-child {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+}
+
+.share-state--error .rubric-label {
+  color: var(--color-rubric);
 }
 
 .share-document {
@@ -182,6 +396,21 @@ const playing = ref(false)
   font-size: clamp(1.25rem, 3vw, 1.55rem);
   line-height: 1.65;
   margin: 0.8rem 0 0;
+}
+
+.share-prose {
+  margin-top: 1.4rem;
+}
+
+.share-prose p {
+  font-family: var(--font-reading);
+  font-size: 1.05rem;
+  line-height: 1.75;
+  margin: 0;
+}
+
+.share-prose p + p {
+  margin-top: 1rem;
 }
 
 .share-scripture {
@@ -332,6 +561,10 @@ const playing = ref(false)
   transform: translateX(-50%);
   width: calc(100% - 2rem);
   z-index: 20;
+}
+
+.share-player audio {
+  display: none;
 }
 
 .share-player > button {

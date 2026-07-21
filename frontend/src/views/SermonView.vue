@@ -7,18 +7,25 @@ import {
   CalendarDays,
   Check,
   Clock3,
+  Copy,
   PencilLine,
   Pause,
   Play,
+  Share2,
+  Trash2,
   X,
 } from '@lucide/vue'
 import { useAuth } from '../auth/useAuth'
 import {
+  createShareLink,
+  loadShareLink,
   loadServerSermon,
+  revokeShareLink,
   saveReflection,
   serverSermonDuration,
   serverSermonTitle,
   updateStudyArtifact,
+  type ServerShareLink,
   type ServerSermonDetail,
   type StudyArtifactKind,
 } from '../sermons/serverSermon'
@@ -44,6 +51,11 @@ const reflectionPrompt = 'Where is this sermon asking for one faithful action?'
 const reflectionContent = ref('')
 const savingReflection = ref(false)
 const reflectionMessage = ref('')
+const sharePanelOpen = ref(false)
+const shareLink = ref<ServerShareLink | null>(null)
+const shareLoading = ref(false)
+const shareBusy = ref(false)
+const shareMessage = ref('')
 
 const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
@@ -176,6 +188,84 @@ async function seekTo(seconds: number): Promise<void> {
   }
 }
 
+async function toggleSharePanel(): Promise<void> {
+  sharePanelOpen.value = !sharePanelOpen.value
+  shareMessage.value = ''
+  if (!sharePanelOpen.value || !sermon.value) return
+  shareLoading.value = true
+  try {
+    shareLink.value = await loadShareLink(sermon.value.id)
+  } catch (error) {
+    shareMessage.value =
+      error instanceof Error ? error.message : 'Sharing details could not be loaded.'
+  } finally {
+    shareLoading.value = false
+  }
+}
+
+async function publishShareLink(): Promise<void> {
+  if (!sermon.value || shareBusy.value) return
+  shareBusy.value = true
+  shareMessage.value = ''
+  try {
+    shareLink.value = await createShareLink(sermon.value.id)
+    shareMessage.value = 'Your unlisted link is ready.'
+  } catch (error) {
+    shareMessage.value =
+      error instanceof Error ? error.message : 'An unlisted link could not be created.'
+  } finally {
+    shareBusy.value = false
+  }
+}
+
+async function copyShareLink(): Promise<void> {
+  if (!shareLink.value) return
+  try {
+    await navigator.clipboard.writeText(shareLink.value.url)
+    shareMessage.value = 'Link copied.'
+  } catch {
+    shareMessage.value = 'Select the link above to copy it.'
+  }
+}
+
+function selectShareLink(event: FocusEvent): void {
+  if (event.target instanceof HTMLInputElement) event.target.select()
+}
+
+async function shareNative(): Promise<void> {
+  if (!shareLink.value || !sermon.value) return
+  if (!navigator.share) {
+    await copyShareLink()
+    return
+  }
+  try {
+    await navigator.share({
+      title: serverSermonTitle(sermon.value),
+      text: 'Listen and read this Sermon in Pewcorder.',
+      url: shareLink.value.url,
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return
+    shareMessage.value = 'This link could not be shared from the device.'
+  }
+}
+
+async function unpublishShareLink(): Promise<void> {
+  if (!sermon.value || !shareLink.value || shareBusy.value) return
+  shareBusy.value = true
+  shareMessage.value = ''
+  try {
+    await revokeShareLink(sermon.value.id)
+    shareLink.value = null
+    shareMessage.value = 'The old link no longer opens this Sermon.'
+  } catch (error) {
+    shareMessage.value =
+      error instanceof Error ? error.message : 'The unlisted link could not be revoked.'
+  } finally {
+    shareBusy.value = false
+  }
+}
+
 async function load(id: string): Promise<void> {
   loading.value = true
   errorMessage.value = ''
@@ -183,6 +273,9 @@ async function load(id: string): Promise<void> {
   editingKind.value = undefined
   editMessage.value = ''
   reflectionMessage.value = ''
+  sharePanelOpen.value = false
+  shareLink.value = null
+  shareMessage.value = ''
   try {
     const loadedSermon = await loadServerSermon(id)
     if (loadedSermon.processing_status !== 'ready') {
@@ -248,7 +341,57 @@ watch(
             }}
           </span>
         </div>
+        <div class="sermon-header__actions">
+          <button type="button" @click="toggleSharePanel">
+            <Share2 :size="16" aria-hidden="true" />
+            {{ sharePanelOpen ? 'Close sharing' : 'Share sermon' }}
+          </button>
+        </div>
       </header>
+
+      <section v-if="sharePanelOpen" class="share-panel" aria-label="Share this Sermon">
+        <div>
+          <p class="rubric-label">Unlisted page</p>
+          <h2>Share the sermon, never your Reflection</h2>
+          <p>
+            Anyone with the link can read the Study artifacts and Transcript and listen to the
+            recording. Your private Reflection is always excluded.
+          </p>
+        </div>
+        <p v-if="shareLoading" class="share-panel__status" role="status">
+          Checking for an existing link…
+        </p>
+        <template v-else-if="shareLink">
+          <input
+            :value="shareLink.url"
+            aria-label="Unlisted Sermon link"
+            readonly
+            @focus="selectShareLink"
+          />
+          <div class="share-panel__actions">
+            <button type="button" :disabled="shareBusy" @click="shareNative">
+              <Share2 :size="16" aria-hidden="true" /> Share link
+            </button>
+            <button type="button" :disabled="shareBusy" @click="copyShareLink">
+              <Copy :size="16" aria-hidden="true" /> Copy
+            </button>
+            <button type="button" :disabled="shareBusy" @click="unpublishShareLink">
+              <Trash2 :size="16" aria-hidden="true" /> Revoke
+            </button>
+          </div>
+        </template>
+        <button
+          v-else
+          class="share-panel__publish"
+          type="button"
+          :disabled="shareBusy"
+          @click="publishShareLink"
+        >
+          <Share2 :size="16" aria-hidden="true" />
+          {{ shareBusy ? 'Creating…' : 'Create unlisted link' }}
+        </button>
+        <p v-if="shareMessage" class="share-panel__status" role="status">{{ shareMessage }}</p>
+      </section>
 
       <section class="audio-player" aria-label="Sermon audio player">
         <audio
@@ -682,6 +825,91 @@ watch(
   gap: 0.5rem;
   min-height: 2.75rem;
   padding: 0.6rem 0.9rem;
+}
+
+.share-panel {
+  background: var(--color-vellum-light);
+  border: 1px solid var(--color-margin);
+  margin: 1.5rem 0;
+  padding: clamp(1.25rem, 4vw, 2rem);
+}
+
+.share-panel h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.65rem, 4vw, 2.25rem);
+  font-variation-settings: 'opsz' 38, 'SOFT' 48;
+  font-weight: 540;
+  letter-spacing: -0.035em;
+  margin: 0.35rem 0 0;
+}
+
+.share-panel > div:first-child > p:last-child {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  line-height: 1.6;
+  margin: 0.8rem 0 1.25rem;
+  max-width: 44rem;
+}
+
+.share-panel input {
+  background: var(--color-vellum);
+  border: 1px solid var(--color-margin);
+  color: var(--color-ink);
+  font-family: var(--font-utility);
+  font-size: 0.78rem;
+  padding: 0.8rem;
+  width: 100%;
+}
+
+.share-panel input:focus {
+  border-color: var(--color-lapis);
+  outline: 2px solid rgba(47, 75, 124, 0.12);
+}
+
+.share-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.share-panel__actions button,
+.share-panel__publish {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--color-lapis);
+  color: var(--color-lapis);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font-utility);
+  font-size: 0.78rem;
+  font-weight: 650;
+  gap: 0.4rem;
+  min-height: 2.55rem;
+  padding: 0.55rem 0.75rem;
+}
+
+.share-panel__publish {
+  background: var(--color-lapis);
+  color: var(--color-vellum-light);
+}
+
+.share-panel__actions button:last-child {
+  border-color: var(--color-rubric);
+  color: var(--color-rubric);
+}
+
+.share-panel__actions button:disabled,
+.share-panel__publish:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.share-panel__status {
+  color: var(--color-lapis);
+  font-family: var(--font-utility);
+  font-size: 0.76rem;
+  margin: 0.8rem 0 0;
 }
 
 .audio-player {

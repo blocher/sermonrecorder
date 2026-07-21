@@ -80,6 +80,22 @@ export interface ServerSermonDetail extends ServerSermon {
   reflections: ServerReflection[]
 }
 
+export interface ServerShareLink {
+  url: string
+  created_at: string
+}
+
+export interface SharedSermonDetail {
+  captured_at: string
+  duration_seconds: number
+  audio_url: string
+  transcript: ServerTranscript | null
+  study_artifacts: ServerStudyArtifact[]
+  scripture_references: ServerScriptureReference[]
+  tag_suggestions: string[]
+  updated_at: string
+}
+
 export function serverSermonTitle(sermon: Pick<ServerSermon, 'captured_at'>): string {
   const captured = new Date(sermon.captured_at)
   return `${new Intl.DateTimeFormat(undefined, {
@@ -121,7 +137,7 @@ async function authorizedJson<T>(
   if (response.status === 401) {
     response = await request(await refreshAuthorizedAccessToken())
   }
-  const data = (await response.json()) as unknown
+  const data = response.status === 204 ? undefined : ((await response.json()) as unknown)
   if (!response.ok) {
     throw new Error(responseError(data, fallback))
   }
@@ -171,4 +187,42 @@ export async function saveReflection(
     },
     'Your Reflection could not be saved.',
   )
+}
+
+export async function loadShareLink(sermonId: string): Promise<ServerShareLink | null> {
+  const response = await authorizedJson<{ share_link: ServerShareLink | null }>(
+    `/api/sermons/${encodeURIComponent(sermonId)}/share/`,
+    {},
+    'Sharing details could not be loaded.',
+  )
+  return response.share_link
+}
+
+export async function createShareLink(sermonId: string): Promise<ServerShareLink> {
+  return authorizedJson<ServerShareLink>(
+    `/api/sermons/${encodeURIComponent(sermonId)}/share/`,
+    { method: 'POST' },
+    'An unlisted link could not be created.',
+  )
+}
+
+export async function revokeShareLink(sermonId: string): Promise<void> {
+  return authorizedJson<void>(
+    `/api/sermons/${encodeURIComponent(sermonId)}/share/`,
+    { method: 'DELETE' },
+    'The unlisted link could not be revoked.',
+  )
+}
+
+export async function loadSharedSermon(token: string): Promise<SharedSermonDetail> {
+  const response = await fetch(`${API_BASE_URL}/api/shares/${encodeURIComponent(token)}/`)
+  const data = (await response.json()) as unknown
+  if (!response.ok) {
+    throw new Error(
+      response.status === 404
+        ? 'This shared Sermon is unavailable.'
+        : responseError(data, 'This shared Sermon is unavailable.'),
+    )
+  }
+  return data as SharedSermonDetail
 }

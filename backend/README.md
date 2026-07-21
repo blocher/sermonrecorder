@@ -30,4 +30,6 @@ The default provider pipeline uses OpenAI's diarizing transcription model, keeps
 
 Ready detail responses contain an owner-issued, four-hour audio capability URL rather than a permanent media path. The audio endpoint validates that signature and supports byte ranges for seeking; configure `SERMON_AUDIO_URL_MAX_AGE_SECONDS` and native Capacitor origins explicitly in production.
 
+Ready Sermons can also publish one active unlisted Share Link. The public payload includes audio, the cleaned Transcript, Study artifacts, Scripture references, and Tag suggestions, but never Reflections or private-library relationships. Revocation immediately disables both the page and its range-capable audio endpoint. Set `PEWCORDER_PUBLIC_WEB_URL` to the deployed Vue application's HTTPS origin so native apps share a reachable web URL.
+
 SQLite and local media storage are development defaults. Production must provide `DJANGO_SECRET_KEY`, persistent database/object storage, HTTPS hosts, and worker infrastructure.

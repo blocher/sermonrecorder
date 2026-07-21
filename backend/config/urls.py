@@ -29,4 +29,5 @@ urlpatterns = [
     path("api/health/", health, name="health"),
     path("api/auth/", include("accounts.urls")),
     path("api/sermons/", include("sermons.urls")),
+    path("api/shares/", include("sermons.share_urls")),
 ]

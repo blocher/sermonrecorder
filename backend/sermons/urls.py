@@ -7,12 +7,18 @@ from .editing_views import (
     StudyArtifactDetailView,
 )
 from .private_audio import sermon_private_audio
+from .sharing import SermonShareLinkView
 from .views import SermonViewSet
 
 router = SimpleRouter()
 router.register("", SermonViewSet, basename="sermon")
 
 urlpatterns = [
+    path(
+        "<uuid:sermon_id>/share/",
+        SermonShareLinkView.as_view(),
+        name="sermon-share-link",
+    ),
     path(
         "<uuid:sermon_id>/artifacts/<str:kind>/",
         StudyArtifactDetailView.as_view(),

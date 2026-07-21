@@ -66,7 +66,7 @@ def _file_range(file, start: int, length: int) -> Iterator[bytes]:
         file.close()
 
 
-def _audio_response(request: HttpRequest, sermon: Sermon) -> HttpResponse:
+def sermon_audio_response(request: HttpRequest, sermon: Sermon) -> HttpResponse:
     audio = sermon.audio.open("rb")
     size = sermon.audio_size_bytes
     filename = Path(sermon.audio.name).name
@@ -119,4 +119,4 @@ def sermon_private_audio(request: HttpRequest, sermon_id: UUID) -> HttpResponse:
         id=sermon_id,
         owner_id=payload.get("owner_id"),
     )
-    return _audio_response(request, sermon)
+    return sermon_audio_response(request, sermon)

@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.urls import reverse
 
 from .models import (
     Reflection,
@@ -220,3 +221,35 @@ class SermonDetailSerializer(SermonSerializer):
     def get_audio_url(self, sermon: Sermon) -> str:
         request = self.context.get("request")
         return private_audio_url(request, sermon) if request else ""
+
+
+class PublicSharedSermonSerializer(serializers.ModelSerializer):
+    audio_url = serializers.SerializerMethodField()
+    transcript = TranscriptSerializer(read_only=True, allow_null=True)
+    study_artifacts = StudyArtifactSerializer(many=True, read_only=True)
+    scripture_references = ScriptureReferenceSerializer(many=True, read_only=True)
+    tag_suggestions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Sermon
+        fields = (
+            "captured_at",
+            "duration_seconds",
+            "audio_url",
+            "transcript",
+            "study_artifacts",
+            "scripture_references",
+            "tag_suggestions",
+            "updated_at",
+        )
+
+    def get_audio_url(self, sermon: Sermon) -> str:
+        request = self.context.get("request")
+        token = self.context.get("share_token")
+        if not request or not token:
+            return ""
+        path = reverse("shared-sermon-audio", kwargs={"token": token})
+        return request.build_absolute_uri(path)
+
+    def get_tag_suggestions(self, sermon: Sermon) -> list[str]:
+        return [suggestion.name for suggestion in sermon.tag_suggestions.all()]

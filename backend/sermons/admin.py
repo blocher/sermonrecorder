@@ -5,6 +5,7 @@ from .models import (
     RelatedSermon,
     ScriptureReference,
     Sermon,
+    ShareLink,
     StudyArtifact,
     TagSuggestion,
     Transcript,
@@ -43,6 +44,12 @@ class ReflectionInline(admin.StackedInline):
     extra = 0
 
 
+class ShareLinkInline(admin.TabularInline):
+    model = ShareLink
+    extra = 0
+    readonly_fields = ("id", "created_at", "revoked_at")
+
+
 @admin.register(Sermon)
 class SermonAdmin(admin.ModelAdmin):
     inlines = (
@@ -52,6 +59,7 @@ class SermonAdmin(admin.ModelAdmin):
         TagSuggestionInline,
         RelatedSermonInline,
         ReflectionInline,
+        ShareLinkInline,
     )
     list_display = (
         "captured_at",

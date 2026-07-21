@@ -15,7 +15,11 @@ vi.mock('../auth/useAuth', () => ({
 vi.stubGlobal('fetch', mocks.fetch)
 
 import {
+  createShareLink,
+  loadSharedSermon,
+  loadShareLink,
   loadServerSermon,
+  revokeShareLink,
   saveReflection,
   serverSermonDuration,
   serverSermonTitle,
@@ -134,6 +138,52 @@ describe('server Sermon detail', () => {
     expect(mocks.fetch).toHaveBeenCalledWith(
       'http://api.example.test/api/sermons/ready-sermon/reflections/',
       expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('creates, inspects, and revokes an owner-managed Share Link', async () => {
+    const shareLink = {
+      url: 'https://listen.example.test/share/signed-token',
+      created_at: '2026-07-20T16:00:00Z',
+    }
+    mocks.fetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ share_link: shareLink }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify(shareLink), { status: 201 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await expect(loadShareLink('ready-sermon')).resolves.toEqual(shareLink)
+    await expect(createShareLink('ready-sermon')).resolves.toEqual(shareLink)
+    await expect(revokeShareLink('ready-sermon')).resolves.toBeUndefined()
+
+    expect(mocks.fetch).toHaveBeenLastCalledWith(
+      'http://api.example.test/api/sermons/ready-sermon/share/',
+      expect.objectContaining({
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer access-token' },
+      }),
+    )
+  })
+
+  it('loads a public shared Sermon without an authorization header', async () => {
+    const sharedDetail = {
+      captured_at: detail.captured_at,
+      duration_seconds: detail.duration_seconds,
+      audio_url: 'http://api.example.test/api/shares/signed-token/audio/',
+      transcript: detail.transcript,
+      study_artifacts: [],
+      scripture_references: [],
+      tag_suggestions: ['Grace'],
+      updated_at: detail.updated_at,
+    }
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify(sharedDetail), { status: 200 }),
+    )
+
+    await expect(loadSharedSermon('signed/token')).resolves.toEqual(sharedDetail)
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/shares/signed%2Ftoken/',
     )
   })
 })
