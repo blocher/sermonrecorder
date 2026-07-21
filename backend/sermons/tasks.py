@@ -21,6 +21,7 @@ from .processing import (
 )
 from .push_alerts import (
     InvalidDeviceRegistrationError,
+    PermanentPushAlertError,
     PushAlert,
     get_push_alert_sender,
 )
@@ -254,6 +255,12 @@ def deliver_processing_alert(self: Task, alert_id: str) -> None:
         )
     except InvalidDeviceRegistrationError as error:
         DeviceRegistration.objects.filter(id=alert.device_id).update(active=False)
+        ProcessingAlert.objects.filter(id=alert.id).update(
+            delivery_status=ProcessingAlert.DeliveryStatus.FAILED,
+            delivery_error=str(error),
+            updated_at=timezone.now(),
+        )
+    except PermanentPushAlertError as error:
         ProcessingAlert.objects.filter(id=alert.id).update(
             delivery_status=ProcessingAlert.DeliveryStatus.FAILED,
             delivery_error=str(error),

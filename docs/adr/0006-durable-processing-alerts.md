@@ -16,9 +16,9 @@ Sermon processing continues after upload and may finish while the native app is 
 - Celery delivers each alert independently with bounded retries. A periodic recovery task re-enqueues pending alerts and releases stale delivery claims.
 - Sermon processing never retries or fails because notification delivery failed.
 - An invalid native token is deactivated. Notification tokens remain write-only in the public API.
-- Delivery uses a small `PushAlertSender` interface. Development logs deliveries; production supplies the selected APNs/FCM gateway adapter through configuration.
+- Delivery uses a small `PushAlertSender` interface. Development logs deliveries; production selects `NativePushAlertSender`, which sends iOS tokens directly to APNs over HTTP/2 and Android tokens to FCM HTTP v1.
 - Opening an alert routes directly to the owner-authenticated Sermon detail.
 
 ## Consequences
 
-The database is the durable handoff between processing and push delivery, so broker outages do not lose alerts and duplicate processing jobs do not create duplicate notifications. Actual device delivery still depends on Apple/Google credentials, physical-device configuration, and a production sender adapter. Delivery is at-least-once across a worker crash after the gateway accepts a message but before the database records it as sent.
+The database is the durable handoff between processing and push delivery, so broker outages do not lose alerts and duplicate processing jobs do not create duplicate notifications. Actual device delivery still depends on Apple/Google credentials and physical-device configuration. Delivery is at-least-once across a worker crash after the gateway accepts a message but before the database records it as sent.

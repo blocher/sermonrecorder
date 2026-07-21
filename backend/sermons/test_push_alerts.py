@@ -8,7 +8,11 @@ from django.utils import timezone
 from accounts.models import DeviceRegistration, User
 
 from .models import ProcessingAlert, Sermon
-from .push_alerts import InvalidDeviceRegistrationError, PushAlert
+from .push_alerts import (
+    InvalidDeviceRegistrationError,
+    PermanentPushAlertError,
+    PushAlert,
+)
 from .tasks import (
     deliver_processing_alert,
     dispatch_pending_processing_alerts,
@@ -31,6 +35,11 @@ class InvalidPushAlertSender:
 class TemporarilyFailingPushAlertSender:
     def send(self, platform: str, token: str, alert: PushAlert) -> None:
         raise RuntimeError("The push gateway is unavailable.")
+
+
+class PermanentlyFailingPushAlertSender:
+    def send(self, platform: str, token: str, alert: PushAlert) -> None:
+        raise PermanentPushAlertError("The push credentials are invalid.")
 
 
 class SermonProcessingAlertTests(TestCase):
@@ -175,3 +184,22 @@ class SermonProcessingAlertTests(TestCase):
         self.assertEqual(alert.delivery_status, ProcessingAlert.DeliveryStatus.FAILED)
         self.assertIn("another account", alert.delivery_error)
         self.assertEqual(RecordingPushAlertSender.sent, [])
+
+    @override_settings(
+        PUSH_ALERT_SENDER="sermons.test_push_alerts.PermanentlyFailingPushAlertSender",
+    )
+    def test_permanent_gateway_error_fails_without_deactivating_the_device(self):
+        alert = ProcessingAlert.objects.create(
+            sermon=self.sermon(),
+            device=self.device,
+            processing_status=Sermon.ProcessingStatus.READY,
+        )
+
+        deliver_processing_alert.apply(args=(str(alert.id),), throw=True)
+
+        alert.refresh_from_db()
+        self.device.refresh_from_db()
+        self.assertEqual(alert.delivery_status, ProcessingAlert.DeliveryStatus.FAILED)
+        self.assertEqual(alert.delivery_attempts, 1)
+        self.assertIn("credentials", alert.delivery_error)
+        self.assertTrue(self.device.active)

@@ -178,9 +178,27 @@ SERMON_PROCESSOR = os.environ.get(
 SERMON_PROCESSING_RETRY_DELAYS = (60, 5 * 60, 15 * 60)
 PUSH_ALERT_SENDER = os.environ.get(
     "PUSH_ALERT_SENDER",
-    "sermons.push_alerts.LoggingPushAlertSender",
+    (
+        "sermons.push_alerts.LoggingPushAlertSender"
+        if DEBUG
+        else "sermons.push_alerts.NativePushAlertSender"
+    ),
 )
 PUSH_ALERT_RETRY_DELAYS = (30, 2 * 60, 10 * 60, 30 * 60, 60 * 60)
+PUSH_ALERT_TIMEOUT_SECONDS = float(os.environ.get("PUSH_ALERT_TIMEOUT_SECONDS", "15"))
+APNS_KEY_ID = os.environ.get("APNS_KEY_ID", "")
+APNS_TEAM_ID = os.environ.get("APNS_TEAM_ID", "")
+APNS_AUTH_KEY_PATH = os.environ.get("APNS_AUTH_KEY_PATH", "")
+APNS_TOPIC = os.environ.get("APNS_TOPIC", "com.pewcorder.app")
+APNS_USE_SANDBOX = (
+    os.environ.get(
+        "APNS_USE_SANDBOX",
+        "1" if DEBUG else "0",
+    )
+    == "1"
+)
+FCM_PROJECT_ID = os.environ.get("FCM_PROJECT_ID", "")
+FCM_SERVICE_ACCOUNT_FILE = os.environ.get("FCM_SERVICE_ACCOUNT_FILE", "")
 SERMON_AUDIO_URL_MAX_AGE_SECONDS = int(
     os.environ.get("SERMON_AUDIO_URL_MAX_AGE_SECONDS", str(4 * 60 * 60))
 )
