@@ -30,6 +30,7 @@ class SermonViewSet(
                 "scripture_references",
                 "tag_suggestions",
                 "related_sermons__related_sermon",
+                "reflections",
             )
         return queryset
 

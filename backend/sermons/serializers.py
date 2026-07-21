@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import (
+    Reflection,
     RelatedSermon,
     ScriptureReference,
     Sermon,
@@ -115,6 +116,42 @@ class StudyArtifactSerializer(serializers.ModelSerializer):
         fields = ("kind", "content", "edited_at", "updated_at")
 
 
+class StudyArtifactEditSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudyArtifact
+        fields = ("kind", "content", "edited_at", "updated_at")
+        read_only_fields = ("kind", "edited_at", "updated_at")
+
+    def validate_content(self, content: str) -> str:
+        content = content.strip()
+        if not content:
+            raise serializers.ValidationError("A Study artifact cannot be empty.")
+        if len(content) > 100_000:
+            raise serializers.ValidationError("A Study artifact is too long.")
+        return content
+
+
+class ReflectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Reflection
+        fields = ("id", "prompt", "content", "created_at", "updated_at")
+        read_only_fields = ("id", "created_at", "updated_at")
+
+    def validate_prompt(self, prompt: str) -> str:
+        prompt = prompt.strip()
+        if len(prompt) > 2_000:
+            raise serializers.ValidationError("A Reflection prompt is too long.")
+        return prompt
+
+    def validate_content(self, content: str) -> str:
+        content = content.strip()
+        if not content:
+            raise serializers.ValidationError("A Reflection cannot be empty.")
+        if len(content) > 100_000:
+            raise serializers.ValidationError("A Reflection is too long.")
+        return content
+
+
 class ScriptureReferenceSerializer(serializers.ModelSerializer):
     display = serializers.SerializerMethodField()
 
@@ -160,6 +197,7 @@ class SermonDetailSerializer(SermonSerializer):
     study_artifacts = StudyArtifactSerializer(many=True, read_only=True)
     scripture_references = ScriptureReferenceSerializer(many=True, read_only=True)
     related_sermons = RelatedSermonSerializer(many=True, read_only=True)
+    reflections = ReflectionSerializer(many=True, read_only=True)
 
     class Meta(SermonSerializer.Meta):
         fields = SermonSerializer.Meta.fields + (
@@ -168,6 +206,7 @@ class SermonDetailSerializer(SermonSerializer):
             "study_artifacts",
             "scripture_references",
             "related_sermons",
+            "reflections",
         )
         read_only_fields = SermonSerializer.Meta.read_only_fields + (
             "audio_url",
@@ -175,6 +214,7 @@ class SermonDetailSerializer(SermonSerializer):
             "study_artifacts",
             "scripture_references",
             "related_sermons",
+            "reflections",
         )
 
     def get_audio_url(self, sermon: Sermon) -> str:

@@ -174,3 +174,19 @@ class RelatedSermon(models.Model):
                 name="related_sermon_cannot_reference_itself",
             ),
         )
+
+
+class Reflection(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sermon = models.ForeignKey(
+        Sermon,
+        on_delete=models.CASCADE,
+        related_name="reflections",
+    )
+    prompt = models.TextField(blank=True)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("created_at",)

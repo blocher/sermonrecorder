@@ -16,8 +16,10 @@ vi.stubGlobal('fetch', mocks.fetch)
 
 import {
   loadServerSermon,
+  saveReflection,
   serverSermonDuration,
   serverSermonTitle,
+  updateStudyArtifact,
   type ServerSermonDetail,
 } from './serverSermon'
 
@@ -43,6 +45,7 @@ const detail: ServerSermonDetail = {
   study_artifacts: [],
   scripture_references: [],
   related_sermons: [],
+  reflections: [],
 }
 
 beforeEach(() => {
@@ -81,5 +84,56 @@ describe('server Sermon detail', () => {
   it('uses clear date and duration labels without invented metadata', () => {
     expect(serverSermonTitle(detail)).toContain('Sermon')
     expect(serverSermonDuration(detail.duration_seconds)).toBe('45 min')
+  })
+
+  it('persists one independently edited Study artifact', async () => {
+    const savedArtifact = {
+      kind: 'short_summary' as const,
+      content: 'My corrected summary.',
+      edited_at: '2026-07-20T16:00:00Z',
+      updated_at: '2026-07-20T16:00:00Z',
+    }
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify(savedArtifact), { status: 200 }),
+    )
+
+    const result = await updateStudyArtifact(
+      'ready-sermon',
+      'short_summary',
+      'My corrected summary.',
+    )
+
+    expect(result).toEqual(savedArtifact)
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/sermons/ready-sermon/artifacts/short_summary/',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ content: 'My corrected summary.' }),
+      }),
+    )
+  })
+
+  it('creates a private Reflection with its prompt', async () => {
+    const reflection = {
+      id: 'reflection-id',
+      prompt: 'Where is grace asking me to act?',
+      content: 'I will make room.',
+      created_at: '2026-07-20T16:00:00Z',
+      updated_at: '2026-07-20T16:00:00Z',
+    }
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify(reflection), { status: 201 }),
+    )
+
+    const result = await saveReflection('ready-sermon', {
+      prompt: reflection.prompt,
+      content: reflection.content,
+    })
+
+    expect(result).toEqual(reflection)
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/sermons/ready-sermon/reflections/',
+      expect.objectContaining({ method: 'POST' }),
+    )
   })
 })

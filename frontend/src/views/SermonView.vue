@@ -5,15 +5,20 @@ import {
   ArrowLeft,
   BookOpenText,
   CalendarDays,
+  Check,
   Clock3,
+  PencilLine,
   Pause,
   Play,
+  X,
 } from '@lucide/vue'
 import { useAuth } from '../auth/useAuth'
 import {
   loadServerSermon,
+  saveReflection,
   serverSermonDuration,
   serverSermonTitle,
+  updateStudyArtifact,
   type ServerSermonDetail,
   type StudyArtifactKind,
 } from '../sermons/serverSermon'
@@ -31,6 +36,14 @@ const audio = ref<HTMLAudioElement>()
 const playing = ref(false)
 const currentSeconds = ref(0)
 const playbackError = ref(false)
+const editingKind = ref<StudyArtifactKind>()
+const editContent = ref('')
+const savingEdit = ref(false)
+const editMessage = ref('')
+const reflectionPrompt = 'Where is this sermon asking for one faithful action?'
+const reflectionContent = ref('')
+const savingReflection = ref(false)
+const reflectionMessage = ref('')
 
 const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
@@ -74,6 +87,64 @@ function scriptureUrl(display: string): string {
   return `https://www.biblegateway.com/passage/?search=${encodeURIComponent(display)}`
 }
 
+function beginArtifactEdit(kind: StudyArtifactKind): void {
+  editingKind.value = kind
+  editContent.value = artifact(kind)
+  editMessage.value = ''
+}
+
+function cancelArtifactEdit(): void {
+  editingKind.value = undefined
+  editContent.value = ''
+  editMessage.value = ''
+}
+
+async function saveArtifactEdit(): Promise<void> {
+  if (!sermon.value || !editingKind.value || savingEdit.value) return
+  savingEdit.value = true
+  editMessage.value = ''
+  try {
+    const saved = await updateStudyArtifact(
+      sermon.value.id,
+      editingKind.value,
+      editContent.value,
+    )
+    const index = sermon.value.study_artifacts.findIndex(
+      (candidate) => candidate.kind === saved.kind,
+    )
+    if (index >= 0) sermon.value.study_artifacts[index] = saved
+    editingKind.value = undefined
+    editMessage.value = 'Your edit was saved.'
+  } catch (error) {
+    editMessage.value = error instanceof Error ? error.message : 'This edit could not be saved.'
+  } finally {
+    savingEdit.value = false
+  }
+}
+
+async function persistReflection(): Promise<void> {
+  if (!sermon.value || savingReflection.value) return
+  savingReflection.value = true
+  reflectionMessage.value = ''
+  try {
+    const existing = sermon.value.reflections[0]
+    const saved = await saveReflection(sermon.value.id, {
+      id: existing?.id,
+      prompt: reflectionPrompt,
+      content: reflectionContent.value,
+    })
+    if (existing) sermon.value.reflections[0] = saved
+    else sermon.value.reflections.push(saved)
+    reflectionContent.value = saved.content
+    reflectionMessage.value = 'Reflection saved privately.'
+  } catch (error) {
+    reflectionMessage.value =
+      error instanceof Error ? error.message : 'Your Reflection could not be saved.'
+  } finally {
+    savingReflection.value = false
+  }
+}
+
 function selectSection(section: Section) {
   activeSection.value = section
   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -109,6 +180,9 @@ async function load(id: string): Promise<void> {
   loading.value = true
   errorMessage.value = ''
   sermon.value = undefined
+  editingKind.value = undefined
+  editMessage.value = ''
+  reflectionMessage.value = ''
   try {
     const loadedSermon = await loadServerSermon(id)
     if (loadedSermon.processing_status !== 'ready') {
@@ -116,6 +190,7 @@ async function load(id: string): Promise<void> {
       return
     }
     sermon.value = loadedSermon
+    reflectionContent.value = loadedSermon.reflections[0]?.content ?? ''
   } catch (error) {
     if (!isAuthenticated.value) {
       await router.replace({
@@ -226,13 +301,34 @@ watch(
         </button>
       </nav>
 
+      <p v-if="editMessage" class="edit-message" role="status">{{ editMessage }}</p>
+
       <div class="sermon-content">
         <template v-if="activeSection === 'study'">
           <section class="artifact artifact--lead">
             <div class="artifact__heading">
               <p class="rubric-label">In brief</p>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit short summary"
+                @click="beginArtifactEdit('short_summary')"
+              >
+                <PencilLine :size="16" />
+              </button>
             </div>
-            <p class="artifact__summary">{{ artifact('short_summary') }}</p>
+            <div v-if="editingKind === 'short_summary'" class="artifact-editor">
+              <textarea v-model="editContent" rows="6" aria-label="Short summary"></textarea>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <p v-else class="artifact__summary">{{ artifact('short_summary') }}</p>
           </section>
 
           <section v-if="sermon.scripture_references.length" class="artifact">
@@ -256,8 +352,27 @@ watch(
           <section class="artifact">
             <div class="artifact__heading">
               <h2>Long summary</h2>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit long summary"
+                @click="beginArtifactEdit('long_summary')"
+              >
+                <PencilLine :size="16" />
+              </button>
             </div>
-            <div class="artifact__prose">
+            <div v-if="editingKind === 'long_summary'" class="artifact-editor">
+              <textarea v-model="editContent" rows="12" aria-label="Long summary"></textarea>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <div v-else class="artifact__prose">
               <p v-for="paragraph in paragraphs(artifact('long_summary'))" :key="paragraph">
                 {{ paragraph }}
               </p>
@@ -267,8 +382,27 @@ watch(
           <section class="artifact">
             <div class="artifact__heading">
               <h2>Outline</h2>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit outline"
+                @click="beginArtifactEdit('outline')"
+              >
+                <PencilLine :size="16" />
+              </button>
             </div>
-            <ol class="outline">
+            <div v-if="editingKind === 'outline'" class="artifact-editor">
+              <textarea v-model="editContent" rows="9" aria-label="Outline"></textarea>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <ol v-else class="outline">
               <li v-for="item in numberedItems(artifact('outline'))" :key="item">
                 <span>{{ item }}</span>
               </li>
@@ -327,9 +461,36 @@ watch(
 
         <template v-else-if="activeSection === 'discuss'">
           <section class="artifact question-set">
-            <p class="rubric-label">Around the table</p>
-            <h2>Discussion questions</h2>
-            <ol>
+            <div class="artifact__heading">
+              <div>
+                <p class="rubric-label">Around the table</p>
+                <h2>Discussion questions</h2>
+              </div>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit adult discussion questions"
+                @click="beginArtifactEdit('adult_discussion_questions')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <div v-if="editingKind === 'adult_discussion_questions'" class="artifact-editor">
+              <textarea
+                v-model="editContent"
+                rows="9"
+                aria-label="Adult discussion questions"
+              ></textarea>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <ol v-else>
               <li
                 v-for="question in numberedItems(artifact('adult_discussion_questions'))"
                 :key="question"
@@ -339,9 +500,36 @@ watch(
             </ol>
           </section>
           <section class="artifact question-set question-set--kids">
-            <p class="rubric-label">With children</p>
-            <h2>Questions for younger listeners</h2>
-            <ol>
+            <div class="artifact__heading">
+              <div>
+                <p class="rubric-label">With children</p>
+                <h2>Questions for younger listeners</h2>
+              </div>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit kids discussion questions"
+                @click="beginArtifactEdit('kids_discussion_questions')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <div v-if="editingKind === 'kids_discussion_questions'" class="artifact-editor">
+              <textarea
+                v-model="editContent"
+                rows="9"
+                aria-label="Kids discussion questions"
+              ></textarea>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <ol v-else>
               <li
                 v-for="question in numberedItems(artifact('kids_discussion_questions'))"
                 :key="question"
@@ -356,15 +544,22 @@ watch(
           <section id="reflection" class="artifact reflection">
             <p class="rubric-label">Private to you</p>
             <h2>Reflection</h2>
-            <p class="reflection__prompt">Where is this sermon asking for one faithful action?</p>
+            <p class="reflection__prompt">{{ reflectionPrompt }}</p>
             <textarea
+              v-model="reflectionContent"
               rows="8"
               aria-label="Your private reflection"
-              placeholder="Private reflection editing is coming next."
-              disabled
+              placeholder="Begin writing…"
             ></textarea>
             <div class="reflection__footer">
-              <span>Reflections will remain private to your account.</span>
+              <span>{{ reflectionMessage || 'Only you can see this Reflection.' }}</span>
+              <button
+                type="button"
+                :disabled="savingReflection || !reflectionContent.trim()"
+                @click="persistReflection"
+              >
+                {{ savingReflection ? 'Saving…' : 'Save reflection' }}
+              </button>
             </div>
           </section>
         </template>
@@ -589,6 +784,14 @@ watch(
   color: var(--color-rubric);
 }
 
+.edit-message {
+  color: var(--color-lapis);
+  font-family: var(--font-utility);
+  font-size: 0.76rem;
+  margin: -2rem auto 2rem;
+  max-width: var(--reading-width);
+}
+
 .sermon-content {
   margin: 0 auto;
   max-width: var(--reading-width);
@@ -620,26 +823,75 @@ watch(
   margin: 0;
 }
 
-.artifact__tools {
-  display: flex;
-  flex: none;
-  gap: 0.25rem;
-}
-
-.artifact__tools button {
+.artifact__edit {
   align-items: center;
   background: transparent;
   border: 0;
   color: var(--color-ink-muted);
   cursor: pointer;
   display: flex;
+  flex: none;
   height: 2.5rem;
   justify-content: center;
   width: 2.5rem;
 }
 
-.artifact__tools button:hover {
+.artifact__edit:hover {
   color: var(--color-lapis);
+}
+
+.artifact-editor {
+  margin-top: 1.25rem;
+}
+
+.artifact-editor textarea {
+  background: var(--color-vellum-light);
+  border: 1px solid var(--color-margin);
+  color: var(--color-ink);
+  font-family: var(--font-reading);
+  font-size: 1rem;
+  line-height: 1.65;
+  padding: 1rem;
+  resize: vertical;
+  width: 100%;
+}
+
+.artifact-editor textarea:focus {
+  border-color: var(--color-lapis);
+  box-shadow: 0 0 0 3px rgba(47, 75, 124, 0.11);
+  outline: 0;
+}
+
+.artifact-editor__actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: end;
+  margin-top: 0.6rem;
+}
+
+.artifact-editor__actions button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--color-margin);
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font-utility);
+  font-size: 0.78rem;
+  gap: 0.35rem;
+  min-height: 2.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.artifact-editor__actions button:last-child {
+  background: var(--color-lapis);
+  border-color: var(--color-lapis);
+  color: var(--color-vellum-light);
+}
+
+.artifact-editor__actions button:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 .artifact__summary {
@@ -861,6 +1113,11 @@ watch(
   font-weight: 650;
   min-height: 2.75rem;
   padding: 0.65rem 1rem;
+}
+
+.reflection__footer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 @media (max-width: 600px) {

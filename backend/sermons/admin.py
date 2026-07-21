@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    Reflection,
     RelatedSermon,
     ScriptureReference,
     Sermon,
@@ -37,6 +38,11 @@ class RelatedSermonInline(admin.TabularInline):
     extra = 0
 
 
+class ReflectionInline(admin.StackedInline):
+    model = Reflection
+    extra = 0
+
+
 @admin.register(Sermon)
 class SermonAdmin(admin.ModelAdmin):
     inlines = (
@@ -45,6 +51,7 @@ class SermonAdmin(admin.ModelAdmin):
         ScriptureReferenceInline,
         TagSuggestionInline,
         RelatedSermonInline,
+        ReflectionInline,
     )
     list_display = (
         "captured_at",

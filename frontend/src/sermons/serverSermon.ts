@@ -63,12 +63,21 @@ export interface RelatedServerSermon {
   reason: string
 }
 
+export interface ServerReflection {
+  id: string
+  prompt: string
+  content: string
+  created_at: string
+  updated_at: string
+}
+
 export interface ServerSermonDetail extends ServerSermon {
   audio_url: string
   transcript: ServerTranscript | null
   study_artifacts: ServerStudyArtifact[]
   scripture_references: ServerScriptureReference[]
   related_sermons: RelatedServerSermon[]
+  reflections: ServerReflection[]
 }
 
 export function serverSermonTitle(sermon: Pick<ServerSermon, 'captured_at'>): string {
@@ -85,22 +94,81 @@ export function serverSermonDuration(durationSeconds: number): string {
   return `${minutes} min`
 }
 
-export async function loadServerSermon(id: string): Promise<ServerSermonDetail> {
+function responseError(data: unknown, fallback: string): string {
+  if (!data || typeof data !== 'object') return fallback
+  for (const value of Object.values(data as Record<string, unknown>)) {
+    if (typeof value === 'string') return value
+    if (Array.isArray(value) && typeof value[0] === 'string') return value[0]
+  }
+  return fallback
+}
+
+async function authorizedJson<T>(
+  path: string,
+  init: RequestInit = {},
+  fallback = 'The request could not be completed.',
+): Promise<T> {
   const request = (token: string) =>
-    fetch(`${API_BASE_URL}/api/sermons/${encodeURIComponent(id)}/`, {
-      headers: { Authorization: `Bearer ${token}` },
+    fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers: {
+        ...init.headers,
+        Authorization: `Bearer ${token}`,
+      },
     })
 
   let response = await request(await authorizedAccessToken())
   if (response.status === 401) {
     response = await request(await refreshAuthorizedAccessToken())
   }
+  const data = (await response.json()) as unknown
   if (!response.ok) {
-    throw new Error(
-      response.status === 404
-        ? 'This Sermon is not in your private library.'
-        : 'This Sermon could not be opened.',
-    )
+    throw new Error(responseError(data, fallback))
   }
-  return (await response.json()) as ServerSermonDetail
+  return data as T
+}
+
+export async function loadServerSermon(id: string): Promise<ServerSermonDetail> {
+  return authorizedJson<ServerSermonDetail>(
+    `/api/sermons/${encodeURIComponent(id)}/`,
+    {},
+    'This Sermon could not be opened.',
+  )
+}
+
+export async function updateStudyArtifact(
+  sermonId: string,
+  kind: StudyArtifactKind,
+  content: string,
+): Promise<ServerStudyArtifact> {
+  return authorizedJson<ServerStudyArtifact>(
+    `/api/sermons/${encodeURIComponent(sermonId)}/artifacts/${kind}/`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    },
+    'This Study artifact could not be saved.',
+  )
+}
+
+export async function saveReflection(
+  sermonId: string,
+  reflection: Pick<ServerReflection, 'prompt' | 'content'> & { id?: string },
+): Promise<ServerReflection> {
+  const path = reflection.id
+    ? `/api/sermons/${encodeURIComponent(sermonId)}/reflections/${encodeURIComponent(reflection.id)}/`
+    : `/api/sermons/${encodeURIComponent(sermonId)}/reflections/`
+  return authorizedJson<ServerReflection>(
+    path,
+    {
+      method: reflection.id ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: reflection.prompt,
+        content: reflection.content,
+      }),
+    },
+    'Your Reflection could not be saved.',
+  )
 }
