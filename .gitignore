@@ -16,6 +16,12 @@ backend/media/
 backend/credentials/
 **/__pycache__/
 *.py[cod]
+backend/celerybeat-schedule
+backend/celerybeat-schedule-*
+
+# Local runtime dumps
+dump.rdb
+*.rdb
 
 # Local environment
 frontend/android/app/google-services.json
