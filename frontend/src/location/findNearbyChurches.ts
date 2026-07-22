@@ -6,15 +6,27 @@ import {
 
 export async function findNearbyChurches(): Promise<ChurchSuggestion[]> {
   try {
-    let permission = await Geolocation.checkPermissions()
-    if (permission.location === 'prompt' || permission.location === 'prompt-with-rationale') {
-      permission = await Geolocation.requestPermissions({ permissions: ['location'] })
+    try {
+      let permission = await Geolocation.checkPermissions()
+      if (permission.location === 'prompt' || permission.location === 'prompt-with-rationale') {
+        try {
+          permission = await Geolocation.requestPermissions({ permissions: ['location'] })
+        } catch {
+          // Web: getCurrentPosition shows the browser prompt.
+        }
+      }
+      if (permission.location === 'denied') {
+        throw new Error(
+          'Location permission is off. Choose a Church manually or enable location in system settings.',
+        )
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Location permission is off')) {
+        throw error
+      }
+      // Permissions API missing — continue to getCurrentPosition.
     }
-    if (permission.location !== 'granted') {
-      throw new Error(
-        'Location permission is off. Choose a Church manually or enable location in system settings.',
-      )
-    }
+
     const position = await Geolocation.getCurrentPosition({
       enableHighAccuracy: true,
       timeout: 12_000,

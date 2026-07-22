@@ -14,6 +14,7 @@ import {
   createDraft,
   deleteDraft,
   listDrafts,
+  updateDraft,
 } from './draftRepository'
 
 async function deleteTestDatabase(): Promise<void> {
@@ -53,9 +54,44 @@ describe('local Draft repository', () => {
       durationSeconds: 82,
       mimeType: 'audio/mp4',
       sizeBytes: secondAudio.size,
+      locationStatus: 'pending',
     })
     expect(await drafts[0].audio?.text()).toBe('second recording')
     expect(drafts[1].createdAt).toBe('2026-07-20T14:00:00.000Z')
+  })
+
+  it('stores place and metadata on an existing Draft', async () => {
+    const draft = await createDraft(
+      new Blob(['meta'], { type: 'audio/webm' }),
+      30,
+      new Date('2026-07-20T14:00:00.000Z'),
+    )
+
+    const updated = await updateDraft(draft.id, {
+      locationStatus: 'captured',
+      latitude: 39.9526,
+      longitude: -75.1652,
+      churchName: 'Grace Parish',
+      preacherName: 'Rev. Miriam Cho',
+      occasionKind: 'sunday',
+      liturgicalDay: 'Third Sunday of Ordinary Time',
+    })
+
+    expect(updated).toMatchObject({
+      locationStatus: 'captured',
+      latitude: 39.9526,
+      longitude: -75.1652,
+      churchName: 'Grace Parish',
+      preacherName: 'Rev. Miriam Cho',
+      occasionKind: 'sunday',
+    })
+    await expect(listDrafts()).resolves.toEqual([
+      expect.objectContaining({
+        id: draft.id,
+        churchName: 'Grace Parish',
+        latitude: 39.9526,
+      }),
+    ])
   })
 
   it('deletes only the chosen Draft', async () => {

@@ -12,7 +12,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   delete: [id: string]
-  upload: [id: string]
+  continue: [id: string]
 }>()
 
 const audio = ref<HTMLAudioElement>()
@@ -151,11 +151,11 @@ onBeforeUnmount(clearAudioUrl)
         type="button"
         :aria-busy="uploading"
         :disabled="uploading"
-        @click="emit('upload', draft.id)"
+        @click="emit('continue', draft.id)"
       >
         <LoaderCircle v-if="uploading" class="local-draft__spinner" :size="16" aria-hidden="true" />
         <CloudUpload v-else :size="16" aria-hidden="true" />
-        {{ uploading ? `Uploading ${uploadPercent}%` : 'Upload' }}
+        {{ uploading ? `Uploading ${uploadPercent}%` : 'Continue' }}
       </button>
       <button
         class="local-draft__delete"

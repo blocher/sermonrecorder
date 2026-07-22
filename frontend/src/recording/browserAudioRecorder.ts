@@ -81,22 +81,53 @@ export class BrowserAudioRecorder {
     }
 
     return new Promise((resolve, reject) => {
+      let settled = false
+
+      const settle = (action: () => void) => {
+        if (settled) return
+        settled = true
+        globalThis.clearTimeout(timeout)
+        action()
+      }
+
       const finish = () => {
-        this.stopStream()
-        const mimeType = recorder.mimeType || this.chunks[0]?.type || 'audio/webm'
-        const audio = new Blob(this.chunks, { type: mimeType })
-        this.mediaRecorder = undefined
-        resolve(audio)
+        settle(() => {
+          this.stopStream()
+          const mimeType = recorder.mimeType || this.chunks[0]?.type || 'audio/webm'
+          const audio = new Blob(this.chunks, { type: mimeType })
+          this.mediaRecorder = undefined
+          resolve(audio)
+        })
       }
 
       const fail = () => {
-        this.stopStream()
-        this.mediaRecorder = undefined
-        reject(new Error('The recording could not be saved.'))
+        settle(() => {
+          this.stopStream()
+          this.mediaRecorder = undefined
+          reject(new Error('The recording could not be saved.'))
+        })
       }
+
+      const timeout = globalThis.setTimeout(() => {
+        settle(() => {
+          this.stopStream()
+          this.mediaRecorder = undefined
+          if (this.chunks.length === 0) {
+            reject(new Error('The recording could not be saved.'))
+            return
+          }
+          const mimeType = recorder.mimeType || this.chunks[0]?.type || 'audio/webm'
+          resolve(new Blob(this.chunks, { type: mimeType }))
+        })
+      }, 8_000)
 
       recorder.addEventListener('stop', finish, { once: true })
       recorder.addEventListener('error', fail, { once: true })
+      try {
+        if (typeof recorder.requestData === 'function') recorder.requestData()
+      } catch {
+        // Some browsers reject requestData outside an active timeslice window.
+      }
       recorder.stop()
     })
   }

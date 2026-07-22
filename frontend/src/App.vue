@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Search, UserRound } from '@lucide/vue'
 import { useAuth } from './auth/useAuth'
 import BrandMark from './components/BrandMark.vue'
+import DraftWizard from './components/DraftWizard.vue'
 import RecordSeal from './components/RecordSeal.vue'
 import {
   initializeProcessingAlerts,
@@ -14,19 +15,19 @@ import { useDraftRecorder } from './recording/useDraftRecorder'
 const route = useRoute()
 const router = useRouter()
 const publicRoute = computed(() => route.meta.public === true)
-const draftSaved = ref(false)
 const { isAuthenticated } = useAuth()
 const {
   state,
   elapsedSeconds,
   drafts,
   errorMessage,
-  lastSavedDraft,
+  wizardDraftId,
   hasPendingRecording,
   initialize,
   toggle,
   retrySave,
   clearError,
+  closeDraftWizard,
 } = useDraftRecorder()
 
 const draftStatus = computed(() => {
@@ -41,13 +42,10 @@ function openSearch(): void {
   void router.push({ path: '/', query: { focus: 'search' } })
 }
 
-watch(lastSavedDraft, (draft) => {
-  if (!draft) return
-  draftSaved.value = true
-  window.setTimeout(() => {
-    draftSaved.value = false
-  }, 3200)
-})
+function onWizardUploaded(sermonId: string): void {
+  closeDraftWizard()
+  void router.push(`/sermons/${encodeURIComponent(sermonId)}`)
+}
 
 watch(isAuthenticated, (authenticated) => {
   if (authenticated) void syncProcessingAlerts()
@@ -92,11 +90,6 @@ onMounted(() => {
       </div>
     </header>
 
-    <div v-if="draftSaved" class="draft-saved" role="status">
-      <strong>Draft saved on this device.</strong>
-      Add details or upload when you are ready.
-    </div>
-
     <aside v-if="state === 'error'" class="recording-error" role="alert">
       <div>
         <strong>Recording needs attention</strong>
@@ -108,6 +101,12 @@ onMounted(() => {
 
     <RouterView />
     <RecordSeal :state="state" :elapsed-seconds="elapsedSeconds" @toggle="toggle" />
+    <DraftWizard
+      v-if="wizardDraftId"
+      :draft-id="wizardDraftId"
+      @close="closeDraftWizard"
+      @uploaded="onWizardUploaded"
+    />
   </div>
 </template>
 
@@ -191,25 +190,6 @@ onMounted(() => {
 .app-header__account:focus-visible {
   outline: 2px solid var(--color-lapis);
   outline-offset: 3px;
-}
-
-.draft-saved {
-  background: var(--color-lapis);
-  box-shadow: 0 8px 24px rgba(28, 36, 48, 0.18);
-  color: var(--color-vellum-light);
-  font-family: var(--font-utility);
-  font-size: 0.8rem;
-  left: 50%;
-  max-width: calc(100vw - 2rem);
-  padding: 0.85rem 1.1rem;
-  position: fixed;
-  top: calc(var(--header-height) + 1rem);
-  transform: translateX(-50%);
-  z-index: 50;
-}
-
-.draft-saved strong {
-  margin-right: 0.25rem;
 }
 
 .recording-error {

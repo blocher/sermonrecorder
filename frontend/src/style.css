@@ -48,7 +48,8 @@ textarea:focus-visible {
 }
 
 body.recording-lock,
-body.library-search-lock {
+body.library-search-lock,
+body.draft-wizard-lock {
   overflow: hidden;
 }
 

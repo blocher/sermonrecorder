@@ -30,7 +30,6 @@ import {
   type ServerSermon,
 } from '../sermons/serverSermon'
 import { useServerSermons } from '../sermons/useServerSermons'
-import { uploadDraft } from '../upload/uploadDraft'
 
 const route = useRoute()
 const router = useRouter()
@@ -46,11 +45,10 @@ const dateToFilter = ref('')
 const churches = ref<ServerChurch[]>([])
 const preachers = ref<ServerPreacher[]>([])
 const draftActionMessage = ref('')
-const uploadProgress = ref<Record<string, number>>({})
 const retryingSermons = ref<Record<string, boolean>>({})
 const deletingSermons = ref<Record<string, boolean>>({})
 const { isAuthenticated } = useAuth()
-const { drafts, removeDraft } = useDraftRecorder()
+const { drafts, removeDraft, openDraftWizard } = useDraftRecorder()
 const {
   pendingSermons,
   errorMessage: serverError,
@@ -254,40 +252,16 @@ function announceDraftAction(message: string): void {
   }, 3000)
 }
 
+async function continueLocalDraft(id: string): Promise<void> {
+  openDraftWizard(id)
+}
+
 async function removeLocalDraft(id: string): Promise<void> {
   try {
     await removeDraft(id)
     announceDraftAction('Draft deleted from this device.')
   } catch {
     announceDraftAction('The Draft could not be deleted. Try again.')
-  }
-}
-
-async function uploadLocalDraft(id: string): Promise<void> {
-  const draft = drafts.value.find((candidate) => candidate.id === id)
-  if (!draft) return
-
-  if (!isAuthenticated.value) {
-    await router.push({ name: 'account', query: { redirect: '/' } })
-    return
-  }
-
-  uploadProgress.value = { ...uploadProgress.value, [id]: 0 }
-  announceDraftAction('Uploading this Draft securely…')
-
-  try {
-    await uploadDraft(draft, (progress) => {
-      uploadProgress.value = { ...uploadProgress.value, [id]: progress }
-    })
-    await removeDraft(id)
-    await refreshServerSermons()
-    announceDraftAction('Draft uploaded. Pewcorder will alert you when the Sermon is ready.')
-  } catch (error) {
-    announceDraftAction(error instanceof Error ? error.message : 'The Draft could not be uploaded.')
-  } finally {
-    const remaining = { ...uploadProgress.value }
-    delete remaining[id]
-    uploadProgress.value = remaining
   }
 }
 
@@ -421,10 +395,8 @@ watch(
         v-for="draft in drafts"
         :key="draft.id"
         :draft="draft"
-        :uploading="draft.id in uploadProgress"
-        :upload-progress="uploadProgress[draft.id]"
         @delete="removeLocalDraft"
-        @upload="uploadLocalDraft"
+        @continue="continueLocalDraft"
       />
     </section>
 

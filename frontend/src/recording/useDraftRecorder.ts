@@ -1,13 +1,16 @@
 import { App } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import { computed, ref, shallowRef } from 'vue'
+import { captureRecordingLocation } from '../location/captureRecordingLocation'
 import { createAudioRecorder, supportsAudioRecording } from './audioRecorder'
 import {
   createDraft,
   deleteDraft,
   listDrafts,
+  updateDraft,
   type DraftAudioInput,
   type LocalDraft,
+  type LocalDraftMetadataPatch,
 } from './draftRepository'
 
 export type RecorderState = 'idle' | 'requesting' | 'recording' | 'saving' | 'error'
@@ -18,6 +21,7 @@ const elapsedSeconds = ref(0)
 const drafts = ref<LocalDraft[]>([])
 const errorMessage = ref('')
 const lastSavedDraft = ref<LocalDraft>()
+const wizardDraftId = ref<string>()
 const initialized = ref(false)
 let elapsedTimer: number | undefined
 let startedAt = 0
@@ -56,6 +60,28 @@ function recordingError(error: unknown): string {
 
 async function refreshDrafts(): Promise<void> {
   drafts.value = await listDrafts()
+}
+
+async function captureLocationForDraft(draftId: string): Promise<LocalDraft | undefined> {
+  const result = await captureRecordingLocation()
+  try {
+    const patch: LocalDraftMetadataPatch =
+      result.status === 'captured'
+        ? {
+            locationStatus: 'captured',
+            latitude: result.latitude,
+            longitude: result.longitude,
+          }
+        : { locationStatus: result.status }
+
+    const updated = await updateDraft(draftId, patch)
+    drafts.value = drafts.value.map((draft) => (draft.id === draftId ? updated : draft))
+    if (lastSavedDraft.value?.id === draftId) lastSavedDraft.value = updated
+    return updated
+  } catch {
+    // Location enrichment must never jeopardize a saved Draft.
+    return undefined
+  }
 }
 
 async function initialize(): Promise<void> {
@@ -132,13 +158,18 @@ async function savePendingRecording(): Promise<void> {
   errorMessage.value = ''
 
   try {
-    lastSavedDraft.value = await createDraft(
+    const draft = await createDraft(
       pendingRecording.value.audio,
       pendingRecording.value.durationSeconds,
     )
     pendingRecording.value = undefined
-    await refreshDrafts()
+    lastSavedDraft.value = draft
+    drafts.value = [draft, ...drafts.value.filter((item) => item.id !== draft.id)]
+    wizardDraftId.value = draft.id
     state.value = 'idle'
+    // Capture place before refreshing the list so a concurrent IDB read cannot
+    // overwrite an in-memory "captured" status with a stale "pending" row.
+    void captureLocationForDraft(draft.id).then(() => refreshDrafts())
   } catch (error) {
     state.value = 'error'
     errorMessage.value = `${recordingError(error)} The audio is still open; choose “Try saving again.”`
@@ -182,6 +213,21 @@ async function removeDraft(id: string): Promise<void> {
   await refreshDrafts()
 }
 
+async function patchDraft(id: string, patch: LocalDraftMetadataPatch): Promise<LocalDraft> {
+  const updated = await updateDraft(id, patch)
+  drafts.value = drafts.value.map((draft) => (draft.id === id ? updated : draft))
+  if (lastSavedDraft.value?.id === id) lastSavedDraft.value = updated
+  return updated
+}
+
+function openDraftWizard(id: string): void {
+  wizardDraftId.value = id
+}
+
+function closeDraftWizard(): void {
+  wizardDraftId.value = undefined
+}
+
 function clearError(): void {
   errorMessage.value = ''
   state.value = 'idle'
@@ -194,6 +240,7 @@ export function useDraftRecorder() {
     drafts,
     errorMessage,
     lastSavedDraft,
+    wizardDraftId,
     isSupported: computed(() => supportsAudioRecording()),
     hasPendingRecording: computed(() => Boolean(pendingRecording.value)),
     isRecording: computed(() => state.value === 'recording'),
@@ -204,6 +251,11 @@ export function useDraftRecorder() {
     toggle,
     retrySave: savePendingRecording,
     removeDraft,
+    patchDraft,
+    openDraftWizard,
+    closeDraftWizard,
+    refreshDrafts,
+    captureLocationForDraft,
     clearError,
   }
 }

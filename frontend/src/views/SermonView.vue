@@ -585,8 +585,8 @@ async function chooseChurchSuggestion(suggestion: ChurchSuggestion): Promise<voi
     const saved = await createChurch({
       name: suggestion.name,
       address: suggestion.address,
-      latitude: suggestion.latitude.toFixed(7),
-      longitude: suggestion.longitude.toFixed(7),
+      latitude: suggestion.latitude.toFixed(6),
+      longitude: suggestion.longitude.toFixed(6),
     })
     churches.value.push(saved)
     churches.value.sort((left, right) => left.name.localeCompare(right.name))

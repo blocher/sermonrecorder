@@ -35,7 +35,7 @@ const statusLabel = computed(() => {
 const statusHint = computed(() => {
   if (props.state === 'recording') return 'Recording locally on this device'
   if (props.state === 'requesting') return 'Allow access to begin recording'
-  return 'Writing the Draft to this device'
+  return 'Saving the Draft on this device — longer recordings take a moment'
 })
 const statusTime = computed(() => {
   if (props.state === 'recording') return elapsed.value

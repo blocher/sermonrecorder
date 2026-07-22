@@ -54,4 +54,17 @@ describe('nearby Church location', () => {
     expect(mocks.getCurrentPosition).not.toHaveBeenCalled()
     expect(mocks.loadNearbyChurches).not.toHaveBeenCalled()
   })
+
+  it('still reads a fix on web when requestPermissions is unimplemented', async () => {
+    const suggestions = [{ provider_id: 'osm:node:42', name: 'Grace Parish' }]
+    mocks.checkPermissions.mockResolvedValue({ location: 'prompt' })
+    mocks.requestPermissions.mockRejectedValue(new Error('Not implemented on web.'))
+    mocks.getCurrentPosition.mockResolvedValue({
+      coords: { latitude: 40.001, longitude: -75.002 },
+    })
+    mocks.loadNearbyChurches.mockResolvedValue(suggestions)
+
+    await expect(findNearbyChurches()).resolves.toEqual(suggestions)
+    expect(mocks.getCurrentPosition).toHaveBeenCalledOnce()
+  })
 })

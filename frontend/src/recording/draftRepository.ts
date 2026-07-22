@@ -1,7 +1,8 @@
 import { deleteNativeDraftFile, persistNativeRecording } from './nativeDraftFiles'
+import type { OccasionKind } from '../sermons/serverSermon'
 
 const DATABASE_NAME = 'pewcorder'
-const DATABASE_VERSION = 1
+const DATABASE_VERSION = 2
 const DRAFT_STORE = 'drafts'
 
 export interface NativeAudioFile {
@@ -12,6 +13,8 @@ export interface NativeAudioFile {
 
 export type DraftAudioInput = Blob | NativeAudioFile
 
+export type DraftLocationStatus = 'pending' | 'captured' | 'denied' | 'unavailable'
+
 export interface LocalDraft {
   id: string
   createdAt: string
@@ -20,7 +23,37 @@ export interface LocalDraft {
   sizeBytes: number
   audio?: Blob
   audioPath?: string
+  latitude?: number
+  longitude?: number
+  locationStatus?: DraftLocationStatus
+  churchId?: string
+  churchName?: string
+  churchAddress?: string
+  churchLatitude?: number
+  churchLongitude?: number
+  preacherId?: string
+  preacherName?: string
+  occasionKind?: OccasionKind | ''
+  liturgicalDay?: string
 }
+
+export type LocalDraftMetadataPatch = Partial<
+  Pick<
+    LocalDraft,
+    | 'latitude'
+    | 'longitude'
+    | 'locationStatus'
+    | 'churchId'
+    | 'churchName'
+    | 'churchAddress'
+    | 'churchLatitude'
+    | 'churchLongitude'
+    | 'preacherId'
+    | 'preacherName'
+    | 'occasionKind'
+    | 'liturgicalDay'
+  >
+>
 
 let databasePromise: Promise<IDBDatabase> | undefined
 
@@ -88,6 +121,7 @@ export async function createDraft(
       mimeType: audio.type || 'audio/webm',
       sizeBytes: audio.size,
       audio,
+      locationStatus: 'pending',
     }
   } else {
     const persistedAudio = await persistNativeRecording(audio.uri, id)
@@ -104,6 +138,7 @@ export async function createDraft(
       mimeType: audio.mimeType,
       sizeBytes: persistedAudio.sizeBytes,
       audioPath: persistedAudio.path,
+      locationStatus: 'pending',
     }
   }
 
@@ -119,6 +154,35 @@ export async function createDraft(
   }
 
   return draft
+}
+
+export async function getDraft(id: string): Promise<LocalDraft | undefined> {
+  const database = await openDatabase()
+  const transaction = database.transaction(DRAFT_STORE, 'readonly')
+  const draft = await requestResult<LocalDraft | undefined>(
+    transaction.objectStore(DRAFT_STORE).get(id),
+  )
+  await transactionComplete(transaction)
+  return draft
+}
+
+export async function updateDraft(
+  id: string,
+  patch: LocalDraftMetadataPatch,
+): Promise<LocalDraft> {
+  const database = await openDatabase()
+  const transaction = database.transaction(DRAFT_STORE, 'readwrite')
+  const store = transaction.objectStore(DRAFT_STORE)
+  const existing = await requestResult<LocalDraft | undefined>(store.get(id))
+  if (!existing) {
+    transaction.abort()
+    throw new Error('That Draft is no longer on this device.')
+  }
+
+  const updated: LocalDraft = { ...existing, ...patch }
+  store.put(updated)
+  await transactionComplete(transaction)
+  return updated
 }
 
 export async function listDrafts(): Promise<LocalDraft[]> {
