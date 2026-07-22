@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { UserRound } from '@lucide/vue'
+import { Search, UserRound } from '@lucide/vue'
 import { useAuth } from './auth/useAuth'
-import AppNavigation from './components/AppNavigation.vue'
 import BrandMark from './components/BrandMark.vue'
 import RecordSeal from './components/RecordSeal.vue'
 import {
@@ -34,6 +33,13 @@ const draftStatus = computed(() => {
   if (drafts.value.length === 0) return 'No drafts on device'
   return `${drafts.value.length} ${drafts.value.length === 1 ? 'draft' : 'drafts'} on device`
 })
+
+const searchActive = computed(() => route.path === '/' && route.query.focus === 'search')
+
+function openSearch(): void {
+  if (route.path === '/' && route.query.focus === 'search') return
+  void router.push({ path: '/', query: { focus: 'search' } })
+}
 
 watch(lastSavedDraft, (draft) => {
   if (!draft) return
@@ -66,6 +72,15 @@ onMounted(() => {
           <BrandMark compact />
         </RouterLink>
         <span class="app-header__status">{{ draftStatus }}</span>
+        <button
+          class="app-header__search"
+          type="button"
+          :aria-pressed="searchActive"
+          aria-label="Search your library"
+          @click="openSearch"
+        >
+          <Search :size="19" :stroke-width="1.7" aria-hidden="true" />
+        </button>
         <RouterLink
           class="app-header__account"
           :class="{ 'app-header__account--connected': isAuthenticated }"
@@ -93,7 +108,6 @@ onMounted(() => {
 
     <RouterView />
     <RecordSeal :state="state" :elapsed-seconds="elapsedSeconds" @toggle="toggle" />
-    <AppNavigation />
   </div>
 </template>
 
@@ -117,7 +131,8 @@ onMounted(() => {
 .app-header__inner {
   align-items: center;
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  gap: 0.65rem;
+  grid-template-columns: 1fr auto auto auto;
   height: 100%;
   margin: 0 auto;
   max-width: var(--page-width);
@@ -133,9 +148,9 @@ onMounted(() => {
   color: var(--color-ink-muted);
   font-family: var(--font-utility);
   font-size: 0.72rem;
-  margin-right: 1.2rem;
 }
 
+.app-header__search,
 .app-header__account {
   align-items: center;
   background: transparent;
@@ -150,18 +165,29 @@ onMounted(() => {
   width: 2.6rem;
 }
 
+.app-header__search[aria-pressed='true'],
 .app-header__account--connected {
   background: var(--color-lapis);
   border-color: var(--color-lapis);
   color: var(--color-vellum-light);
 }
 
+.app-header__search:hover,
+.app-header__search:focus-visible,
 .app-header__account:hover,
 .app-header__account:focus-visible {
   border-color: var(--color-lapis);
   color: var(--color-lapis);
 }
 
+.app-header__search[aria-pressed='true']:hover,
+.app-header__search[aria-pressed='true']:focus-visible,
+.app-header__account--connected:hover,
+.app-header__account--connected:focus-visible {
+  color: var(--color-vellum-light);
+}
+
+.app-header__search:focus-visible,
 .app-header__account:focus-visible {
   outline: 2px solid var(--color-lapis);
   outline-offset: 3px;

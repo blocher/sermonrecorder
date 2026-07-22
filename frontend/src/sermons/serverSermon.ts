@@ -38,6 +38,7 @@ export interface ServerSermon {
   source_draft_id: string
   captured_at: string
   duration_seconds: number
+  audio_url: string
   audio_mime_type: string
   audio_size_bytes: number
   church: ServerChurch | null
@@ -154,6 +155,13 @@ export interface ServerSermonSearchFilters {
   date_to?: string
 }
 
+export interface PaginatedSermons {
+  count: number
+  next: string | null
+  previous: string | null
+  results: ServerSermon[]
+}
+
 export function serverSermonTitle(sermon: Pick<ServerSermon, 'captured_at'>): string {
   const captured = new Date(sermon.captured_at)
   return `${new Intl.DateTimeFormat(undefined, {
@@ -210,19 +218,46 @@ export async function loadServerSermon(id: string): Promise<ServerSermonDetail> 
   )
 }
 
+export async function retrySermonProcessing(id: string): Promise<ServerSermon> {
+  return authorizedJson<ServerSermon>(
+    `/api/sermons/${encodeURIComponent(id)}/retry/`,
+    { method: 'POST' },
+    'This Sermon could not be retried.',
+  )
+}
+
+export async function deleteInProgressSermon(id: string): Promise<void> {
+  return authorizedJson<void>(
+    `/api/sermons/${encodeURIComponent(id)}/`,
+    { method: 'DELETE' },
+    'This Sermon could not be deleted.',
+  )
+}
+
 export async function searchServerSermons(
   filters: ServerSermonSearchFilters,
-): Promise<ServerSermon[]> {
+  page = 1,
+): Promise<PaginatedSermons> {
   const query = new URLSearchParams({ processing_status: 'ready' })
+  if (page > 1) query.set('page', String(page))
   for (const [key, value] of Object.entries(filters)) {
     const normalizedValue = value?.trim()
     if (normalizedValue) query.set(key, normalizedValue)
   }
-  return authorizedJson<ServerSermon[]>(
+  return authorizedJson<PaginatedSermons>(
     `/api/sermons/?${query}`,
     {},
     'Your Sermon library could not be searched.',
   )
+}
+
+export async function loadInProgressSermons(): Promise<ServerSermon[]> {
+  const page = await authorizedJson<PaginatedSermons>(
+    '/api/sermons/?in_progress=true&page_size=50',
+    {},
+    'Your uploaded Sermons could not be refreshed.',
+  )
+  return page.results
 }
 
 export async function updateStudyArtifact(

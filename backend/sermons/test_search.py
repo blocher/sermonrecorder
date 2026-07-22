@@ -105,7 +105,7 @@ class SermonLibrarySearchTests(APITestCase):
         )
 
     def _ids(self, response):
-        return {item["id"] for item in response.data}
+        return {item["id"] for item in response.data["results"]}
 
     def test_searches_private_content_and_metadata_without_exposing_reflections(self):
         searches = (
@@ -127,7 +127,7 @@ class SermonLibrarySearchTests(APITestCase):
                 response = self.client.get("/api/sermons/", {"search": search})
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(self._ids(response), {str(self.sermon.id)})
-                self.assertNotIn("reflections", response.data[0])
+                self.assertNotIn("reflections", response.data["results"][0])
 
         response = self.client.get(
             "/api/sermons/",
@@ -166,3 +166,61 @@ class SermonLibrarySearchTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self._ids(response), {str(self.sermon.id)})
         self.assertNotIn(str(self.other_sermon.id), self._ids(response))
+
+    def test_library_list_is_paginated_newest_first(self):
+        for day in range(2, 27):
+            self._sermon(
+                owner=self.owner,
+                source_draft_id=f"page-{day}",
+                captured_at=datetime(2026, 1, day, 15, tzinfo=datetime_timezone.utc),
+            )
+
+        first_page = self.client.get(
+            "/api/sermons/",
+            {"processing_status": Sermon.ProcessingStatus.READY},
+        )
+        self.assertEqual(first_page.status_code, status.HTTP_200_OK)
+        self.assertEqual(first_page.data["count"], 27)
+        self.assertEqual(len(first_page.data["results"]), 20)
+        self.assertIsNotNone(first_page.data["next"])
+        self.assertEqual(
+            first_page.data["results"][0]["id"],
+            str(
+                Sermon.objects.filter(owner=self.owner)
+                .order_by("-captured_at")
+                .first()
+                .id
+            ),
+        )
+
+        second_page = self.client.get(
+            "/api/sermons/",
+            {"processing_status": Sermon.ProcessingStatus.READY, "page": 2},
+        )
+        self.assertEqual(second_page.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(second_page.data["results"]), 7)
+        self.assertIsNone(second_page.data["next"])
+
+    def test_in_progress_lists_only_unfinished_sermons(self):
+        uploaded = Sermon.objects.create(
+            owner=self.owner,
+            source_draft_id="still-processing",
+            captured_at=datetime(2026, 2, 1, 15, tzinfo=datetime_timezone.utc),
+            duration_seconds=1_200,
+            audio_mime_type="audio/mp4",
+            audio_size_bytes=1,
+            processing_status=Sermon.ProcessingStatus.PROCESSING,
+        )
+
+        response = self.client.get("/api/sermons/", {"in_progress": "true"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._ids(response), {str(uploaded.id)})
+
+        conflict = self.client.get(
+            "/api/sermons/",
+            {
+                "in_progress": "true",
+                "processing_status": Sermon.ProcessingStatus.READY,
+            },
+        )
+        self.assertEqual(conflict.status_code, status.HTTP_400_BAD_REQUEST)

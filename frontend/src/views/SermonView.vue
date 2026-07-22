@@ -15,6 +15,7 @@ import {
   Pause,
   Play,
   Plus,
+  RotateCcw,
   Share2,
   Trash2,
   UserRound,
@@ -30,6 +31,7 @@ import {
   loadPreachers,
   loadShareLink,
   loadServerSermon,
+  retrySermonProcessing,
   revokeShareLink,
   saveReflection,
   serverSermonDuration,
@@ -67,6 +69,8 @@ const { isAuthenticated } = useAuth()
 const sermon = ref<ServerSermonDetail>()
 const loading = ref(true)
 const errorMessage = ref('')
+const failedSermonId = ref('')
+const retrying = ref(false)
 const activeSection = ref<Section>('study')
 const audio = ref<HTMLAudioElement>()
 const playing = ref(false)
@@ -644,6 +648,7 @@ async function saveContext(): Promise<void> {
 async function load(id: string): Promise<void> {
   loading.value = true
   errorMessage.value = ''
+  failedSermonId.value = ''
   sermon.value = undefined
   editingKind.value = undefined
   editMessage.value = ''
@@ -664,6 +669,9 @@ async function load(id: string): Promise<void> {
     const loadedSermon = await loadServerSermon(id)
     if (loadedSermon.processing_status !== 'ready') {
       errorMessage.value = loadedSermon.processing_message
+      if (loadedSermon.processing_status === 'failed') {
+        failedSermonId.value = loadedSermon.id
+      }
       return
     }
     sermon.value = loadedSermon
@@ -679,6 +687,21 @@ async function load(id: string): Promise<void> {
     errorMessage.value = error instanceof Error ? error.message : 'This Sermon could not be opened.'
   } finally {
     loading.value = false
+  }
+}
+
+async function retryFailedProcessing(): Promise<void> {
+  if (!failedSermonId.value || retrying.value) return
+  retrying.value = true
+  try {
+    await retrySermonProcessing(failedSermonId.value)
+    errorMessage.value = 'Safely uploaded and waiting to process.'
+    failedSermonId.value = ''
+  } catch (error) {
+    errorMessage.value =
+      error instanceof Error ? error.message : 'This Sermon could not be retried.'
+  } finally {
+    retrying.value = false
   }
 }
 
@@ -706,8 +729,19 @@ watch(
 
     <p v-if="loading" class="detail-state" role="status">Opening your Sermon…</p>
     <section v-else-if="errorMessage" class="detail-state detail-state--error" role="alert">
-      <p class="rubric-label">Unable to open</p>
-      <h1>{{ errorMessage }}</h1>
+      <p class="rubric-label">{{ failedSermonId ? 'Needs attention' : 'Unable to open' }}</p>
+      <h1>{{ failedSermonId ? 'Processing couldn’t finish' : 'This Sermon isn’t available' }}</h1>
+      <p class="detail-state__body">{{ errorMessage }}</p>
+      <button
+        v-if="failedSermonId"
+        class="detail-state__retry"
+        type="button"
+        :disabled="retrying"
+        @click="retryFailedProcessing"
+      >
+        <RotateCcw :size="16" aria-hidden="true" />
+        {{ retrying ? 'Retrying…' : 'Try again' }}
+      </button>
     </section>
 
     <article v-else-if="sermon">
@@ -1449,6 +1483,36 @@ watch(
   letter-spacing: -0.05em;
   line-height: 0.98;
   max-width: 13ch;
+}
+
+.detail-state__body {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  font-size: 1.05rem;
+  line-height: 1.55;
+  margin-top: 1rem;
+  max-width: 36rem;
+}
+
+.detail-state__retry {
+  align-items: center;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-lapis) 40%, transparent);
+  color: var(--color-lapis);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font-utility);
+  font-size: 0.82rem;
+  font-weight: 700;
+  gap: 0.45rem;
+  margin-top: 1.5rem;
+  min-height: 2.75rem;
+  padding: 0.65rem 1rem;
+}
+
+.detail-state__retry:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .sermon-header {

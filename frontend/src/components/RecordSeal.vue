@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, watch } from 'vue'
 import { LoaderCircle, Mic, Square } from '@lucide/vue'
 import type { RecorderState } from '../recording/useDraftRecorder'
 
@@ -20,102 +20,148 @@ const elapsed = computed(() => {
 
 const recording = computed(() => props.state === 'recording')
 const busy = computed(() => props.state === 'requesting' || props.state === 'saving')
+const immersive = computed(() => props.state !== 'idle' && props.state !== 'error')
 const label = computed(() => {
   if (props.state === 'recording') return 'Stop'
   if (props.state === 'requesting') return 'Starting…'
   if (props.state === 'saving') return 'Saving…'
   return 'Record'
 })
+const statusLabel = computed(() => {
+  if (props.state === 'recording') return 'Recording'
+  if (props.state === 'requesting') return 'Microphone'
+  return 'Saving'
+})
+const statusHint = computed(() => {
+  if (props.state === 'recording') return 'Recording locally on this device'
+  if (props.state === 'requesting') return 'Allow access to begin recording'
+  return 'Writing the Draft to this device'
+})
+const statusTime = computed(() => {
+  if (props.state === 'recording') return elapsed.value
+  if (props.state === 'requesting') return 'Waiting'
+  return 'Local'
+})
+
+watch(
+  immersive,
+  (active) => {
+    document.body.classList.toggle('recording-lock', active)
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  document.body.classList.remove('recording-lock')
+})
 </script>
 
 <template>
-  <div class="record-control" :class="{ 'record-control--active': recording }">
-    <div v-if="state !== 'idle' && state !== 'error'" class="record-control__status" aria-live="polite">
-      <template v-if="recording">
-        <span class="record-control__live">Recording</span>
-        <span class="record-control__time">{{ elapsed }}</span>
-        <span class="record-control__hint">Recording locally on this device</span>
-      </template>
-      <template v-else-if="state === 'requesting'">
-        <span class="record-control__live">Microphone</span>
-        <span class="record-control__time">Waiting</span>
-        <span class="record-control__hint">Allow access to begin recording</span>
-      </template>
-      <template v-else>
-        <span class="record-control__live">Saving</span>
-        <span class="record-control__time">Local</span>
-        <span class="record-control__hint">Writing the Draft to this device</span>
-      </template>
-    </div>
+  <div
+    v-if="immersive"
+    class="record-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="record-overlay-title"
+  >
+    <p id="record-overlay-title" class="rubric-label record-overlay__rubric">{{ statusLabel }}</p>
+    <p class="record-overlay__time" aria-live="polite">{{ statusTime }}</p>
+    <p class="record-overlay__hint">{{ statusHint }}</p>
 
     <button
-      class="record-seal"
+      class="record-seal record-seal--overlay"
       type="button"
       :aria-label="recording ? 'Stop recording' : 'Start recording'"
       :aria-pressed="recording"
       :aria-busy="busy"
-      :disabled="busy"
+      :disabled="busy && !recording"
       @click="emit('toggle')"
     >
       <span class="record-seal__beading" aria-hidden="true"></span>
       <span class="record-seal__field">
-        <Square v-if="recording" :size="24" :stroke-width="1.9" fill="currentColor" />
-        <LoaderCircle v-else-if="busy" class="record-seal__spinner" :size="28" :stroke-width="1.65" />
-        <Mic v-else :size="30" :stroke-width="1.65" />
+        <Square v-if="recording" :size="28" :stroke-width="1.9" fill="currentColor" />
+        <LoaderCircle v-else class="record-seal__spinner" :size="30" :stroke-width="1.65" />
       </span>
     </button>
+    <span class="record-overlay__label">{{ label }}</span>
+  </div>
 
+  <div v-else class="record-control">
+    <button
+      class="record-seal"
+      type="button"
+      aria-label="Start recording"
+      aria-pressed="false"
+      @click="emit('toggle')"
+    >
+      <span class="record-seal__beading" aria-hidden="true"></span>
+      <span class="record-seal__field">
+        <Mic :size="30" :stroke-width="1.65" />
+      </span>
+    </button>
     <span class="record-control__label">{{ label }}</span>
   </div>
 </template>
 
 <style scoped>
+.record-overlay {
+  align-items: center;
+  background:
+    radial-gradient(ellipse at 50% 28%, rgba(158, 27, 46, 0.14), transparent 52%),
+    var(--color-vellum);
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  left: 0;
+  padding: 2rem 1.5rem calc(2rem + env(safe-area-inset-bottom));
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 80;
+}
+
+.record-overlay__rubric {
+  margin-bottom: 0.75rem;
+}
+
+.record-overlay__time {
+  font-family: var(--font-display);
+  font-size: clamp(4.5rem, 18vw, 7.5rem);
+  font-variant-numeric: tabular-nums;
+  font-variation-settings: 'opsz' 96, 'SOFT' 40;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 0.9;
+  margin: 0;
+}
+
+.record-overlay__hint {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.95rem;
+  margin: 1.25rem 0 3rem;
+  text-align: center;
+}
+
+.record-overlay__label {
+  color: var(--color-ink);
+  font-family: var(--font-utility);
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  margin-top: 1rem;
+  text-transform: uppercase;
+}
+
 .record-control {
   align-items: center;
-  bottom: calc(var(--nav-height) + env(safe-area-inset-bottom) - 1rem);
+  bottom: calc(1.35rem + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   position: fixed;
   right: max(1.25rem, calc((100vw - var(--page-width)) / 2 + 1.5rem));
   z-index: 40;
-}
-
-.record-control__status {
-  align-items: center;
-  background: var(--color-ink);
-  border: 1px solid rgba(184, 150, 62, 0.55);
-  border-radius: var(--radius-medium);
-  box-shadow: 0 14px 35px rgba(28, 36, 48, 0.22);
-  color: var(--color-vellum);
-  display: grid;
-  gap: 0.05rem 0.75rem;
-  grid-template-columns: auto auto;
-  margin-bottom: 0.75rem;
-  min-width: 12.5rem;
-  padding: 0.75rem 0.9rem;
-}
-
-.record-control__live {
-  color: #f5a6b2;
-  font-family: var(--font-utility);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-}
-
-.record-control__time {
-  font-family: var(--font-utility);
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  justify-self: end;
-}
-
-.record-control__hint {
-  color: rgba(241, 238, 228, 0.66);
-  font-family: var(--font-utility);
-  font-size: 0.73rem;
-  grid-column: 1 / -1;
 }
 
 .record-seal {
@@ -184,13 +230,15 @@ const label = computed(() => {
   z-index: 1;
 }
 
-.record-control--active .record-seal {
+.record-seal--overlay {
   animation: seal-breathe 2.2s ease-in-out infinite;
   background: var(--color-rubric);
   color: var(--color-vellum-light);
+  height: 5.75rem;
+  width: 5.75rem;
 }
 
-.record-control--active .record-seal__beading {
+.record-seal--overlay .record-seal__beading {
   border-color: rgba(241, 238, 228, 0.58);
 }
 
@@ -234,7 +282,7 @@ const label = computed(() => {
 
 @media (max-width: 640px) {
   .record-control {
-    bottom: calc(var(--nav-height) + env(safe-area-inset-bottom) - 0.85rem);
+    bottom: calc(1.1rem + env(safe-area-inset-bottom));
     right: 1.1rem;
   }
 
@@ -242,10 +290,15 @@ const label = computed(() => {
     height: 4.5rem;
     width: 4.5rem;
   }
+
+  .record-seal--overlay {
+    height: 5.25rem;
+    width: 5.25rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .record-control--active .record-seal {
+  .record-seal--overlay {
     animation: none;
   }
 

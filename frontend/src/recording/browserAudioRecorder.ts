@@ -1,12 +1,21 @@
 const PREFERRED_AUDIO_TYPES = [
-  'audio/mp4',
+  // Prefer WebM/Opus on Chromium. Chrome also claims audio/mp4 support, but
+  // writes Opus-in-fragmented-MP4 that Safari cannot play and that often lacks
+  // a moov atom when built from timeslices — so playback sounds silent.
   'audio/webm;codecs=opus',
   'audio/webm',
   'audio/ogg;codecs=opus',
+  // Safari fallback: typically AAC-in-MP4, which WebKit can play.
+  'audio/mp4',
 ]
 
 function preferredMimeType(): string | undefined {
   return PREFERRED_AUDIO_TYPES.find((type) => MediaRecorder.isTypeSupported(type))
+}
+
+function usesTimeslices(mimeType: string | undefined): boolean {
+  // Fragmented MP4 timeslices concatenate poorly; collect one blob on stop.
+  return Boolean(mimeType && !mimeType.includes('mp4'))
 }
 
 export function supportsAudioRecording(): boolean {
@@ -40,8 +49,11 @@ export class BrowserAudioRecorder {
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
+        // Keep echoCancellation off and avoid noise/gain gates that wipe
+        // quiet pew or Continuity-mic speech into near-silence.
         echoCancellation: false,
-        noiseSuppression: true,
+        noiseSuppression: false,
+        autoGainControl: false,
       },
     })
 
@@ -55,7 +67,11 @@ export class BrowserAudioRecorder {
       if (event.data.size > 0) this.chunks.push(event.data)
     })
 
-    this.mediaRecorder.start(1_000)
+    if (usesTimeslices(mimeType)) {
+      this.mediaRecorder.start(1_000)
+    } else {
+      this.mediaRecorder.start()
+    }
   }
 
   async stop(): Promise<Blob> {

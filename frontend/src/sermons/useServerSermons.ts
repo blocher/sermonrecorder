@@ -1,11 +1,6 @@
 import { computed, ref } from 'vue'
-import {
-  API_BASE_URL,
-  authorizedAccessToken,
-  refreshAuthorizedAccessToken,
-  useAuth,
-} from '../auth/useAuth'
-import type { ServerSermon } from './serverSermon'
+import { useAuth } from '../auth/useAuth'
+import { loadInProgressSermons, type ServerSermon } from './serverSermon'
 
 const sermons = ref<ServerSermon[]>([])
 const loading = ref(false)
@@ -23,18 +18,7 @@ async function refresh(): Promise<void> {
 
   loading.value = true
   try {
-    const request = (token: string) =>
-      fetch(`${API_BASE_URL}/api/sermons/`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-
-    let response = await request(await authorizedAccessToken())
-    if (response.status === 401) {
-      response = await request(await refreshAuthorizedAccessToken())
-    }
-    const data = (await response.json()) as unknown
-    if (!response.ok) throw new Error('Your uploaded Sermons could not be refreshed.')
-    sermons.value = data as ServerSermon[]
+    sermons.value = await loadInProgressSermons()
     errorMessage.value = ''
   } catch (error) {
     errorMessage.value =
@@ -48,10 +32,7 @@ async function refresh(): Promise<void> {
 function schedulePoll(): void {
   if (!polling) return
   if (pollTimer) globalThis.clearTimeout(pollTimer)
-  const hasPending = sermons.value.some(
-    (sermon) => sermon.processing_status === 'uploaded' || sermon.processing_status === 'processing',
-  )
-  if (!hasPending) return
+  if (sermons.value.length === 0) return
 
   pollTimer = globalThis.setTimeout(() => void refresh(), 15_000)
 }
@@ -72,12 +53,7 @@ export function useServerSermons() {
     sermons,
     loading,
     errorMessage,
-    pendingSermons: computed(() =>
-      sermons.value.filter((sermon) => sermon.processing_status !== 'ready'),
-    ),
-    readySermons: computed(() =>
-      sermons.value.filter((sermon) => sermon.processing_status === 'ready'),
-    ),
+    pendingSermons: computed(() => sermons.value),
     refresh,
     startPolling,
     stopPolling,

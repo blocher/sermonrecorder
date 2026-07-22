@@ -19,6 +19,8 @@ import { useDraftRecorder } from '../recording/useDraftRecorder'
 import {
   loadChurches,
   loadPreachers,
+  deleteInProgressSermon,
+  retrySermonProcessing,
   searchServerSermons,
   serverSermonDuration,
   serverSermonTitle,
@@ -43,16 +45,14 @@ const dateFromFilter = ref('')
 const dateToFilter = ref('')
 const churches = ref<ServerChurch[]>([])
 const preachers = ref<ServerPreacher[]>([])
-const searchResults = ref<ServerSermon[] | null>(null)
-const searching = ref(false)
-const searchError = ref('')
 const draftActionMessage = ref('')
 const uploadProgress = ref<Record<string, number>>({})
+const retryingSermons = ref<Record<string, boolean>>({})
+const deletingSermons = ref<Record<string, boolean>>({})
 const { isAuthenticated } = useAuth()
 const { drafts, removeDraft } = useDraftRecorder()
 const {
   pendingSermons,
-  readySermons,
   errorMessage: serverError,
   refresh: refreshServerSermons,
   startPolling,
@@ -67,6 +67,19 @@ const occasionOptions: { value: OccasionKind; label: string }[] = [
   { value: 'midweek', label: 'Midweek service' },
   { value: 'other', label: 'Other occasion' },
 ]
+
+const readySermons = ref<ServerSermon[]>([])
+const readyCount = ref(0)
+const readyPage = ref(0)
+const readyHasMore = ref(false)
+const loadingReady = ref(false)
+const searchResults = ref<ServerSermon[] | null>(null)
+const searchCount = ref(0)
+const searchPage = ref(0)
+const searchHasMore = ref(false)
+const searching = ref(false)
+const searchError = ref('')
+const loadingMore = ref(false)
 
 const hasSearchCriteria = computed(
   () =>
@@ -93,8 +106,47 @@ const visibleSermons = computed(() => {
   if (!hasSearchCriteria.value) return readySermons.value
   return searchResults.value ?? []
 })
+const visibleCount = computed(() =>
+  hasSearchCriteria.value ? searchCount.value : readyCount.value,
+)
+const hasMoreSermons = computed(() =>
+  hasSearchCriteria.value ? searchHasMore.value : readyHasMore.value,
+)
 let searchTimer: ReturnType<typeof globalThis.setTimeout> | undefined
 let searchVersion = 0
+
+async function loadReadySermons(reset: boolean): Promise<void> {
+  if (!isAuthenticated.value) {
+    readySermons.value = []
+    readyCount.value = 0
+    readyPage.value = 0
+    readyHasMore.value = false
+    return
+  }
+
+  const page = reset ? 1 : readyPage.value + 1
+  if (reset) loadingReady.value = true
+  else loadingMore.value = true
+
+  try {
+    const result = await searchServerSermons({}, page)
+    readySermons.value = reset ? result.results : [...readySermons.value, ...result.results]
+    readyCount.value = result.count
+    readyPage.value = page
+    readyHasMore.value = Boolean(result.next)
+  } catch (error) {
+    if (reset) {
+      readySermons.value = []
+      readyCount.value = 0
+      readyHasMore.value = false
+    }
+    searchError.value =
+      error instanceof Error ? error.message : 'Your Sermon library could not be searched.'
+  } finally {
+    loadingReady.value = false
+    loadingMore.value = false
+  }
+}
 
 async function loadSearchBooks(): Promise<void> {
   if (!isAuthenticated.value) {
@@ -120,6 +172,9 @@ function scheduleSearch(): void {
   const version = searchVersion
   if (searchTimer) globalThis.clearTimeout(searchTimer)
   searchResults.value = null
+  searchCount.value = 0
+  searchPage.value = 0
+  searchHasMore.value = false
   searchError.value = ''
 
   if (!hasSearchCriteria.value || !isAuthenticated.value) {
@@ -128,29 +183,50 @@ function scheduleSearch(): void {
   }
 
   searching.value = true
-  searchTimer = globalThis.setTimeout(() => void runSearch(version), 250)
+  searchTimer = globalThis.setTimeout(() => void runSearch(version, true), 250)
 }
 
-async function runSearch(version: number): Promise<void> {
+async function runSearch(version: number, reset: boolean): Promise<void> {
+  const page = reset ? 1 : searchPage.value + 1
+  if (!reset) loadingMore.value = true
+
   try {
-    const result = await searchServerSermons({
-      search: query.value,
-      church: churchFilter.value,
-      preacher: preacherFilter.value,
-      occasion: occasionFilter.value,
-      tag: tagFilter.value,
-      date_from: dateFromFilter.value,
-      date_to: dateToFilter.value,
-    })
+    const result = await searchServerSermons(
+      {
+        search: query.value,
+        church: churchFilter.value,
+        preacher: preacherFilter.value,
+        occasion: occasionFilter.value,
+        tag: tagFilter.value,
+        date_from: dateFromFilter.value,
+        date_to: dateToFilter.value,
+      },
+      page,
+    )
     if (version !== searchVersion) return
-    searchResults.value = result
+    searchResults.value = reset ? result.results : [...(searchResults.value ?? []), ...result.results]
+    searchCount.value = result.count
+    searchPage.value = page
+    searchHasMore.value = Boolean(result.next)
   } catch (error) {
     if (version !== searchVersion) return
     searchError.value =
       error instanceof Error ? error.message : 'Your Sermon library could not be searched.'
   } finally {
-    if (version === searchVersion) searching.value = false
+    if (version === searchVersion) {
+      searching.value = false
+      loadingMore.value = false
+    }
   }
+}
+
+async function loadMoreSermons(): Promise<void> {
+  if (loadingMore.value || searching.value || loadingReady.value || !hasMoreSermons.value) return
+  if (hasSearchCriteria.value) {
+    await runSearch(searchVersion, false)
+    return
+  }
+  await loadReadySermons(false)
 }
 
 function clearSearch(): void {
@@ -215,11 +291,46 @@ async function uploadLocalDraft(id: string): Promise<void> {
   }
 }
 
+async function retryFailedSermon(id: string): Promise<void> {
+  retryingSermons.value = { ...retryingSermons.value, [id]: true }
+  try {
+    await retrySermonProcessing(id)
+    await refreshServerSermons()
+    announceDraftAction('Processing started again. Pewcorder will alert you when ready.')
+  } catch (error) {
+    announceDraftAction(
+      error instanceof Error ? error.message : 'This Sermon could not be retried.',
+    )
+  } finally {
+    const remaining = { ...retryingSermons.value }
+    delete remaining[id]
+    retryingSermons.value = remaining
+  }
+}
+
+async function deleteInProgressServerSermon(id: string): Promise<void> {
+  deletingSermons.value = { ...deletingSermons.value, [id]: true }
+  try {
+    await deleteInProgressSermon(id)
+    await refreshServerSermons()
+    announceDraftAction('Sermon deleted from the server.')
+  } catch (error) {
+    announceDraftAction(
+      error instanceof Error ? error.message : 'This Sermon could not be deleted.',
+    )
+  } finally {
+    const remaining = { ...deletingSermons.value }
+    delete remaining[id]
+    deletingSermons.value = remaining
+  }
+}
+
 onMounted(() => void startPolling())
 onBeforeUnmount(() => {
   stopPolling()
   searchVersion += 1
   if (searchTimer) globalThis.clearTimeout(searchTimer)
+  document.body.classList.remove('library-search-lock')
 })
 
 watch(
@@ -240,17 +351,49 @@ watch(
   () => {
     void loadSearchBooks()
     scheduleSearch()
+    void loadReadySermons(true)
   },
   { immediate: true },
 )
 
 watch(
-  () => route.query.focus,
-  async (focus) => {
-    if (focus === 'search') {
-      await nextTick()
-      searchInput.value?.focus()
-    }
+  () => pendingSermons.value.map((sermon) => sermon.id).join(','),
+  (ids, previous) => {
+    if (previous === undefined || ids === previous) return
+    void loadReadySermons(true)
+  },
+)
+
+const searchOpen = computed(() => route.query.focus === 'search')
+
+async function openSearch(): Promise<void> {
+  if (searchOpen.value) {
+    await nextTick()
+    searchInput.value?.focus()
+    return
+  }
+  await router.push({ query: { ...route.query, focus: 'search' } })
+}
+
+async function closeSearch(): Promise<void> {
+  if (!searchOpen.value) return
+  const nextQuery = { ...route.query }
+  delete nextQuery.focus
+  await router.replace({ query: nextQuery })
+}
+
+function clearSearchAndClose(): void {
+  clearSearch()
+  void closeSearch()
+}
+
+watch(
+  searchOpen,
+  async (open) => {
+    document.body.classList.toggle('library-search-lock', open)
+    if (!open) return
+    await nextTick()
+    searchInput.value?.focus()
   },
   { immediate: true },
 )
@@ -263,9 +406,9 @@ watch(
       <div class="library__title-row">
         <div>
           <h1>Sermons worth returning to.</h1>
-          <p>Listen again, search what was said, or continue a reflection.</p>
+          <p>Listen again, or search what was said.</p>
         </div>
-        <span class="library__count">{{ readySermons.length }} sermons</span>
+        <span class="library__count">{{ readyCount }} sermons</span>
       </div>
     </section>
 
@@ -310,6 +453,10 @@ watch(
         v-for="serverSermon in pendingSermons"
         :key="serverSermon.id"
         :sermon="serverSermon"
+        :retrying="Boolean(retryingSermons[serverSermon.id])"
+        :deleting="Boolean(deletingSermons[serverSermon.id])"
+        @retry="retryFailedSermon"
+        @delete="deleteInProgressServerSermon"
       />
     </section>
 
@@ -317,137 +464,87 @@ watch(
       {{ serverError }}
     </p>
 
-    <section
-      class="library__search"
-      :class="{ 'library__search--filters-open': filterPanelOpen }"
-      aria-label="Search sermons"
-    >
-      <Search :size="20" :stroke-width="1.6" aria-hidden="true" />
-      <input
-        ref="searchInput"
-        v-model="query"
-        type="search"
-        placeholder="Search transcripts, notes, Scripture…"
-        aria-label="Search your sermons"
-      />
-      <button
-        class="library__filter-toggle"
-        type="button"
-        :aria-expanded="filterPanelOpen"
-        aria-controls="library-filters"
-        @click="filterPanelOpen = !filterPanelOpen"
-      >
-        <ListFilter :size="17" aria-hidden="true" />
-        Refine
-        <span v-if="activeFilterCount">{{ activeFilterCount }}</span>
-      </button>
-    </section>
+    <div v-if="hasSearchCriteria && !searchOpen" class="library__filter-banner">
+      <div>
+        <p class="rubric-label">Filtered library</p>
+        <span
+          >{{ visibleCount }} matching {{ visibleCount === 1 ? 'sermon' : 'sermons' }}</span
+        >
+      </div>
+      <div class="library__filter-banner-actions">
+        <button type="button" @click="openSearch">Edit search</button>
+        <button type="button" @click="clearSearch">Clear</button>
+      </div>
+    </div>
 
-    <section
-      v-if="filterPanelOpen"
-      id="library-filters"
-      class="library-filters"
-      aria-label="Refine Sermon search"
-    >
-      <label>
-        <span>Church</span>
-        <select v-model="churchFilter">
-          <option value="">Any Church</option>
-          <option v-for="church in churches" :key="church.id" :value="church.id">
-            {{ church.name }}
-          </option>
-        </select>
-      </label>
-      <label>
-        <span>Preacher</span>
-        <select v-model="preacherFilter">
-          <option value="">Any Preacher</option>
-          <option v-for="preacher in preachers" :key="preacher.id" :value="preacher.id">
-            {{ preacher.name }}
-          </option>
-        </select>
-      </label>
-      <label>
-        <span>Occasion</span>
-        <select v-model="occasionFilter">
-          <option value="">Any occasion</option>
-          <option v-for="occasion in occasionOptions" :key="occasion.value" :value="occasion.value">
-            {{ occasion.label }}
-          </option>
-        </select>
-      </label>
-      <label>
-        <span>Tag</span>
-        <input v-model="tagFilter" type="search" placeholder="e.g. Grace" />
-      </label>
-      <label>
-        <span>Heard after</span>
-        <input v-model="dateFromFilter" type="date" />
-      </label>
-      <label>
-        <span>Heard before</span>
-        <input v-model="dateToFilter" type="date" />
-      </label>
-      <button v-if="activeFilterCount" type="button" @click="clearSearch">
-        <X :size="15" aria-hidden="true" />
-        Clear all
-      </button>
-    </section>
-
-    <p v-if="searchError" class="server-error" role="status">{{ searchError }}</p>
+    <p v-if="searchError && !searchOpen" class="server-error" role="status">{{ searchError }}</p>
 
     <section aria-labelledby="recent-sermons">
       <div class="section-heading">
         <h2 id="recent-sermons">{{ hasSearchCriteria ? 'Search results' : 'Recently heard' }}</h2>
-        <span v-if="searching">Searching…</span>
+        <span v-if="searching || loadingReady">Loading…</span>
+        <span v-else-if="visibleCount > visibleSermons.length"
+          >{{ visibleSermons.length }} of {{ visibleCount }}</span
+        >
         <span v-else
-          >{{ visibleSermons.length }}
-          {{ visibleSermons.length === 1 ? 'sermon' : 'sermons' }}</span
+          >{{ visibleCount }} {{ visibleCount === 1 ? 'sermon' : 'sermons' }}</span
         >
       </div>
 
-      <div v-if="!searching && visibleSermons.length" class="sermon-list">
-        <RouterLink
-          v-for="(sermon, index) in visibleSermons"
-          :key="sermon.id"
-          class="sermon-entry"
-          :to="`/sermons/${sermon.id}`"
-        >
-          <span class="sermon-entry__folio">{{ String(index + 1).padStart(2, '0') }}</span>
-          <div class="sermon-entry__body">
-            <div class="sermon-entry__rubric">
-              <span>{{ sermon.liturgical_day || sermon.occasion_kind || 'Pew recording' }}</span>
-              <span class="sermon-entry__ready">Ready</span>
+      <template v-if="!searching && !loadingReady && visibleSermons.length">
+        <div class="sermon-list">
+          <RouterLink
+            v-for="(sermon, index) in visibleSermons"
+            :key="sermon.id"
+            class="sermon-entry"
+            :to="`/sermons/${sermon.id}`"
+          >
+            <span class="sermon-entry__folio">{{ String(index + 1).padStart(2, '0') }}</span>
+            <div class="sermon-entry__body">
+              <div class="sermon-entry__rubric">
+                <span>{{ sermon.liturgical_day || sermon.occasion_kind || 'Pew recording' }}</span>
+                <span class="sermon-entry__ready">Ready</span>
+              </div>
+              <h3>{{ serverSermonTitle(sermon) }}</h3>
+              <p class="sermon-entry__excerpt">
+                {{ sermon.short_summary || 'Ready to revisit.' }}
+              </p>
+              <div class="sermon-entry__meta">
+                <span v-if="sermon.preacher">
+                  <UserRound :size="14" aria-hidden="true" />{{ sermon.preacher.name }}
+                </span>
+                <span v-if="sermon.church">
+                  <MapPin :size="14" aria-hidden="true" />{{ sermon.church.name }}
+                </span>
+                <span>
+                  <CalendarDays :size="14" aria-hidden="true" />{{ capturedDate(sermon) }}
+                </span>
+                <span>
+                  <Clock3 :size="14" aria-hidden="true" />{{
+                    serverSermonDuration(sermon.duration_seconds)
+                  }}
+                </span>
+              </div>
+              <div class="sermon-entry__tags">
+                <span v-for="tag in sermon.tag_suggestions" :key="tag">{{ tag }}</span>
+              </div>
             </div>
-            <h3>{{ serverSermonTitle(sermon) }}</h3>
-            <p class="sermon-entry__excerpt">
-              {{ sermon.short_summary || 'Ready to revisit.' }}
-            </p>
-            <div class="sermon-entry__meta">
-              <span v-if="sermon.preacher">
-                <UserRound :size="14" aria-hidden="true" />{{ sermon.preacher.name }}
-              </span>
-              <span v-if="sermon.church">
-                <MapPin :size="14" aria-hidden="true" />{{ sermon.church.name }}
-              </span>
-              <span>
-                <CalendarDays :size="14" aria-hidden="true" />{{ capturedDate(sermon) }}
-              </span>
-              <span>
-                <Clock3 :size="14" aria-hidden="true" />{{
-                  serverSermonDuration(sermon.duration_seconds)
-                }}
-              </span>
-            </div>
-            <div class="sermon-entry__tags">
-              <span v-for="tag in sermon.tag_suggestions" :key="tag">{{ tag }}</span>
-            </div>
-          </div>
-          <ChevronRight class="sermon-entry__arrow" :size="21" :stroke-width="1.6" aria-hidden="true" />
-        </RouterLink>
-      </div>
+            <ChevronRight class="sermon-entry__arrow" :size="21" :stroke-width="1.6" aria-hidden="true" />
+          </RouterLink>
+        </div>
 
-      <div v-else-if="!searching" class="empty-search">
+        <button
+          v-if="hasMoreSermons"
+          class="library__load-more"
+          type="button"
+          :disabled="loadingMore"
+          @click="loadMoreSermons"
+        >
+          {{ loadingMore ? 'Loading…' : 'Show older sermons' }}
+        </button>
+      </template>
+
+      <div v-else-if="!searching && !loadingReady" class="empty-search">
         <p class="rubric-label">{{ hasSearchCriteria ? 'No match' : 'Your library is ready' }}</p>
         <h3>
           {{
@@ -459,6 +556,181 @@ watch(
         <button v-if="hasSearchCriteria" type="button" @click="clearSearch">Clear search</button>
       </div>
     </section>
+
+    <Teleport to="body">
+      <div
+        v-if="searchOpen"
+        class="library-search-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="library-search-title"
+        @click.self="closeSearch"
+      >
+        <div class="library-search-overlay__panel">
+          <header class="library-search-overlay__header">
+            <div>
+              <p id="library-search-title" class="rubric-label">Search library</p>
+              <h2>Find what was said.</h2>
+            </div>
+            <button type="button" class="library-search-overlay__close" @click="closeSearch">
+              Done
+            </button>
+          </header>
+
+          <section
+            class="library__search"
+            :class="{ 'library__search--filters-open': filterPanelOpen }"
+            aria-label="Search sermons"
+          >
+            <Search :size="20" :stroke-width="1.6" aria-hidden="true" />
+            <input
+              ref="searchInput"
+              v-model="query"
+              type="search"
+              placeholder="Search transcripts, notes, Scripture…"
+              aria-label="Search your sermons"
+            />
+            <button
+              class="library__filter-toggle"
+              type="button"
+              :aria-expanded="filterPanelOpen"
+              aria-controls="library-filters"
+              @click="filterPanelOpen = !filterPanelOpen"
+            >
+              <ListFilter :size="17" aria-hidden="true" />
+              Refine
+              <span v-if="activeFilterCount">{{ activeFilterCount }}</span>
+            </button>
+          </section>
+
+          <section
+            v-if="filterPanelOpen"
+            id="library-filters"
+            class="library-filters"
+            aria-label="Refine Sermon search"
+          >
+            <label>
+              <span>Church</span>
+              <select v-model="churchFilter">
+                <option value="">Any Church</option>
+                <option v-for="church in churches" :key="church.id" :value="church.id">
+                  {{ church.name }}
+                </option>
+              </select>
+            </label>
+            <label>
+              <span>Preacher</span>
+              <select v-model="preacherFilter">
+                <option value="">Any Preacher</option>
+                <option v-for="preacher in preachers" :key="preacher.id" :value="preacher.id">
+                  {{ preacher.name }}
+                </option>
+              </select>
+            </label>
+            <label>
+              <span>Occasion</span>
+              <select v-model="occasionFilter">
+                <option value="">Any occasion</option>
+                <option
+                  v-for="occasion in occasionOptions"
+                  :key="occasion.value"
+                  :value="occasion.value"
+                >
+                  {{ occasion.label }}
+                </option>
+              </select>
+            </label>
+            <label>
+              <span>Tag</span>
+              <input v-model="tagFilter" type="search" placeholder="e.g. Grace" />
+            </label>
+            <label>
+              <span>Heard after</span>
+              <input v-model="dateFromFilter" type="date" />
+            </label>
+            <label>
+              <span>Heard before</span>
+              <input v-model="dateToFilter" type="date" />
+            </label>
+            <button v-if="activeFilterCount || query.trim()" type="button" @click="clearSearch">
+              <X :size="15" aria-hidden="true" />
+              Clear all
+            </button>
+          </section>
+
+          <p v-if="searchError" class="server-error" role="status">{{ searchError }}</p>
+
+          <div class="library-search-overlay__results">
+            <div class="section-heading">
+              <h3>{{ hasSearchCriteria ? 'Matching sermons' : 'Ready sermons' }}</h3>
+              <span v-if="searching || loadingReady">Loading…</span>
+              <span v-else-if="visibleCount > visibleSermons.length"
+                >{{ visibleSermons.length }} of {{ visibleCount }}</span
+              >
+              <span v-else
+                >{{ visibleCount }} {{ visibleCount === 1 ? 'sermon' : 'sermons' }}</span
+              >
+            </div>
+
+            <template v-if="!searching && !loadingReady && visibleSermons.length">
+              <div class="sermon-list">
+                <RouterLink
+                  v-for="(sermon, index) in visibleSermons"
+                  :key="sermon.id"
+                  class="sermon-entry"
+                  :to="`/sermons/${sermon.id}`"
+                  @click="closeSearch"
+                >
+                  <span class="sermon-entry__folio">{{ String(index + 1).padStart(2, '0') }}</span>
+                  <div class="sermon-entry__body">
+                    <div class="sermon-entry__rubric">
+                      <span>{{
+                        sermon.liturgical_day || sermon.occasion_kind || 'Pew recording'
+                      }}</span>
+                      <span class="sermon-entry__ready">Ready</span>
+                    </div>
+                    <h3>{{ serverSermonTitle(sermon) }}</h3>
+                    <p class="sermon-entry__excerpt">
+                      {{ sermon.short_summary || 'Ready to revisit.' }}
+                    </p>
+                  </div>
+                  <ChevronRight
+                    class="sermon-entry__arrow"
+                    :size="21"
+                    :stroke-width="1.6"
+                    aria-hidden="true"
+                  />
+                </RouterLink>
+              </div>
+
+              <button
+                v-if="hasMoreSermons"
+                class="library__load-more"
+                type="button"
+                :disabled="loadingMore"
+                @click="loadMoreSermons"
+              >
+                {{ loadingMore ? 'Loading…' : 'Show older sermons' }}
+              </button>
+            </template>
+
+            <div v-else-if="!searching && !loadingReady" class="empty-search">
+              <p class="rubric-label">{{ hasSearchCriteria ? 'No match' : 'Browse' }}</p>
+              <h3>
+                {{
+                  hasSearchCriteria
+                    ? 'Nothing in your library matches this search yet.'
+                    : 'Type to filter your Ready sermons.'
+                }}
+              </h3>
+              <button v-if="hasSearchCriteria" type="button" @click="clearSearchAndClose">
+                Clear search
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </main>
 </template>
 
@@ -466,7 +738,7 @@ watch(
 .library {
   margin: 0 auto;
   max-width: 64rem;
-  padding: 3rem clamp(1.25rem, 4vw, 3rem) 9rem;
+  padding: 3rem clamp(1.25rem, 4vw, 3rem) 8rem;
 }
 
 .library__heading {
@@ -582,6 +854,148 @@ watch(
   padding: 0.75rem;
   text-decoration: underline;
   text-underline-offset: 0.25rem;
+}
+
+.library__load-more {
+  background: transparent;
+  border: 1px solid var(--color-lapis);
+  color: var(--color-lapis);
+  cursor: pointer;
+  display: block;
+  font-family: var(--font-utility);
+  font-size: 0.82rem;
+  font-weight: 650;
+  margin: 1.5rem auto 0;
+  min-height: 2.75rem;
+  padding: 0.65rem 1.25rem;
+  width: min(100%, 18rem);
+}
+
+.library__load-more:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.library__load-more:focus-visible {
+  outline: 2px solid var(--color-lapis);
+  outline-offset: 3px;
+}
+
+.library__filter-banner {
+  align-items: center;
+  border: 1px solid var(--color-margin);
+  border-left: 2px solid var(--color-lapis);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin: 0 0 1.75rem;
+  padding: 0.9rem 1rem;
+}
+
+.library__filter-banner .rubric-label {
+  margin-bottom: 0.2rem;
+}
+
+.library__filter-banner > div:first-child span {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.78rem;
+}
+
+.library__filter-banner-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.library__filter-banner-actions button {
+  background: transparent;
+  border: 0;
+  color: var(--color-lapis);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.35rem 0.15rem;
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
+.library-search-overlay {
+  background: color-mix(in srgb, var(--color-ink) 28%, transparent);
+  bottom: 0;
+  left: 0;
+  overflow: auto;
+  padding: 0.75rem 0.75rem 1.5rem;
+  position: fixed;
+  right: 0;
+  top: var(--header-height);
+  z-index: 45;
+}
+
+.library-search-overlay__panel {
+  background: var(--color-vellum);
+  border: 1px solid var(--color-margin);
+  box-shadow: 0 22px 60px rgba(28, 36, 48, 0.22);
+  margin: 0 auto;
+  max-width: 44rem;
+  min-height: min(36rem, calc(100svh - var(--header-height) - 2rem));
+  padding: 1.35rem clamp(1rem, 3vw, 1.75rem) 2rem;
+}
+
+.library-search-overlay__header {
+  align-items: start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.library-search-overlay__header h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.7rem, 5vw, 2.4rem);
+  font-variation-settings: 'opsz' 72, 'SOFT' 40;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin: 0.35rem 0 0;
+}
+
+.library-search-overlay__close {
+  background: var(--color-lapis);
+  border: 0;
+  color: var(--color-vellum-light);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  min-height: 2.5rem;
+  padding: 0.55rem 1rem;
+  text-transform: uppercase;
+}
+
+.library-search-overlay__close:focus-visible {
+  outline: 2px solid var(--color-rule-gold);
+  outline-offset: 3px;
+}
+
+.library-search-overlay .library__search {
+  margin: 0 0 1rem;
+}
+
+.library-search-overlay .library-filters {
+  margin-bottom: 1.25rem;
+}
+
+.library-search-overlay__results .section-heading {
+  margin-bottom: 0.85rem;
+}
+
+.library-search-overlay__results .section-heading h3 {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 540;
+  margin: 0;
 }
 
 .library__search {

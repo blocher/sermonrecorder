@@ -197,8 +197,10 @@ async function signOut(): Promise<void> {
 
 <style scoped>
 .account {
-  min-height: calc(100svh - var(--header-height) - var(--nav-height));
-  padding-bottom: calc(var(--nav-height) + 5rem);
+  margin: 0 auto;
+  max-width: 64rem;
+  min-height: calc(100svh - var(--header-height));
+  padding: 0 clamp(1.25rem, 4vw, 3rem) 8rem;
 }
 
 .account__heading {

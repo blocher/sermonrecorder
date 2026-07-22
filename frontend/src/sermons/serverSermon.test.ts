@@ -32,6 +32,8 @@ import {
   sendSermonEmail,
   serverSermonDuration,
   serverSermonTitle,
+  deleteInProgressSermon,
+  retrySermonProcessing,
   updateStudyArtifact,
   updateSermonContext,
   updateScriptureReferences,
@@ -88,6 +90,33 @@ describe('server Sermon detail', () => {
     )
   })
 
+  it('retries Failed Sermon processing with a POST', async () => {
+    const retried = {
+      ...detail,
+      processing_status: 'uploaded' as const,
+      processing_message: 'Safely uploaded and waiting to process.',
+    }
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify(retried), { status: 200 }),
+    )
+
+    await expect(retrySermonProcessing('failed-sermon')).resolves.toEqual(retried)
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/sermons/failed-sermon/retry/',
+      { method: 'POST', headers: { Authorization: 'Bearer access-token' } },
+    )
+  })
+
+  it('deletes an in-progress Sermon with DELETE', async () => {
+    mocks.fetch.mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await expect(deleteInProgressSermon('pending-sermon')).resolves.toBeUndefined()
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/sermons/pending-sermon/',
+      { method: 'DELETE', headers: { Authorization: 'Bearer access-token' } },
+    )
+  })
+
   it('refreshes a rejected access token once', async () => {
     mocks.fetch
       .mockResolvedValueOnce(new Response('{}', { status: 401 }))
@@ -108,9 +137,13 @@ describe('server Sermon detail', () => {
   })
 
   it('searches Ready Sermons with private Library filters', async () => {
-    mocks.fetch.mockResolvedValueOnce(
-      new Response(JSON.stringify([detail]), { status: 200 }),
-    )
+    const page = {
+      count: 1,
+      next: null,
+      previous: null,
+      results: [detail],
+    }
+    mocks.fetch.mockResolvedValueOnce(new Response(JSON.stringify(page), { status: 200 }))
 
     await expect(
       searchServerSermons({
@@ -122,10 +155,27 @@ describe('server Sermon detail', () => {
         date_from: '2026-01-01',
         date_to: '2026-01-31',
       }),
-    ).resolves.toEqual([detail])
+    ).resolves.toEqual(page)
 
     expect(mocks.fetch).toHaveBeenCalledWith(
       'http://api.example.test/api/sermons/?processing_status=ready&search=mustard+welcome&church=church-id&occasion=sunday&tag=Welcome&date_from=2026-01-01&date_to=2026-01-31',
+      { headers: { Authorization: 'Bearer access-token' } },
+    )
+  })
+
+  it('requests later Ready Sermon pages', async () => {
+    const page = {
+      count: 41,
+      next: null,
+      previous: 'http://api.example.test/api/sermons/?processing_status=ready&page=1',
+      results: [detail],
+    }
+    mocks.fetch.mockResolvedValueOnce(new Response(JSON.stringify(page), { status: 200 }))
+
+    await expect(searchServerSermons({}, 2)).resolves.toEqual(page)
+
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/sermons/?processing_status=ready&page=2',
       { headers: { Authorization: 'Bearer access-token' } },
     )
   })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { CloudUpload, LoaderCircle, Pause, Play, Trash2 } from '@lucide/vue'
 import type { LocalDraft } from '../recording/draftRepository'
 import { nativeDraftPlaybackUrl } from '../recording/nativeDraftFiles'
@@ -63,11 +63,15 @@ async function setAudioUrl(): Promise<void> {
     if (props.draft.audio) {
       audioUrl.value = URL.createObjectURL(props.draft.audio)
       objectUrl = true
+      await nextTick()
+      audio.value?.load()
       return
     }
 
     if (props.draft.audioPath) {
       audioUrl.value = await nativeDraftPlaybackUrl(props.draft.audioPath)
+      await nextTick()
+      audio.value?.load()
       return
     }
 
@@ -78,7 +82,10 @@ async function setAudioUrl(): Promise<void> {
 }
 
 async function togglePlayback(): Promise<void> {
-  if (!audio.value) return
+  if (!audio.value || !audioUrl.value) {
+    playbackError.value = true
+    return
+  }
   playbackError.value = false
 
   if (playing.value) {
@@ -88,7 +95,8 @@ async function togglePlayback(): Promise<void> {
 
   try {
     await audio.value.play()
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return
     playing.value = false
     playbackError.value = true
   }
@@ -113,9 +121,11 @@ onBeforeUnmount(clearAudioUrl)
     <audio
       ref="audio"
       :src="audioUrl"
+      preload="metadata"
       @play="playing = true"
       @pause="playing = false"
       @ended="playing = false"
+      @error="playbackError = true"
     ></audio>
 
     <button

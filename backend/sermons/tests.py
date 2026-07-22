@@ -104,7 +104,10 @@ class SermonApiTests(APITestCase):
         response = self.client.get("/api/sermons/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([sermon["id"] for sermon in response.data], [mine.data["id"]])
+        self.assertEqual(
+            [sermon["id"] for sermon in response.data["results"]],
+            [mine.data["id"]],
+        )
 
     def test_ready_detail_exposes_processed_content_only_to_its_owner(self):
         uploaded = self.upload("ready-detail")
@@ -169,12 +172,14 @@ class SermonApiTests(APITestCase):
         )
         list_response = self.client.get("/api/sermons/")
         ready_entry = next(
-            entry for entry in list_response.data if entry["id"] == str(sermon.id)
+            entry
+            for entry in list_response.data["results"]
+            if entry["id"] == str(sermon.id)
         )
         self.assertEqual(ready_entry["short_summary"], "A short summary.")
         self.assertEqual(ready_entry["tag_suggestions"], ["Grace"])
+        self.assertIn("audio_url", ready_entry)
         self.assertNotIn("transcript", ready_entry)
-        self.assertNotIn("audio_url", ready_entry)
 
         self.client.force_authenticate(user=self.other_user)
         private_response = self.client.get(f"/api/sermons/{sermon.id}/")
@@ -193,10 +198,32 @@ class SermonApiTests(APITestCase):
         response = self.client.get("/api/sermons/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertNotIn("processing_error", response.data[0])
+        self.assertNotIn("processing_error", response.data["results"][0])
         self.assertEqual(
-            response.data[0]["processing_message"],
-            "Processing could not finish. The recording is still safe.",
+            response.data["results"][0]["processing_message"],
+            "Processing couldn't finish. Your recording is still safe — "
+            "try again when you're ready.",
+        )
+
+    def test_failed_processing_explains_known_causes_without_leaking_internals(self):
+        uploaded = self.upload("known-failure-message")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        sermon.processing_status = Sermon.ProcessingStatus.FAILED
+        sermon.processing_error = "OPENAI_API_KEY is required for Sermon transcription."
+        sermon.save(
+            update_fields=("processing_status", "processing_error", "updated_at")
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get("/api/sermons/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("processing_error", response.data["results"][0])
+        self.assertNotIn("OPENAI_API_KEY", response.data["results"][0]["processing_message"])
+        self.assertEqual(
+            response.data["results"][0]["processing_message"],
+            "Transcription isn't configured yet. Add an OpenAI API key on the server, "
+            "then try again.",
         )
 
     def test_processing_states_have_owner_facing_messages(self):
@@ -209,7 +236,8 @@ class SermonApiTests(APITestCase):
             ),
             Sermon.ProcessingStatus.READY: "Ready to revisit.",
             Sermon.ProcessingStatus.FAILED: (
-                "Processing could not finish. The recording is still safe."
+                "Processing couldn't finish. Your recording is still safe — "
+                "try again when you're ready."
             ),
         }
         self.client.force_authenticate(user=self.user)
@@ -260,3 +288,103 @@ class SermonApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("audio", response.data)
+
+    def test_owner_can_retry_a_failed_sermon(self):
+        uploaded = self.upload("retry-failed")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        sermon.processing_status = Sermon.ProcessingStatus.FAILED
+        sermon.processing_error = "provider-secret: temporary outage"
+        sermon.processing_attempts = 4
+        sermon.processing_claim_id = "old-claim"
+        sermon.save(
+            update_fields=(
+                "processing_status",
+                "processing_error",
+                "processing_attempts",
+                "processing_claim_id",
+                "updated_at",
+            )
+        )
+        self.client.force_authenticate(user=self.user)
+
+        with patch("sermons.views.enqueue_sermon_processing") as enqueue:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(f"/api/sermons/{sermon.id}/retry/")
+
+        sermon.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["processing_status"], "uploaded")
+        self.assertEqual(
+            response.data["processing_message"],
+            "Safely uploaded and waiting to process.",
+        )
+        self.assertEqual(sermon.processing_status, Sermon.ProcessingStatus.UPLOADED)
+        self.assertEqual(sermon.processing_error, "")
+        self.assertEqual(sermon.processing_attempts, 0)
+        self.assertEqual(sermon.processing_claim_id, "")
+        enqueue.assert_called_once_with(str(sermon.id))
+
+    def test_retry_rejects_sermons_that_are_not_failed(self):
+        uploaded = self.upload("retry-not-failed")
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(f"/api/sermons/{uploaded.data['id']}/retry/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["detail"],
+            "Only Failed Sermons can be retried.",
+        )
+
+    def test_retry_is_owner_private(self):
+        uploaded = self.upload("retry-private")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        sermon.processing_status = Sermon.ProcessingStatus.FAILED
+        sermon.save(update_fields=("processing_status", "updated_at"))
+        self.client.force_authenticate(user=self.other_user)
+
+        response = self.client.post(f"/api/sermons/{sermon.id}/retry/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        sermon.refresh_from_db()
+        self.assertEqual(sermon.processing_status, Sermon.ProcessingStatus.FAILED)
+
+    def test_owner_can_delete_an_in_progress_sermon(self):
+        uploaded = self.upload("delete-in-progress")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        audio_name = sermon.audio.name
+        self.assertTrue(sermon.audio.storage.exists(audio_name))
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.delete(f"/api/sermons/{sermon.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Sermon.objects.filter(id=sermon.id).exists())
+        self.assertFalse(sermon.audio.storage.exists(audio_name))
+
+    def test_ready_sermons_cannot_be_deleted_from_preparation(self):
+        uploaded = self.upload("delete-ready")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        sermon.processing_status = Sermon.ProcessingStatus.READY
+        sermon.save(update_fields=("processing_status", "updated_at"))
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.delete(f"/api/sermons/{sermon.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["detail"],
+            "Only Sermons still in preparation can be deleted here.",
+        )
+        self.assertTrue(Sermon.objects.filter(id=sermon.id).exists())
+
+    def test_delete_is_owner_private(self):
+        uploaded = self.upload("delete-private")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        self.client.force_authenticate(user=self.other_user)
+
+        response = self.client.delete(f"/api/sermons/{sermon.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(Sermon.objects.filter(id=sermon.id).exists())
+

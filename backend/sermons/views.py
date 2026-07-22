@@ -1,10 +1,12 @@
 from django.db import transaction
 from django.db.models import Q
 from rest_framework import mixins, permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from .models import Sermon
+from .pagination import LibraryPagination
 from .serializers import (
     LibrarySearchQuerySerializer,
     SermonDetailSerializer,
@@ -13,17 +15,24 @@ from .serializers import (
 from .tasks import enqueue_sermon_processing
 
 UPLOAD_METADATA_FIELDS = ("source_draft_id", "captured_at", "duration_seconds")
+IN_PROGRESS_STATUSES = (
+    Sermon.ProcessingStatus.UPLOADED,
+    Sermon.ProcessingStatus.PROCESSING,
+    Sermon.ProcessingStatus.FAILED,
+)
 
 
 class SermonViewSet(
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     permission_classes = (permissions.IsAuthenticated,)
     parser_classes = (MultiPartParser, FormParser)
     serializer_class = SermonSerializer
+    pagination_class = LibraryPagination
 
     def get_queryset(self):
         queryset = Sermon.objects.filter(owner=self.request.user).select_related(
@@ -49,6 +58,60 @@ class SermonViewSet(
                 "reflections",
             )
         return queryset
+
+    def destroy(self, request, *args, **kwargs):
+        sermon = self.get_object()
+        if sermon.processing_status not in IN_PROGRESS_STATUSES:
+            return Response(
+                {"detail": "Only Sermons still in preparation can be deleted here."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        audio_name = sermon.audio.name
+        storage = sermon.audio.storage
+        sermon.delete()
+        if audio_name:
+            storage.delete(audio_name)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="retry")
+    def retry(self, request, pk=None):
+        with transaction.atomic():
+            try:
+                sermon = (
+                    Sermon.objects.select_for_update()
+                    .filter(owner=request.user, pk=pk)
+                    .get()
+                )
+            except (Sermon.DoesNotExist, ValueError):
+                return Response(status=status.HTTP_404_NOT_FOUND)
+
+            if sermon.processing_status != Sermon.ProcessingStatus.FAILED:
+                return Response(
+                    {"detail": "Only Failed Sermons can be retried."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            sermon.processing_status = Sermon.ProcessingStatus.UPLOADED
+            sermon.processing_error = ""
+            sermon.processing_attempts = 0
+            sermon.processing_claim_id = ""
+            sermon.processing_started_at = None
+            sermon.processing_finished_at = None
+            sermon.save(
+                update_fields=(
+                    "processing_status",
+                    "processing_error",
+                    "processing_attempts",
+                    "processing_claim_id",
+                    "processing_started_at",
+                    "processing_finished_at",
+                    "updated_at",
+                )
+            )
+
+        transaction.on_commit(lambda: enqueue_sermon_processing(str(sermon.id)))
+        return Response(SermonSerializer(sermon, context={"request": request}).data)
 
     def _filter_library(self, queryset, query):
         search = query.get("search", "").strip()
@@ -91,7 +154,9 @@ class SermonViewSet(
             queryset = queryset.filter(captured_at__date__gte=date_from)
         if date_to := query.get("date_to"):
             queryset = queryset.filter(captured_at__date__lte=date_to)
-        if processing_status := query.get("processing_status"):
+        if query.get("in_progress"):
+            queryset = queryset.filter(processing_status__in=IN_PROGRESS_STATUSES)
+        elif processing_status := query.get("processing_status"):
             queryset = queryset.filter(processing_status=processing_status)
 
         return queryset.distinct()

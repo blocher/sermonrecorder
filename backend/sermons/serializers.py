@@ -13,6 +13,7 @@ from .models import (
     normalize_personal_book_value,
 )
 from .private_audio import private_audio_url
+from .processing_messages import owner_facing_processing_message
 from .scripture import MAX_SCRIPTURE_NUMBER, normalize_scripture_reference
 from .tagging import normalize_tag
 
@@ -140,6 +141,7 @@ class LibrarySearchQuerySerializer(serializers.Serializer):
         choices=Sermon.ProcessingStatus,
         required=False,
     )
+    in_progress = serializers.BooleanField(required=False)
 
     def validate(self, attrs):
         if (
@@ -150,11 +152,16 @@ class LibrarySearchQuerySerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "The start date must not be after the end date."
             )
+        if attrs.get("in_progress") and attrs.get("processing_status"):
+            raise serializers.ValidationError(
+                "Choose either in-progress Sermons or a single processing status."
+            )
         return attrs
 
 
 class SermonSerializer(serializers.ModelSerializer):
     audio = serializers.FileField(write_only=True)
+    audio_url = serializers.SerializerMethodField()
     processing_message = serializers.SerializerMethodField()
     short_summary = serializers.SerializerMethodField()
     tag_suggestions = serializers.SerializerMethodField()
@@ -169,6 +176,7 @@ class SermonSerializer(serializers.ModelSerializer):
             "captured_at",
             "duration_seconds",
             "audio",
+            "audio_url",
             "audio_mime_type",
             "audio_size_bytes",
             "church",
@@ -184,6 +192,7 @@ class SermonSerializer(serializers.ModelSerializer):
         )
         read_only_fields = (
             "id",
+            "audio_url",
             "audio_mime_type",
             "audio_size_bytes",
             "church",
@@ -218,14 +227,15 @@ class SermonSerializer(serializers.ModelSerializer):
         validated_data["audio_size_bytes"] = audio.size
         return super().create(validated_data)
 
+    def get_audio_url(self, sermon: Sermon) -> str:
+        request = self.context.get("request")
+        return private_audio_url(request, sermon) if request else ""
+
     def get_processing_message(self, sermon: Sermon) -> str:
-        if sermon.processing_status == Sermon.ProcessingStatus.UPLOADED:
-            return "Safely uploaded and waiting to process."
-        if sermon.processing_status == Sermon.ProcessingStatus.PROCESSING:
-            return "Preparing the transcript and study guide."
-        if sermon.processing_status == Sermon.ProcessingStatus.FAILED:
-            return "Processing could not finish. The recording is still safe."
-        return "Ready to revisit."
+        return owner_facing_processing_message(
+            sermon.processing_status,
+            sermon.processing_error,
+        )
 
     def get_short_summary(self, sermon: Sermon) -> str:
         if sermon.processing_status != Sermon.ProcessingStatus.READY:
@@ -446,7 +456,6 @@ class RelatedSermonSerializer(serializers.ModelSerializer):
 
 
 class SermonDetailSerializer(SermonSerializer):
-    audio_url = serializers.SerializerMethodField()
     transcript = TranscriptSerializer(read_only=True, allow_null=True)
     study_artifacts = StudyArtifactSerializer(many=True, read_only=True)
     scripture_references = ScriptureReferenceSerializer(many=True, read_only=True)
@@ -455,7 +464,6 @@ class SermonDetailSerializer(SermonSerializer):
 
     class Meta(SermonSerializer.Meta):
         fields = SermonSerializer.Meta.fields + (
-            "audio_url",
             "transcript",
             "study_artifacts",
             "scripture_references",
@@ -463,18 +471,12 @@ class SermonDetailSerializer(SermonSerializer):
             "reflections",
         )
         read_only_fields = SermonSerializer.Meta.read_only_fields + (
-            "audio_url",
             "transcript",
             "study_artifacts",
             "scripture_references",
             "related_sermons",
             "reflections",
         )
-
-    def get_audio_url(self, sermon: Sermon) -> str:
-        request = self.context.get("request")
-        return private_audio_url(request, sermon) if request else ""
-
 
 class PublicSharedSermonSerializer(serializers.ModelSerializer):
     audio_url = serializers.SerializerMethodField()

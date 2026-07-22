@@ -47,6 +47,11 @@ textarea:focus-visible {
   min-height: 100svh;
 }
 
+body.recording-lock,
+body.library-search-lock {
+  overflow: hidden;
+}
+
 .rubric-label {
   color: var(--color-rubric);
   font-family: var(--font-utility);
