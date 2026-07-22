@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -98,6 +99,10 @@ class SermonContextView(APIView):
         values = serializer.validated_data
         update_fields = []
 
+        if "title" in values:
+            sermon.title = values["title"]
+            sermon.title_edited_at = timezone.now()
+            update_fields.extend(("title", "title_edited_at"))
         if "church_id" in values:
             sermon.church = self._church(request, values["church_id"])
             update_fields.append("church")

@@ -27,6 +27,7 @@ from .processing import (
 
 def complete_result() -> ProcessedSermon:
     return ProcessedSermon(
+        title="The Father Welcomes Us Home",
         transcript_text="The first cleaned Transcript.",
         transcript_segments=(
             TranscriptSegment(
@@ -36,7 +37,14 @@ def complete_result() -> ProcessedSermon:
             ),
         ),
         study_artifacts=tuple(
-            StudyArtifactResult(kind=kind, content=f"First {kind}.")
+            StudyArtifactResult(
+                kind=kind,
+                content=(
+                    "The first cleaned Transcript."
+                    if kind == StudyArtifact.Kind.QUOTATIONS
+                    else f"First {kind}."
+                ),
+            )
             for kind in StudyArtifact.Kind.values
         ),
         scripture_references=(
@@ -91,6 +99,11 @@ class ProcessedSermonRepositoryTests(TestCase):
 
     def test_reprocessing_atomically_replaces_generated_content(self):
         persist_processed_sermon(self.sermon, complete_result())
+        self.sermon.refresh_from_db()
+        self.assertEqual(self.sermon.title, "The Father Welcomes Us Home")
+        self.sermon.title = "A Congregant's Own Title"
+        self.sermon.title_edited_at = timezone.now()
+        self.sermon.save(update_fields=("title", "title_edited_at", "updated_at"))
         artifact = StudyArtifact.objects.get(
             sermon=self.sermon,
             kind=StudyArtifact.Kind.SHORT_SUMMARY,
@@ -100,6 +113,7 @@ class ProcessedSermonRepositoryTests(TestCase):
         artifact.save(update_fields=("content", "edited_at", "updated_at"))
         replacement = replace(
             complete_result(),
+            title="A Replacement Generated Title",
             transcript_text="The replacement Transcript.",
             transcript_segments=(
                 TranscriptSegment(
@@ -109,7 +123,14 @@ class ProcessedSermonRepositoryTests(TestCase):
                 ),
             ),
             study_artifacts=tuple(
-                StudyArtifactResult(kind=kind, content=f"Replacement {kind}.")
+                StudyArtifactResult(
+                    kind=kind,
+                    content=(
+                        "The replacement Transcript."
+                        if kind == StudyArtifact.Kind.QUOTATIONS
+                        else f"Replacement {kind}."
+                    ),
+                )
                 for kind in StudyArtifact.Kind.values
             ),
             scripture_references=(),
@@ -118,6 +139,8 @@ class ProcessedSermonRepositoryTests(TestCase):
 
         persist_processed_sermon(self.sermon, replacement)
 
+        self.sermon.refresh_from_db()
+        self.assertEqual(self.sermon.title, "A Congregant's Own Title")
         self.assertEqual(
             Transcript.objects.get(sermon=self.sermon).text,
             "The replacement Transcript.",
@@ -138,6 +161,26 @@ class ProcessedSermonRepositoryTests(TestCase):
             ),
             ["Renewal"],
         )
+
+    def test_non_verbatim_quotations_are_rejected_without_partial_content(self):
+        invalid = replace(
+            complete_result(),
+            study_artifacts=tuple(
+                replace(artifact, content="An invented quotation.")
+                if artifact.kind == StudyArtifact.Kind.QUOTATIONS
+                else artifact
+                for artifact in complete_result().study_artifacts
+            ),
+        )
+
+        with self.assertRaisesMessage(
+            PermanentProcessingError,
+            "verbatim Transcript excerpts",
+        ):
+            persist_processed_sermon(self.sermon, invalid)
+
+        self.assertFalse(Transcript.objects.filter(sermon=self.sermon).exists())
+        self.assertFalse(StudyArtifact.objects.filter(sermon=self.sermon).exists())
 
     def test_related_sermons_cannot_cross_congregant_libraries(self):
         related = self.create_sermon(self.user, "related")
@@ -165,7 +208,7 @@ class ProcessedSermonRepositoryTests(TestCase):
 
         cross_library_result = replace(
             result,
-            transcript_text="This must not be persisted.",
+            transcript_text="The first cleaned Transcript. This must not be persisted.",
             related_sermons=(
                 RelatedSermonResult(
                     sermon_id=private_sermon.id,

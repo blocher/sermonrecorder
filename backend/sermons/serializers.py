@@ -109,6 +109,11 @@ class ChurchSuggestionQuerySerializer(serializers.Serializer):
 
 
 class SermonContextUpdateSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        max_length=160,
+        required=False,
+        allow_blank=True,
+    )
     church_id = serializers.UUIDField(required=False, allow_null=True)
     preacher_id = serializers.UUIDField(required=False, allow_null=True)
     occasion_kind = serializers.ChoiceField(
@@ -124,6 +129,9 @@ class SermonContextUpdateSerializer(serializers.Serializer):
 
     def validate_liturgical_day(self, liturgical_day: str) -> str:
         return " ".join(liturgical_day.split())
+
+    def validate_title(self, title: str) -> str:
+        return " ".join(title.split())
 
 
 class LibrarySearchQuerySerializer(serializers.Serializer):
@@ -173,6 +181,7 @@ class SermonSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "source_draft_id",
+            "title",
             "captured_at",
             "duration_seconds",
             "audio",
@@ -192,6 +201,7 @@ class SermonSerializer(serializers.ModelSerializer):
         )
         read_only_fields = (
             "id",
+            "title",
             "audio_url",
             "audio_mime_type",
             "audio_size_bytes",
@@ -445,6 +455,7 @@ class ScriptureReferencesEditSerializer(serializers.Serializer):
 
 class RelatedSermonSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="related_sermon_id", read_only=True)
+    title = serializers.CharField(source="related_sermon.title", read_only=True)
     captured_at = serializers.DateTimeField(
         source="related_sermon.captured_at",
         read_only=True,
@@ -452,7 +463,7 @@ class RelatedSermonSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RelatedSermon
-        fields = ("id", "captured_at", "score", "reason")
+        fields = ("id", "title", "captured_at", "score", "reason")
 
 
 class SermonDetailSerializer(SermonSerializer):
@@ -478,6 +489,7 @@ class SermonDetailSerializer(SermonSerializer):
             "reflections",
         )
 
+
 class PublicSharedSermonSerializer(serializers.ModelSerializer):
     audio_url = serializers.SerializerMethodField()
     church = ChurchSerializer(read_only=True)
@@ -490,6 +502,7 @@ class PublicSharedSermonSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sermon
         fields = (
+            "title",
             "captured_at",
             "duration_seconds",
             "church",

@@ -115,6 +115,8 @@ class Sermon(models.Model):
         related_name="sermons",
     )
     source_draft_id = models.CharField(max_length=128)
+    title = models.CharField(max_length=160, blank=True)
+    title_edited_at = models.DateTimeField(null=True, blank=True)
     captured_at = models.DateTimeField()
     duration_seconds = models.PositiveIntegerField(
         validators=(MinValueValidator(1), MaxValueValidator(12 * 60 * 60))
@@ -190,6 +192,9 @@ class StudyArtifact(models.Model):
         SHORT_SUMMARY = "short_summary", "Short summary"
         LONG_SUMMARY = "long_summary", "Long summary"
         OUTLINE = "outline", "Outline"
+        PRACTICAL_NEXT_STEPS = "practical_next_steps", "Practical next steps"
+        CALL_TO_ACTION = "call_to_action", "One next action"
+        QUOTATIONS = "quotations", "Quotations"
         ADULT_DISCUSSION_QUESTIONS = (
             "adult_discussion_questions",
             "Adult discussion questions",

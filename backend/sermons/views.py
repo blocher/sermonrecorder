@@ -61,12 +61,6 @@ class SermonViewSet(
 
     def destroy(self, request, *args, **kwargs):
         sermon = self.get_object()
-        if sermon.processing_status not in IN_PROGRESS_STATUSES:
-            return Response(
-                {"detail": "Only Sermons still in preparation can be deleted here."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         audio_name = sermon.audio.name
         storage = sermon.audio.storage
         sermon.delete()
@@ -117,7 +111,8 @@ class SermonViewSet(
         search = query.get("search", "").strip()
         for term in search.split():
             term_query = (
-                Q(transcript__text__icontains=term)
+                Q(title__icontains=term)
+                | Q(transcript__text__icontains=term)
                 | Q(study_artifacts__content__icontains=term)
                 | Q(scripture_references__book__icontains=term)
                 | Q(tag_suggestions__name__icontains=term)

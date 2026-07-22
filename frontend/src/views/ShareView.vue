@@ -55,6 +55,19 @@ function numberedItems(content: string): string[] {
     .filter(Boolean)
 }
 
+function quotationItems(content: string): string[] {
+  const quotePairs = new Set(['""', '“”', '‘’'])
+  return content
+    .split(/\n+/)
+    .map((item) => item.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+    .map((item) =>
+      item.length >= 2 && quotePairs.has(`${item[0]}${item.at(-1)}`)
+        ? item.slice(1, -1).trim()
+        : item,
+    )
+    .filter(Boolean)
+}
+
 function paragraphs(content: string): string[] {
   return content
     .split(/\n{2,}/)
@@ -74,7 +87,14 @@ function scriptureUrl(display: string): string {
 
 function occasionLabel(kind: SharedSermonDetail['occasion_kind']): string {
   if (!kind) return ''
-  return kind.charAt(0).toUpperCase() + kind.slice(1)
+  return {
+    sunday: 'Sunday',
+    feast: 'Feast or holy day',
+    wedding: 'Wedding',
+    funeral: 'Funeral',
+    midweek: 'Midweek service',
+    other: 'Other occasion',
+  }[kind]
 }
 
 async function togglePlayback(): Promise<void> {
@@ -186,6 +206,30 @@ onBeforeUnmount(() => {
         <p class="share-summary">{{ artifact('short_summary') }}</p>
       </section>
 
+      <section
+        v-if="artifact('quotations')"
+        class="share-section share-quotations page-gather"
+      >
+        <p class="rubric-label">In the preacher’s words</p>
+        <h2>Quotations</h2>
+        <div>
+          <blockquote
+            v-for="quotation in quotationItems(artifact('quotations'))"
+            :key="quotation"
+          >
+            <p>{{ quotation }}</p>
+          </blockquote>
+        </div>
+      </section>
+
+      <section
+        v-if="artifact('call_to_action')"
+        class="share-section share-section--call page-gather"
+      >
+        <p class="rubric-label">One next action</p>
+        <p>{{ artifact('call_to_action') }}</p>
+      </section>
+
       <section v-if="sermon.scripture_references.length" class="share-section page-gather">
         <h2>Scripture</h2>
         <div class="share-scripture">
@@ -209,6 +253,16 @@ onBeforeUnmount(() => {
             {{ paragraph }}
           </p>
         </div>
+      </section>
+
+      <section v-if="artifact('practical_next_steps')" class="share-section page-gather">
+        <p class="rubric-label">Put it into practice</p>
+        <h2>Practical next steps</h2>
+        <ol class="share-practical">
+          <li v-for="item in numberedItems(artifact('practical_next_steps'))" :key="item">
+            {{ item }}
+          </li>
+        </ol>
       </section>
 
       <section class="share-section page-gather">
@@ -251,7 +305,11 @@ onBeforeUnmount(() => {
             v-for="segment in sermon.transcript?.segments ?? []"
             :key="`${segment.start_seconds}-${segment.text}`"
           >
-            <button type="button" @click="seekTo(segment.start_seconds)">
+            <button
+              type="button"
+              :aria-label="`Play from ${timestamp(segment.start_seconds)}`"
+              @click="seekTo(segment.start_seconds)"
+            >
               {{ timestamp(segment.start_seconds) }}
             </button>
             <p>{{ segment.text }}</p>
@@ -262,7 +320,7 @@ onBeforeUnmount(() => {
 
     <footer class="share-footer">
       <BrandMark compact />
-      <p>This unlisted link was shared by a Pewcorder listener.</p>
+      <p>This unlisted link was shared by a Pewcorder Congregant.</p>
       <RouterLink to="/">Open Pewcorder</RouterLink>
     </footer>
 
@@ -295,7 +353,14 @@ onBeforeUnmount(() => {
           }}
         </span>
       </div>
-      <div class="share-player__line" aria-hidden="true">
+      <div
+        class="share-player__line"
+        role="progressbar"
+        aria-label="Shared Sermon playback progress"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        :aria-valuenow="Math.round(progress * 100)"
+      >
         <span :style="{ width: progressLabel }"></span>
       </div>
     </section>
@@ -419,6 +484,56 @@ onBeforeUnmount(() => {
   margin: 0.8rem 0 0;
 }
 
+.share-quotations > div {
+  display: grid;
+  gap: 1.35rem;
+  margin-top: 1.5rem;
+}
+
+.share-quotations blockquote {
+  border-left: 2px solid var(--color-rule-gold);
+  margin: 0;
+  padding: 0.15rem 0 0.15rem clamp(1rem, 5vw, 1.75rem);
+}
+
+.share-quotations blockquote p {
+  font-family: var(--font-reading);
+  font-size: clamp(1.22rem, 3vw, 1.52rem);
+  font-style: italic;
+  line-height: 1.58;
+  margin: 0;
+}
+
+.share-quotations blockquote p::before,
+.share-quotations blockquote p::after {
+  color: var(--color-rubric);
+  font-family: var(--font-display);
+  font-style: normal;
+}
+
+.share-quotations blockquote p::before {
+  content: '“';
+}
+
+.share-quotations blockquote p::after {
+  content: '”';
+}
+
+.share-section--call {
+  background: color-mix(in srgb, var(--color-rule-gold) 11%, var(--color-vellum-light));
+  border: 1px solid color-mix(in srgb, var(--color-rule-gold) 55%, var(--color-margin));
+  margin-top: 2.5rem;
+  padding: clamp(1.5rem, 5vw, 2.5rem);
+}
+
+.share-section--call > p:last-child {
+  font-family: var(--font-display);
+  font-size: clamp(1.55rem, 4vw, 2.2rem);
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+  margin: 1rem 0 0;
+}
+
 .share-prose {
   margin-top: 1.4rem;
 }
@@ -453,6 +568,7 @@ onBeforeUnmount(() => {
 }
 
 .share-outline,
+.share-practical,
 .share-questions {
   list-style: none;
   margin: 1.7rem 0 0;
@@ -461,6 +577,17 @@ onBeforeUnmount(() => {
 
 .share-outline {
   counter-reset: share-outline;
+}
+
+.share-practical li {
+  border-left: 2px solid var(--color-rule-gold);
+  font-family: var(--font-reading);
+  line-height: 1.6;
+  padding: 0.45rem 0 0.45rem 1rem;
+}
+
+.share-practical li + li {
+  margin-top: 0.8rem;
 }
 
 .share-outline li {

@@ -23,6 +23,11 @@ def _normalized_tag(name: str) -> tuple[str, str]:
 
 
 def _validate_result(sermon: Sermon, result: ProcessedSermon) -> None:
+    title = " ".join(result.title.split())
+    if not title or len(title) > Sermon._meta.get_field("title").max_length:
+        raise PermanentProcessingError(
+            "The processor returned an invalid Sermon title."
+        )
     if not result.transcript_text.strip():
         raise PermanentProcessingError("The processor returned an empty Transcript.")
     if not result.transcript_segments:
@@ -53,6 +58,24 @@ def _validate_result(sermon: Sermon, result: ProcessedSermon) -> None:
     if any(not artifact.content.strip() for artifact in result.study_artifacts):
         raise PermanentProcessingError(
             "The processor returned an empty Study artifact."
+        )
+    quotations = next(
+        artifact.content.splitlines()
+        for artifact in result.study_artifacts
+        if artifact.kind == StudyArtifact.Kind.QUOTATIONS
+    )
+    normalized_transcript = " ".join(result.transcript_text.split())
+    normalized_quotations = [" ".join(quotation.split()) for quotation in quotations]
+    if (
+        not 1 <= len(normalized_quotations) <= 3
+        or len(normalized_quotations) != len(set(normalized_quotations))
+        or any(
+            not quotation or quotation not in normalized_transcript
+            for quotation in normalized_quotations
+        )
+    ):
+        raise PermanentProcessingError(
+            "Sermon quotations must contain one to three unique, verbatim Transcript excerpts."
         )
 
     normalized_tags = [_normalized_tag(name)[1] for name in result.tag_suggestions]
@@ -113,6 +136,13 @@ def persist_processed_sermon(sermon: Sermon, result: ProcessedSermon) -> None:
     with transaction.atomic():
         locked_sermon = Sermon.objects.select_for_update().get(id=sermon.id)
         _validate_result(locked_sermon, result)
+        generated_title = " ".join(result.title.split())
+        if (
+            locked_sermon.title_edited_at is None
+            and locked_sermon.title != generated_title
+        ):
+            locked_sermon.title = generated_title
+            locked_sermon.save(update_fields=("title", "updated_at"))
         Transcript.objects.update_or_create(
             sermon=locked_sermon,
             defaults={

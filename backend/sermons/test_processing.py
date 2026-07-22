@@ -22,6 +22,7 @@ from .tasks import enqueue_sermon_processing, process_sermon
 
 def complete_result() -> ProcessedSermon:
     return ProcessedSermon(
+        title="Grace in the Ordinary",
         transcript_text="Grace meets us in the ordinary.",
         transcript_segments=(
             TranscriptSegment(
@@ -31,7 +32,14 @@ def complete_result() -> ProcessedSermon:
             ),
         ),
         study_artifacts=tuple(
-            StudyArtifactResult(kind=kind, content=f"Generated {kind}.")
+            StudyArtifactResult(
+                kind=kind,
+                content=(
+                    "Grace meets us in the ordinary."
+                    if kind == StudyArtifact.Kind.QUOTATIONS
+                    else f"Generated {kind}."
+                ),
+            )
             for kind in StudyArtifact.Kind.values
         ),
         scripture_references=(

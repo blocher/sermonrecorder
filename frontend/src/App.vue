@@ -36,6 +36,12 @@ const draftStatus = computed(() => {
 })
 
 const searchActive = computed(() => route.path === '/' && route.query.focus === 'search')
+const modalActive = computed(
+  () =>
+    searchActive.value ||
+    Boolean(wizardDraftId.value) ||
+    (state.value !== 'idle' && state.value !== 'error'),
+)
 
 function openSearch(): void {
   if (route.path === '/' && route.query.focus === 'search') return
@@ -64,7 +70,11 @@ onMounted(() => {
   <RouterView v-if="publicRoute" />
 
   <div v-else class="app-shell">
-    <header class="app-header">
+    <header
+      class="app-header"
+      :inert="modalActive"
+      :aria-hidden="modalActive ? 'true' : undefined"
+    >
       <div class="app-header__inner">
         <RouterLink class="app-header__brand" to="/" aria-label="Pewcorder library">
           <BrandMark compact />
@@ -99,7 +109,13 @@ onMounted(() => {
       <button v-else type="button" @click="clearError">Dismiss</button>
     </aside>
 
-    <RouterView />
+    <div
+      class="app-content"
+      :inert="modalActive"
+      :aria-hidden="modalActive ? 'true' : undefined"
+    >
+      <RouterView />
+    </div>
     <RecordSeal :state="state" :elapsed-seconds="elapsedSeconds" @toggle="toggle" />
     <DraftWizard
       v-if="wizardDraftId"
@@ -117,6 +133,7 @@ onMounted(() => {
 }
 
 .app-header {
+  backdrop-filter: blur(14px);
   background: color-mix(in srgb, var(--color-vellum) 95%, transparent);
   border-bottom: 1px solid var(--color-margin);
   height: var(--header-height);
@@ -243,6 +260,10 @@ onMounted(() => {
 }
 
 @media (max-width: 520px) {
+  .app-shell {
+    padding-bottom: calc(4.75rem + env(safe-area-inset-bottom));
+  }
+
   .app-header__status {
     display: none;
   }

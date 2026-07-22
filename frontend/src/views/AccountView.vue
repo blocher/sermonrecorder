@@ -99,7 +99,7 @@ async function signOut(): Promise<void> {
         <ShieldCheck :size="30" :stroke-width="1.5" />
       </span>
       <p class="rubric-label">Signed in</p>
-      <h2>{{ user.display_name || 'Pewcorder listener' }}</h2>
+      <h2>{{ user.display_name || 'Pewcorder Congregant' }}</h2>
       <p>{{ user.email }}</p>
       <div v-if="alertsAvailable" class="completion-alerts">
         <BellRing :size="21" :stroke-width="1.6" aria-hidden="true" />
@@ -130,10 +130,11 @@ async function signOut(): Promise<void> {
     </section>
 
     <section v-else class="account-form">
-      <div class="account-form__tabs" aria-label="Account action">
+      <div class="account-form__tabs" role="group" aria-label="Account action">
         <button
           type="button"
           :class="{ active: mode === 'sign-in' }"
+          :aria-pressed="mode === 'sign-in'"
           @click="mode = 'sign-in'"
         >
           Sign in
@@ -141,6 +142,7 @@ async function signOut(): Promise<void> {
         <button
           type="button"
           :class="{ active: mode === 'register' }"
+          :aria-pressed="mode === 'register'"
           @click="mode = 'register'"
         >
           Create account

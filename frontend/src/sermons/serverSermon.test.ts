@@ -32,7 +32,7 @@ import {
   sendSermonEmail,
   serverSermonDuration,
   serverSermonTitle,
-  deleteInProgressSermon,
+  deleteSermon,
   retrySermonProcessing,
   updateStudyArtifact,
   updateSermonContext,
@@ -45,6 +45,7 @@ import {
 const detail: ServerSermonDetail = {
   id: 'ready-sermon',
   source_draft_id: 'local-draft',
+  title: 'Grace Meets Us Here',
   captured_at: '2026-07-20T15:30:00Z',
   duration_seconds: 2700,
   audio_mime_type: 'audio/mp4',
@@ -107,12 +108,12 @@ describe('server Sermon detail', () => {
     )
   })
 
-  it('deletes an in-progress Sermon with DELETE', async () => {
+  it('deletes a Sermon with DELETE', async () => {
     mocks.fetch.mockResolvedValueOnce(new Response(null, { status: 204 }))
 
-    await expect(deleteInProgressSermon('pending-sermon')).resolves.toBeUndefined()
+    await expect(deleteSermon('ready-sermon')).resolves.toBeUndefined()
     expect(mocks.fetch).toHaveBeenCalledWith(
-      'http://api.example.test/api/sermons/pending-sermon/',
+      'http://api.example.test/api/sermons/ready-sermon/',
       { method: 'DELETE', headers: { Authorization: 'Bearer access-token' } },
     )
   })
@@ -132,7 +133,8 @@ describe('server Sermon detail', () => {
   })
 
   it('uses clear date and duration labels without invented metadata', () => {
-    expect(serverSermonTitle(detail)).toContain('Sermon')
+    expect(serverSermonTitle(detail)).toBe('Grace Meets Us Here')
+    expect(serverSermonTitle({ captured_at: detail.captured_at })).toContain('Sermon')
     expect(serverSermonDuration(detail.duration_seconds)).toBe('45 min')
   })
 
@@ -463,6 +465,7 @@ describe('server Sermon detail', () => {
     await expect(createPreacher(preacher.name)).resolves.toEqual(preacher)
     await expect(
       updateSermonContext('ready-sermon', {
+        title: 'Bread for the Journey',
         church_id: church.id,
         preacher_id: preacher.id,
         occasion_kind: 'sunday',
@@ -474,6 +477,7 @@ describe('server Sermon detail', () => {
       expect.objectContaining({
         method: 'PATCH',
         body: JSON.stringify({
+          title: 'Bread for the Journey',
           church_id: church.id,
           preacher_id: preacher.id,
           occasion_kind: 'sunday',

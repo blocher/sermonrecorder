@@ -13,7 +13,7 @@ Audio captured by a Congregant from their seat during a live service — not a h
 _Avoid_: Broadcast recording, desk recording, livestream capture
 
 **Sermon**:
-A Congregant's personal journal entry for one preaching event: pew recording audio plus transcript and derived study content. In the app, only that Congregant can browse their library. They may intentionally publish a Share page (see below); Reflections never appear there. App Admin can see all Sermons for operations.
+A Congregant's personal journal entry for one preaching event: pew recording audio plus transcript and derived study content. Processing suggests a concise title, which the Congregant can replace at any time. In the app, only that Congregant can browse their library. They may intentionally publish a Share page (see below); Reflections never appear there. App Admin can see all Sermons for operations.
 _Avoid_: Recording (as the product noun), session, capture, note — use Sermon for the owned entry
 
 **App Admin**:
@@ -41,7 +41,7 @@ The specific named day or observance for a Sermon (e.g. "Third Sunday of Ordinar
 _Avoid_: Occasion (alone), feast name (too narrow), lectionary entry (implementation)
 
 **Study artifact**:
-One independently editable piece of derived content on a Sermon (short summary, long summary, outline, adult discussion questions, kids discussion questions, and similar). Regenerating one artifact does not replace the others; Congregant edits to an artifact are kept until that artifact is regenerated. Key themes are not a separate artifact — they surface as suggested Tags.
+One independently editable piece of derived content on a Sermon (short summary, long summary, outline, Quotations, Practical next steps, One next action, adult discussion questions, kids discussion questions, and similar). Quotations contain one to three impactful excerpts copied word-for-word from the Transcript. Practical next steps are a short list of grounded ways to live differently; One next action is a single brief, concrete call to action. Regenerating one artifact does not replace the others; Congregant edits to an artifact are kept until that artifact is regenerated. Key themes are not a separate artifact — they surface as suggested Tags.
 _Avoid_: Generated content (as a single blob), AI output, section
 
 **Scripture reference**:

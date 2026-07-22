@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
@@ -21,12 +21,14 @@ import {
   UserRound,
   X,
 } from '@lucide/vue'
+import ReflectionEditor from '../components/ReflectionEditor.vue'
 import { useAuth } from '../auth/useAuth'
 import { findNearbyChurches } from '../location/findNearbyChurches'
 import {
   createChurch,
   createPreacher,
   createShareLink,
+  deleteSermon,
   loadChurches,
   loadPreachers,
   loadShareLink,
@@ -53,6 +55,7 @@ import {
 } from '../sermons/serverSermon'
 
 type Section = 'study' | 'transcript' | 'discuss' | 'reflection'
+type TranscriptView = 'timeline' | 'reading'
 type ScriptureReferenceDraft = Omit<
   ServerScriptureReference,
   'display' | 'chapter_start' | 'verse_start' | 'chapter_end' | 'verse_end'
@@ -67,11 +70,13 @@ const route = useRoute()
 const router = useRouter()
 const { isAuthenticated } = useAuth()
 const sermon = ref<ServerSermonDetail>()
+const sectionTabs = ref<HTMLElement>()
 const loading = ref(true)
 const errorMessage = ref('')
 const failedSermonId = ref('')
 const retrying = ref(false)
 const activeSection = ref<Section>('study')
+const transcriptView = ref<TranscriptView>('timeline')
 const audio = ref<HTMLAudioElement>()
 const playing = ref(false)
 const currentSeconds = ref(0)
@@ -102,12 +107,16 @@ const shareLink = ref<ServerShareLink | null>(null)
 const shareLoading = ref(false)
 const shareBusy = ref(false)
 const shareMessage = ref('')
+const confirmingDelete = ref(false)
+const deleting = ref(false)
+const deleteMessage = ref('')
 const contextPanelOpen = ref(false)
 const contextLoading = ref(false)
 const contextSaving = ref(false)
 const contextMessage = ref('')
 const churches = ref<ServerChurch[]>([])
 const preachers = ref<ServerPreacher[]>([])
+const sermonTitle = ref('')
 const selectedChurchId = ref('')
 const selectedPreacherId = ref('')
 const selectedOccasionKind = ref<OccasionKind | ''>('')
@@ -124,6 +133,30 @@ const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
 )
 const progressLabel = computed(() => `${Math.round(progress.value * 100)}%`)
+const readingTranscriptParagraphs = computed(() => {
+  const segments = sermon.value?.transcript?.segments ?? []
+  if (!segments.length) {
+    const text = sermon.value?.transcript?.text.trim()
+    return text ? paragraphs(text) : []
+  }
+
+  const grouped: string[] = []
+  let paragraph = ''
+  let wordCount = 0
+  for (const segment of segments) {
+    const text = segment.text.trim()
+    if (!text) continue
+    paragraph = `${paragraph} ${text}`.trim()
+    wordCount += text.split(/\s+/).length
+    if (wordCount >= 100) {
+      grouped.push(paragraph)
+      paragraph = ''
+      wordCount = 0
+    }
+  }
+  if (paragraph) grouped.push(paragraph)
+  return grouped
+})
 const capturedDate = computed(() =>
   sermon.value
     ? new Intl.DateTimeFormat(undefined, {
@@ -133,12 +166,20 @@ const capturedDate = computed(() =>
       }).format(new Date(sermon.value.captured_at))
     : '',
 )
+const capturedTime = computed(() =>
+  sermon.value
+    ? new Intl.DateTimeFormat(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+      }).format(new Date(sermon.value.captured_at))
+    : '',
+)
 const occasionOptions: [OccasionKind, string][] = [
   ['sunday', 'Sunday'],
-  ['feast', 'Feast'],
+  ['feast', 'Feast or holy day'],
   ['wedding', 'Wedding'],
   ['funeral', 'Funeral'],
-  ['midweek', 'Midweek'],
+  ['midweek', 'Midweek service'],
   ['other', 'Other'],
 ]
 
@@ -154,6 +195,19 @@ function numberedItems(content: string): string[] {
   return content
     .split(/\n+/)
     .map((item) => item.replace(/^\s*\d+\.\s*/, '').trim())
+    .filter(Boolean)
+}
+
+function quotationItems(content: string): string[] {
+  const quotePairs = new Set(['""', '“”', '‘’'])
+  return content
+    .split(/\n+/)
+    .map((item) => item.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+    .map((item) =>
+      item.length >= 2 && quotePairs.has(`${item[0]}${item.at(-1)}`)
+        ? item.slice(1, -1).trim()
+        : item,
+    )
     .filter(Boolean)
 }
 
@@ -390,9 +444,13 @@ async function persistReflection(): Promise<void> {
   }
 }
 
-function selectSection(section: Section) {
+async function selectSection(section: Section): Promise<void> {
   activeSection.value = section
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  await nextTick()
+  sectionTabs.value?.scrollIntoView({
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    block: 'start',
+  })
 }
 
 async function togglePlayback(): Promise<void> {
@@ -422,6 +480,10 @@ async function seekTo(seconds: number): Promise<void> {
 }
 
 async function toggleSharePanel(): Promise<void> {
+  if (!sharePanelOpen.value && contextPanelOpen.value) {
+    contextMessage.value = 'Save or close the Sermon details before opening sharing.'
+    return
+  }
   sharePanelOpen.value = !sharePanelOpen.value
   shareMessage.value = ''
   if (!sharePanelOpen.value || !sermon.value) return
@@ -501,9 +563,11 @@ async function unpublishShareLink(): Promise<void> {
 
 async function toggleContextPanel(): Promise<void> {
   contextPanelOpen.value = !contextPanelOpen.value
+  if (contextPanelOpen.value) sharePanelOpen.value = false
   contextMessage.value = ''
   churchSuggestions.value = []
   if (!contextPanelOpen.value || !sermon.value) return
+  sermonTitle.value = sermon.value.title
   selectedChurchId.value = sermon.value.church?.id ?? ''
   selectedPreacherId.value = sermon.value.preacher?.id ?? ''
   selectedOccasionKind.value = sermon.value.occasion_kind
@@ -522,6 +586,11 @@ async function toggleContextPanel(): Promise<void> {
   } finally {
     contextLoading.value = false
   }
+}
+
+function beginDeleteConfirmation(): void {
+  sharePanelOpen.value = false
+  confirmingDelete.value = true
 }
 
 async function saveNewChurch(): Promise<void> {
@@ -556,11 +625,13 @@ async function suggestNearbyChurches(): Promise<void> {
   try {
     churchSuggestions.value = await findNearbyChurches()
     contextMessage.value = churchSuggestions.value.length
-      ? 'Choose a nearby Church to add it to your private place book.'
-      : 'No nearby Churches were found. You can still add one manually.'
+      ? 'Choose a Church near your current location to add it to your private place book.'
+      : 'No Churches were found near your current location. You can still add one manually.'
   } catch (error) {
     contextMessage.value =
-      error instanceof Error ? error.message : 'Nearby Churches could not be suggested.'
+      error instanceof Error
+        ? error.message
+        : 'Churches near your current location could not be suggested.'
   } finally {
     findingChurches.value = false
   }
@@ -627,11 +698,13 @@ async function saveContext(): Promise<void> {
   contextMessage.value = ''
   try {
     const saved = await updateSermonContext(sermon.value.id, {
+      title: sermonTitle.value,
       church_id: selectedChurchId.value || null,
       preacher_id: selectedPreacherId.value || null,
       occasion_kind: selectedOccasionKind.value,
       liturgical_day: liturgicalDay.value,
     })
+    sermon.value.title = saved.title
     sermon.value.church = saved.church
     sermon.value.preacher = saved.preacher
     sermon.value.occasion_kind = saved.occasion_kind
@@ -663,6 +736,8 @@ async function load(id: string): Promise<void> {
   sharePanelOpen.value = false
   shareLink.value = null
   shareMessage.value = ''
+  confirmingDelete.value = false
+  deleteMessage.value = ''
   contextPanelOpen.value = false
   contextMessage.value = ''
   try {
@@ -702,6 +777,22 @@ async function retryFailedProcessing(): Promise<void> {
       error instanceof Error ? error.message : 'This Sermon could not be retried.'
   } finally {
     retrying.value = false
+  }
+}
+
+async function deleteCurrentSermon(): Promise<void> {
+  if (!sermon.value || deleting.value) return
+  deleting.value = true
+  deleteMessage.value = ''
+  try {
+    audio.value?.pause()
+    await deleteSermon(sermon.value.id)
+    await router.replace('/')
+  } catch (error) {
+    deleteMessage.value =
+      error instanceof Error ? error.message : 'This Sermon could not be deleted.'
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -752,46 +843,141 @@ watch(
           <span>Ready</span>
         </div>
         <h1>{{ serverSermonTitle(sermon) }}</h1>
-        <div class="sermon-header__meta">
-          <span v-if="sermon.preacher">
-            <UserRound :size="15" aria-hidden="true" />{{ sermon.preacher.name }}
-          </span>
-          <span v-if="sermon.church">
-            <MapPin :size="15" aria-hidden="true" />{{ sermon.church.name }}
-          </span>
-          <span><CalendarDays :size="15" aria-hidden="true" />{{ capturedDate }}</span>
-          <span>
-            <Clock3 :size="15" aria-hidden="true" />{{
-              serverSermonDuration(sermon.duration_seconds)
-            }}
-          </span>
-        </div>
+        <dl class="sermon-register" aria-label="Sermon details">
+          <div class="sermon-register__entry">
+            <dt><MapPin :size="15" aria-hidden="true" />Church</dt>
+            <dd>
+              <strong :class="{ 'is-unset': !sermon.church }">{{
+                sermon.church?.name || 'Not assigned'
+              }}</strong>
+              <small v-if="sermon.church?.address">{{ sermon.church.address }}</small>
+              <small v-else-if="!sermon.church">Add the Church when you know it</small>
+            </dd>
+          </div>
+          <div class="sermon-register__entry">
+            <dt><UserRound :size="15" aria-hidden="true" />Preacher</dt>
+            <dd>
+              <strong :class="{ 'is-unset': !sermon.preacher }">{{
+                sermon.preacher?.name || 'Not assigned'
+              }}</strong>
+            </dd>
+          </div>
+          <div class="sermon-register__entry">
+            <dt><BookOpenText :size="15" aria-hidden="true" />Occasion</dt>
+            <dd>
+              <strong :class="{ 'is-unset': !sermon.occasion_kind }">
+                {{ occasionLabel(sermon.occasion_kind) || 'Not specified' }}
+              </strong>
+            </dd>
+          </div>
+          <div class="sermon-register__entry">
+            <dt><CalendarDays :size="15" aria-hidden="true" />Heard</dt>
+            <dd>
+              <strong>{{ capturedDate }}</strong>
+              <small>{{ capturedTime }}</small>
+            </dd>
+          </div>
+          <div class="sermon-register__entry">
+            <dt><Clock3 :size="15" aria-hidden="true" />Length</dt>
+            <dd>
+              <strong>{{ serverSermonDuration(sermon.duration_seconds) }}</strong>
+            </dd>
+          </div>
+        </dl>
         <div class="sermon-header__actions">
           <button type="button" @click="toggleContextPanel">
             <PencilLine :size="16" aria-hidden="true" />
             {{ contextPanelOpen ? 'Close details' : 'Edit details' }}
           </button>
-          <button type="button" @click="toggleSharePanel">
+          <button
+            type="button"
+            :disabled="contextPanelOpen"
+            :title="contextPanelOpen ? 'Save or close details before sharing' : undefined"
+            @click="toggleSharePanel"
+          >
             <Share2 :size="16" aria-hidden="true" />
-            {{ sharePanelOpen ? 'Close sharing' : 'Share sermon' }}
+            {{ sharePanelOpen ? 'Close sharing' : 'Share Sermon' }}
           </button>
           <button type="button" @click="router.push(`/sermons/${sermon.id}/email`)">
             <Mail :size="16" aria-hidden="true" />
             Email handout
           </button>
+          <button
+            v-if="!confirmingDelete"
+            class="sermon-header__delete"
+            type="button"
+            :disabled="deleting"
+            @click="beginDeleteConfirmation"
+          >
+            <Trash2 :size="16" aria-hidden="true" />
+            Delete Sermon
+          </button>
         </div>
       </header>
 
+      <section
+        v-if="confirmingDelete"
+        class="sermon-delete-confirm"
+        aria-labelledby="delete-sermon-title"
+      >
+        <div>
+          <p class="rubric-label">Permanent deletion</p>
+          <h2 id="delete-sermon-title">Delete this Sermon?</h2>
+          <p>
+            This removes the recording, Transcript, Study artifacts, Reflections, and any active
+            Share link. It cannot be undone.
+          </p>
+          <p v-if="deleteMessage" class="sermon-delete-confirm__error" role="alert">
+            {{ deleteMessage }}
+          </p>
+        </div>
+        <div class="sermon-delete-confirm__actions">
+          <button type="button" :disabled="deleting" @click="confirmingDelete = false">
+            Keep Sermon
+          </button>
+          <button
+            class="sermon-delete-confirm__delete"
+            type="button"
+            :disabled="deleting"
+            @click="deleteCurrentSermon"
+          >
+            {{ deleting ? 'Deleting…' : 'Delete permanently' }}
+          </button>
+        </div>
+      </section>
+
       <section v-if="contextPanelOpen" class="context-panel" aria-label="Sermon details">
         <div class="context-panel__heading">
-          <p class="rubric-label">Personal context</p>
-          <h2>Where and when you heard it</h2>
-          <p>Reuse Churches and Preachers from your private books. None of these details block recording.</p>
+          <p class="rubric-label">Sermon details</p>
+          <h2>Make this Sermon easy to return to</h2>
+          <p>
+            New Sermons begin with an AI-suggested title. Change it whenever you like, and reuse
+            Churches and Preachers from your private books.
+          </p>
         </div>
         <p v-if="contextLoading" class="context-panel__status" role="status">
           Opening your saved details…
         </p>
         <div v-else class="context-fields">
+          <div class="context-field context-field--wide">
+            <label for="sermon-title">Title</label>
+            <input
+              id="sermon-title"
+              v-model="sermonTitle"
+              type="text"
+              maxlength="160"
+              placeholder="Add a memorable title"
+            />
+            <small>
+              {{ sermonTitle.length }}/160 ·
+              {{
+                sermon.title
+                  ? 'You can replace the AI suggestion.'
+                  : 'This older Sermon has no suggested title yet.'
+              }}
+            </small>
+          </div>
+
           <div class="context-field">
             <label for="sermon-church">Church</label>
             <select id="sermon-church" v-model="selectedChurchId">
@@ -807,7 +993,7 @@ watch(
               @click="suggestNearbyChurches"
             >
               <LocateFixed :size="15" aria-hidden="true" />
-              {{ findingChurches ? 'Finding nearby…' : 'Find nearby Churches' }}
+              {{ findingChurches ? 'Finding near me…' : 'Find Churches near me' }}
             </button>
             <div v-if="churchSuggestions.length" class="church-suggestions">
               <button
@@ -974,7 +1160,14 @@ watch(
             <span>{{ playing ? 'Playing sermon' : 'Sermon audio' }}</span>
             <span>{{ progressLabel }} · {{ serverSermonDuration(sermon.duration_seconds) }}</span>
           </div>
-          <div class="audio-player__track" aria-hidden="true">
+          <div
+            class="audio-player__track"
+            role="progressbar"
+            aria-label="Sermon playback progress"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            :aria-valuenow="Math.round(progress * 100)"
+          >
             <span :style="{ width: progressLabel }"></span>
           </div>
           <small v-if="playbackError" class="audio-player__error">
@@ -983,7 +1176,7 @@ watch(
         </div>
       </section>
 
-      <nav class="section-tabs" aria-label="Sermon sections">
+      <nav ref="sectionTabs" class="section-tabs" aria-label="Sermon sections">
         <button
           v-for="section in ([
             ['study', 'Study'],
@@ -994,6 +1187,7 @@ watch(
           :key="section[0]"
           type="button"
           :class="{ active: activeSection === section[0] }"
+          :aria-pressed="activeSection === section[0]"
           @click="selectSection(section[0])"
         >
           {{ section[1] }}
@@ -1028,6 +1222,78 @@ watch(
               </div>
             </div>
             <p v-else class="artifact__summary">{{ artifact('short_summary') }}</p>
+          </section>
+
+          <section v-if="artifact('quotations')" class="artifact artifact--quotations">
+            <div class="artifact__heading">
+              <div>
+                <p class="rubric-label">In the preacher’s words</p>
+                <h2>Quotations</h2>
+              </div>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit Quotations"
+                @click="beginArtifactEdit('quotations')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <div v-if="editingKind === 'quotations'" class="artifact-editor">
+              <textarea
+                v-model="editContent"
+                rows="8"
+                aria-label="Quotations, one per line"
+              ></textarea>
+              <p class="artifact-editor__hint">Keep one word-for-word quotation on each line.</p>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <div v-else class="quotation-list">
+              <blockquote v-for="quotation in quotationItems(artifact('quotations'))" :key="quotation">
+                <p>{{ quotation }}</p>
+              </blockquote>
+            </div>
+          </section>
+
+          <section v-if="artifact('call_to_action')" class="artifact artifact--call">
+            <div class="artifact__heading">
+              <div>
+                <p class="rubric-label">One next action</p>
+                <h2>Carry this with you</h2>
+              </div>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit one next action"
+                @click="beginArtifactEdit('call_to_action')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <div v-if="editingKind === 'call_to_action'" class="artifact-editor">
+              <textarea
+                v-model="editContent"
+                rows="3"
+                maxlength="240"
+                aria-label="One next action"
+              ></textarea>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <p v-else class="artifact__call">{{ artifact('call_to_action') }}</p>
           </section>
 
           <section class="artifact">
@@ -1174,6 +1440,43 @@ watch(
             </div>
           </section>
 
+          <section v-if="artifact('practical_next_steps')" class="artifact">
+            <div class="artifact__heading">
+              <div>
+                <p class="rubric-label">Put it into practice</p>
+                <h2>Practical next steps</h2>
+              </div>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit practical next steps"
+                @click="beginArtifactEdit('practical_next_steps')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <div v-if="editingKind === 'practical_next_steps'" class="artifact-editor">
+              <textarea
+                v-model="editContent"
+                rows="8"
+                aria-label="Practical next steps"
+              ></textarea>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <ol v-else class="practical-steps">
+              <li v-for="step in numberedItems(artifact('practical_next_steps'))" :key="step">
+                {{ step }}
+              </li>
+            </ol>
+          </section>
+
           <section class="artifact">
             <div class="artifact__heading">
               <h2>Outline</h2>
@@ -1256,7 +1559,14 @@ watch(
               </div>
             </div>
             <div v-else-if="sermon.tag_suggestions.length" class="tag-list">
-              <span v-for="tag in sermon.tag_suggestions" :key="tag">{{ tag }}</span>
+              <RouterLink
+                v-for="tag in sermon.tag_suggestions"
+                :key="tag"
+                :to="{ path: '/', query: { tag } }"
+                :aria-label="`Show Sermons tagged ${tag}`"
+              >
+                {{ tag }}
+              </RouterLink>
             </div>
             <p v-else class="tag-list__empty">No Tags saved yet.</p>
             <p v-if="tagMessage" class="artifact__message" role="status">
@@ -1298,7 +1608,31 @@ watch(
                 <PencilLine :size="16" />
               </button>
             </div>
-            <p class="transcript__note">Side conversations have been removed. Tap a timestamp to listen from that moment.</p>
+            <div class="transcript-view-toggle" role="group" aria-label="Transcript view">
+              <button
+                type="button"
+                :class="{ active: transcriptView === 'timeline' }"
+                :aria-pressed="transcriptView === 'timeline'"
+                @click="transcriptView = 'timeline'"
+              >
+                Timeline
+              </button>
+              <button
+                type="button"
+                :class="{ active: transcriptView === 'reading' }"
+                :aria-pressed="transcriptView === 'reading'"
+                @click="transcriptView = 'reading'"
+              >
+                Reading
+              </button>
+            </div>
+            <p class="transcript__note">
+              {{
+                transcriptView === 'timeline'
+                  ? 'Side conversations have been removed. Tap a timestamp to listen from that moment.'
+                  : 'The cleaned Transcript is gathered into longer paragraphs for uninterrupted reading.'
+              }}
+            </p>
             <div v-if="editingTranscript" class="transcript-editor">
               <label
                 v-for="(segment, index) in transcriptEdits"
@@ -1320,17 +1654,26 @@ watch(
                 </button>
               </div>
             </div>
-            <div v-else class="transcript__segments">
+            <div v-else-if="transcriptView === 'timeline'" class="transcript__segments">
               <div
                 v-for="segment in sermon.transcript?.segments ?? []"
                 :key="`${segment.start_seconds}-${segment.text}`"
                 class="transcript__segment"
               >
-                <button type="button" @click="seekTo(segment.start_seconds)">
+                <button
+                  type="button"
+                  :aria-label="`Play from ${timestamp(segment.start_seconds)}`"
+                  @click="seekTo(segment.start_seconds)"
+                >
                   {{ timestamp(segment.start_seconds) }}
                 </button>
                 <p>{{ segment.text }}</p>
               </div>
+            </div>
+            <div v-else class="transcript__reading">
+              <p v-for="(paragraph, index) in readingTranscriptParagraphs" :key="index">
+                {{ paragraph }}
+              </p>
             </div>
             <p v-if="transcriptMessage" class="artifact__message" role="status">
               {{ transcriptMessage }}
@@ -1424,22 +1767,13 @@ watch(
             <p class="rubric-label">Private to you</p>
             <h2>Reflection</h2>
             <p class="reflection__prompt">{{ reflectionPrompt }}</p>
-            <textarea
+            <ReflectionEditor
               v-model="reflectionContent"
-              rows="8"
-              aria-label="Your private reflection"
-              placeholder="Begin writing…"
-            ></textarea>
-            <div class="reflection__footer">
-              <span>{{ reflectionMessage || 'Only you can see this Reflection.' }}</span>
-              <button
-                type="button"
-                :disabled="savingReflection || !reflectionContent.trim()"
-                @click="persistReflection"
-              >
-                {{ savingReflection ? 'Saving…' : 'Save reflection' }}
-              </button>
-            </div>
+              :prompt="reflectionPrompt"
+              :saving="savingReflection"
+              :message="reflectionMessage"
+              @save="persistReflection"
+            />
           </section>
         </template>
       </div>
@@ -1546,29 +1880,69 @@ watch(
   letter-spacing: -0.06em;
   line-height: 0.92;
   margin: 0.8rem 0 1.25rem;
-  max-width: 11ch;
+  max-width: 18ch;
 }
 
-.sermon-header__preacher {
-  font-family: var(--font-reading);
-  font-size: 1.1rem;
-  font-style: italic;
+.sermon-register {
+  background: color-mix(in srgb, var(--color-vellum-light) 82%, transparent);
+  border-bottom: 1px solid var(--color-rule-gold);
+  border-top: 1px solid var(--color-rule-gold);
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1.2fr 1fr 0.7fr;
+  margin: 2rem 0 0;
 }
 
-.sermon-header__meta {
-  color: var(--color-ink-muted);
-  display: flex;
-  flex-wrap: wrap;
-  font-family: var(--font-utility);
-  font-size: 0.78rem;
-  gap: 0.55rem 1.15rem;
-  margin-top: 1rem;
+.sermon-register__entry {
+  min-width: 0;
+  padding: 1rem clamp(0.7rem, 2vw, 1.15rem);
 }
 
-.sermon-header__meta span {
+.sermon-register__entry + .sermon-register__entry {
+  border-left: 1px solid var(--color-margin);
+}
+
+.sermon-register dt {
   align-items: center;
+  color: var(--color-rubric);
   display: inline-flex;
-  gap: 0.3rem;
+  font-family: var(--font-utility);
+  font-size: 0.65rem;
+  font-weight: 700;
+  gap: 0.35rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sermon-register dd {
+  margin: 0.55rem 0 0;
+}
+
+.sermon-register strong,
+.sermon-register small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.sermon-register strong {
+  color: var(--color-ink);
+  font-family: var(--font-reading);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.sermon-register strong.is-unset {
+  color: var(--color-ink-muted);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.sermon-register small {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.69rem;
+  line-height: 1.35;
+  margin-top: 0.25rem;
 }
 
 .sermon-header__actions {
@@ -1591,6 +1965,77 @@ watch(
   gap: 0.5rem;
   min-height: 2.75rem;
   padding: 0.6rem 0.9rem;
+}
+
+.sermon-header__actions .sermon-header__delete {
+  border-color: color-mix(in srgb, var(--color-rubric) 55%, transparent);
+  color: var(--color-rubric);
+  margin-left: auto;
+}
+
+.sermon-header__actions button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.sermon-delete-confirm {
+  align-items: end;
+  background: color-mix(in srgb, var(--color-rubric) 5%, var(--color-vellum-light));
+  border: 1px solid color-mix(in srgb, var(--color-rubric) 45%, var(--color-margin));
+  display: flex;
+  gap: 1.5rem;
+  justify-content: space-between;
+  margin: 1.5rem 0;
+  padding: clamp(1.25rem, 4vw, 2rem);
+}
+
+.sermon-delete-confirm h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.65rem, 4vw, 2.25rem);
+  font-weight: 540;
+  letter-spacing: -0.035em;
+  margin: 0.35rem 0 0;
+}
+
+.sermon-delete-confirm p:not(.rubric-label) {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  line-height: 1.55;
+  margin: 0.65rem 0 0;
+  max-width: 44rem;
+}
+
+.sermon-delete-confirm__error {
+  color: var(--color-rubric) !important;
+}
+
+.sermon-delete-confirm__actions {
+  display: flex;
+  flex: none;
+  gap: 0.6rem;
+}
+
+.sermon-delete-confirm__actions button {
+  background: transparent;
+  border: 1px solid var(--color-lapis);
+  color: var(--color-lapis);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.78rem;
+  font-weight: 700;
+  min-height: 2.65rem;
+  padding: 0.55rem 0.8rem;
+}
+
+.sermon-delete-confirm__actions .sermon-delete-confirm__delete {
+  background: var(--color-rubric);
+  border-color: var(--color-rubric);
+  color: var(--color-vellum-light);
+}
+
+.sermon-delete-confirm__actions button:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 .context-panel {
@@ -1623,6 +2068,10 @@ watch(
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.context-field--wide {
+  grid-column: 1 / -1;
+}
+
 .context-field > label {
   color: var(--color-rubric);
   display: block;
@@ -1645,6 +2094,26 @@ watch(
   min-height: 2.75rem;
   padding: 0.6rem 0.75rem;
   width: 100%;
+}
+
+.context-field--wide > input {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 540;
+}
+
+.context-field--wide > input::placeholder {
+  color: color-mix(in srgb, var(--color-ink-muted) 70%, transparent);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.context-field > small {
+  color: var(--color-ink-muted);
+  display: block;
+  font-family: var(--font-utility);
+  font-size: 0.68rem;
+  margin-top: 0.35rem;
 }
 
 .context-field > input:focus,
@@ -1923,6 +2392,7 @@ watch(
   gap: clamp(0.2rem, 3vw, 1.5rem);
   margin-bottom: 3rem;
   overflow-x: auto;
+  scroll-margin-top: calc(var(--header-height) + 1rem);
 }
 
 .section-tabs button {
@@ -2024,6 +2494,13 @@ watch(
   outline: 0;
 }
 
+.artifact-editor__hint {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.74rem;
+  margin: 0.35rem 0 0;
+}
+
 .artifact-editor__actions {
   display: flex;
   gap: 0.5rem;
@@ -2061,6 +2538,76 @@ watch(
   font-size: clamp(1.18rem, 3vw, 1.42rem);
   line-height: 1.6;
   margin: 1rem 0 0;
+}
+
+.quotation-list {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 1.5rem;
+}
+
+.quotation-list blockquote {
+  border-left: 2px solid var(--color-rule-gold);
+  margin: 0;
+  padding: 0.15rem 0 0.15rem clamp(1rem, 4vw, 1.6rem);
+}
+
+.quotation-list p {
+  font-family: var(--font-reading);
+  font-size: clamp(1.2rem, 3vw, 1.5rem);
+  font-style: italic;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.quotation-list p::before,
+.quotation-list p::after {
+  color: var(--color-rubric);
+  font-family: var(--font-display);
+  font-style: normal;
+}
+
+.quotation-list p::before {
+  content: '“';
+}
+
+.quotation-list p::after {
+  content: '”';
+}
+
+.artifact.artifact--call {
+  background: color-mix(in srgb, var(--color-rule-gold) 11%, var(--color-vellum-light));
+  border: 1px solid color-mix(in srgb, var(--color-rule-gold) 55%, var(--color-margin));
+  padding: clamp(1.25rem, 4vw, 2rem);
+}
+
+.artifact--call + .artifact {
+  padding-top: 3rem;
+}
+
+.artifact__call {
+  font-family: var(--font-display);
+  font-size: clamp(1.55rem, 4vw, 2.15rem);
+  font-variation-settings: 'opsz' 38, 'SOFT' 48;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+  margin: 1.1rem 0 0;
+}
+
+.practical-steps {
+  display: grid;
+  gap: 0.9rem;
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+}
+
+.practical-steps li {
+  border-left: 2px solid var(--color-rule-gold);
+  font-family: var(--font-reading);
+  font-size: 1.03rem;
+  line-height: 1.6;
+  padding: 0.4rem 0 0.4rem 1rem;
 }
 
 .artifact__prose {
@@ -2210,7 +2757,7 @@ watch(
   margin-top: 1.25rem;
 }
 
-.tag-list span {
+.tag-list a {
   background: transparent;
   border: 0;
   border-bottom: 1px solid rgba(47, 75, 124, 0.35);
@@ -2218,6 +2765,12 @@ watch(
   font-family: var(--font-utility);
   font-size: 0.78rem;
   padding: 0.3rem 0;
+  text-decoration: none;
+}
+
+.tag-list a:focus-visible {
+  outline: 2px solid var(--color-lapis);
+  outline-offset: 3px;
 }
 
 .tag-list__empty {
@@ -2324,6 +2877,35 @@ watch(
   font-size: 0.75rem;
 }
 
+.transcript-view-toggle {
+  border: 1px solid var(--color-margin);
+  display: inline-flex;
+  margin-top: 1.25rem;
+  padding: 0.2rem;
+}
+
+.transcript-view-toggle button {
+  background: transparent;
+  border: 0;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.75rem;
+  font-weight: 700;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.8rem;
+}
+
+.transcript-view-toggle button.active {
+  background: var(--color-lapis);
+  color: var(--color-vellum-light);
+}
+
+.transcript-view-toggle button:focus-visible {
+  outline: 2px solid var(--color-rule-gold);
+  outline-offset: 2px;
+}
+
 .transcript__note {
   color: var(--color-ink-muted);
   font-family: var(--font-utility);
@@ -2400,6 +2982,20 @@ watch(
   margin: 0;
 }
 
+.transcript__reading {
+  font-family: var(--font-reading);
+  font-size: clamp(1.06rem, 2vw, 1.17rem);
+  line-height: 1.82;
+}
+
+.transcript__reading p {
+  margin: 0;
+}
+
+.transcript__reading p + p {
+  margin-top: 1.4rem;
+}
+
 .question-set > h2 {
   margin-top: 0.5rem;
 }
@@ -2434,52 +3030,26 @@ watch(
   margin: 1.3rem 0 1rem;
 }
 
-.reflection textarea {
-  background: var(--color-vellum-light);
-  border: 1px solid var(--color-margin);
-  color: var(--color-ink);
-  font-family: var(--font-reading);
-  font-size: 1rem;
-  line-height: 1.75;
-  padding: 1.25rem;
-  resize: vertical;
-  width: 100%;
-}
+@media (max-width: 800px) {
+  .sermon-register {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 
-.reflection textarea:focus {
-  border-color: var(--color-lapis);
-  box-shadow: 0 0 0 3px rgba(47, 75, 124, 0.11);
-  outline: 0;
-}
+  .sermon-register__entry + .sermon-register__entry {
+    border-left: 0;
+  }
 
-.reflection__footer {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  margin-top: 0.75rem;
-}
+  .sermon-register__entry:nth-child(even) {
+    border-left: 1px solid var(--color-margin);
+  }
 
-.reflection__footer span {
-  color: var(--color-ink-muted);
-  font-family: var(--font-utility);
-  font-size: 0.75rem;
-}
+  .sermon-register__entry:nth-child(n + 3) {
+    border-top: 1px solid var(--color-margin);
+  }
 
-.reflection__footer button {
-  background: var(--color-lapis);
-  border: 0;
-  color: var(--color-vellum-light);
-  cursor: pointer;
-  font-family: var(--font-utility);
-  font-size: 0.82rem;
-  font-weight: 650;
-  min-height: 2.75rem;
-  padding: 0.65rem 1rem;
-}
-
-.reflection__footer button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
+  .sermon-register__entry:last-child {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 600px) {
@@ -2493,6 +3063,19 @@ watch(
 
   .sermon-header h1 {
     font-size: clamp(2.9rem, 14vw, 4.3rem);
+  }
+
+  .sermon-delete-confirm {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sermon-header__actions .sermon-header__delete {
+    margin-left: 0;
+  }
+
+  .sermon-delete-confirm__actions {
+    flex-wrap: wrap;
   }
 
   .context-fields {

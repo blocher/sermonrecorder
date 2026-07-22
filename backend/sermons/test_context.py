@@ -105,6 +105,7 @@ class SermonContextTests(APITestCase):
         assigned = self.client.patch(
             f"/api/sermons/{self.sermon.id}/context/",
             {
+                "title": "  Bread   for the Journey ",
                 "church_id": str(church.id),
                 "preacher_id": str(preacher.id),
                 "occasion_kind": Sermon.OccasionKind.SUNDAY,
@@ -114,6 +115,7 @@ class SermonContextTests(APITestCase):
         )
 
         self.assertEqual(assigned.status_code, status.HTTP_200_OK)
+        self.assertEqual(assigned.data["title"], "Bread for the Journey")
         self.assertEqual(assigned.data["church"]["name"], "Grace Parish")
         self.assertEqual(assigned.data["preacher"]["name"], "Rev. Miriam Cho")
         self.assertEqual(assigned.data["occasion_kind"], "sunday")
@@ -121,6 +123,8 @@ class SermonContextTests(APITestCase):
             assigned.data["liturgical_day"],
             "Third Sunday of Ordinary Time",
         )
+        self.sermon.refresh_from_db()
+        self.assertIsNotNone(self.sermon.title_edited_at)
 
         cleared = self.client.patch(
             f"/api/sermons/{self.sermon.id}/context/",

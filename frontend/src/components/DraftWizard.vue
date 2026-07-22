@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Check,
@@ -45,6 +45,7 @@ const { drafts, removeDraft, refreshDrafts, closeDraftWizard, captureLocationFor
 type WizardStep = 'decide' | 'place' | 'details' | 'done'
 
 const step = ref<WizardStep>('decide')
+const modal = ref<HTMLElement>()
 const sermonId = ref('')
 const durationSeconds = ref(0)
 const locationStatus = ref<DraftLocationStatus>('pending')
@@ -102,6 +103,12 @@ const stepIndex = computed(() => {
   if (step.value === 'place') return 2
   if (step.value === 'details') return 3
   return 4
+})
+const stepName = computed(() => {
+  if (step.value === 'decide') return 'Process'
+  if (step.value === 'place') return 'Place'
+  if (step.value === 'details') return 'Details'
+  return 'Done'
 })
 
 function syncLocationFromDraft(source: LocalDraft | undefined): void {
@@ -380,9 +387,11 @@ watch(locationStatus, (status, previous) => {
   }
 })
 
-onMounted(() => {
+onMounted(async () => {
   document.body.classList.add('draft-wizard-lock')
   void loadBooks()
+  await nextTick()
+  modal.value?.focus()
 })
 
 onBeforeUnmount(() => {
@@ -392,13 +401,16 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="draft-wizard" role="presentation">
-    <button class="draft-wizard__scrim" type="button" aria-label="Close" @click="dismiss"></button>
+    <div class="draft-wizard__scrim" aria-hidden="true" @click="dismiss"></div>
 
     <div
+      ref="modal"
       class="draft-wizard__modal"
       role="dialog"
       aria-modal="true"
       aria-labelledby="draft-wizard-title"
+      tabindex="-1"
+      @keydown.esc="dismiss"
     >
       <header class="draft-wizard__header">
         <div>
@@ -426,6 +438,9 @@ onBeforeUnmount(() => {
         <span :class="{ active: stepIndex >= 3 }"></span>
         <span :class="{ active: stepIndex >= 4 }"></span>
       </div>
+      <p class="draft-wizard__step-status" aria-live="polite">
+        Step {{ stepIndex }} of 4: {{ stepName }}
+      </p>
 
       <section class="draft-wizard__summary">
         <span class="draft-wizard__seal" aria-hidden="true">
@@ -723,6 +738,10 @@ onBeforeUnmount(() => {
   z-index: 1;
 }
 
+.draft-wizard__modal:focus {
+  outline: 0;
+}
+
 .draft-wizard__header {
   align-items: start;
   display: flex;
@@ -768,6 +787,16 @@ onBeforeUnmount(() => {
 
 .draft-wizard__progress span.active {
   background: var(--color-rule-gold);
+}
+
+.draft-wizard__step-status {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
 
 .draft-wizard__summary {

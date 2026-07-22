@@ -41,6 +41,7 @@ class SermonLibrarySearchTests(APITestCase):
             owner=self.owner,
             source_draft_id="search-target",
             captured_at=datetime(2026, 1, 25, 15, tzinfo=datetime_timezone.utc),
+            title="Bread for the Journey",
             church=self.church,
             preacher=self.preacher,
             occasion_kind=Sermon.OccasionKind.SUNDAY,
@@ -109,6 +110,7 @@ class SermonLibrarySearchTests(APITestCase):
 
     def test_searches_private_content_and_metadata_without_exposing_reflections(self):
         searches = (
+            "journey",
             "mustard",
             "hospitality",
             "Luke 14",

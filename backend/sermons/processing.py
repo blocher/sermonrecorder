@@ -51,6 +51,7 @@ class RelatedSermonResult:
 
 @dataclass(frozen=True)
 class ProcessedSermon:
+    title: str
     transcript_text: str
     transcript_segments: tuple[TranscriptSegment, ...]
     study_artifacts: tuple[StudyArtifactResult, ...]

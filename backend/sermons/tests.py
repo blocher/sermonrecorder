@@ -362,21 +362,20 @@ class SermonApiTests(APITestCase):
         self.assertFalse(Sermon.objects.filter(id=sermon.id).exists())
         self.assertFalse(sermon.audio.storage.exists(audio_name))
 
-    def test_ready_sermons_cannot_be_deleted_from_preparation(self):
+    def test_owner_can_delete_a_ready_sermon(self):
         uploaded = self.upload("delete-ready")
         sermon = Sermon.objects.get(id=uploaded.data["id"])
         sermon.processing_status = Sermon.ProcessingStatus.READY
         sermon.save(update_fields=("processing_status", "updated_at"))
+        audio_name = sermon.audio.name
+        self.assertTrue(sermon.audio.storage.exists(audio_name))
         self.client.force_authenticate(user=self.user)
 
         response = self.client.delete(f"/api/sermons/{sermon.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.data["detail"],
-            "Only Sermons still in preparation can be deleted here.",
-        )
-        self.assertTrue(Sermon.objects.filter(id=sermon.id).exists())
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Sermon.objects.filter(id=sermon.id).exists())
+        self.assertFalse(sermon.audio.storage.exists(audio_name))
 
     def test_delete_is_owner_private(self):
         uploaded = self.upload("delete-private")

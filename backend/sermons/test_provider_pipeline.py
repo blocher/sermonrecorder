@@ -55,6 +55,7 @@ def diarized_segment(
 
 def generated_artifacts() -> GeneratedArtifacts:
     return GeneratedArtifacts(
+        title="Grace Welcomes Us Home",
         study_artifacts=tuple(
             StudyArtifactResult(kind=kind, content=f"Generated {kind}.")
             for kind in StudyArtifact.Kind.values
@@ -194,9 +195,18 @@ class ProviderPipelineTests(TestCase):
     def test_simpleai_generator_maps_structured_output_to_domain_artifacts(self):
         runner = Mock(
             return_value=StudyArtifactOutput(
+                title="The Father Runs to Welcome",
                 short_summary="God welcomes the lost.",
                 long_summary="A longer account of welcome and repentance.",
                 outline=["The younger son leaves", "The father runs to welcome him"],
+                practical_next_steps=[
+                    "Welcome someone who expects distance.",
+                    "Practice receiving grace without earning it.",
+                ],
+                call_to_action="Make the first move toward welcome this week.",
+                quotations=[
+                    "There was a father who welcomed his son home.",
+                ],
                 adult_discussion_questions=["Where is grace difficult to receive?"],
                 kids_discussion_questions=["How did the father show love?"],
                 scripture_references=[
@@ -224,6 +234,7 @@ class ProviderPipelineTests(TestCase):
 
         result = generator.generate(transcript)
 
+        self.assertEqual(result.title, "The Father Runs to Welcome")
         self.assertEqual(
             {artifact.kind for artifact in result.study_artifacts},
             set(StudyArtifact.Kind.values),
@@ -237,9 +248,59 @@ class ProviderPipelineTests(TestCase):
             outline.content,
             "1. The younger son leaves\n2. The father runs to welcome him",
         )
+        call_to_action = next(
+            artifact
+            for artifact in result.study_artifacts
+            if artifact.kind == StudyArtifact.Kind.CALL_TO_ACTION
+        )
+        self.assertEqual(
+            call_to_action.content,
+            "Make the first move toward welcome this week.",
+        )
+        quotations = next(
+            artifact
+            for artifact in result.study_artifacts
+            if artifact.kind == StudyArtifact.Kind.QUOTATIONS
+        )
+        self.assertEqual(
+            quotations.content,
+            "There was a father who welcomed his son home.",
+        )
         self.assertEqual(result.scripture_references[0].book, "Luke")
         self.assertEqual(result.tag_suggestions, ("Grace", "Homecoming"))
         self.assertIn(transcript.text, runner.call_args.args[0])
+
+    def test_simpleai_generator_rejects_non_verbatim_quotations(self):
+        runner = Mock(
+            return_value=StudyArtifactOutput(
+                title="Welcome Home",
+                short_summary="God welcomes the lost.",
+                long_summary="A longer account of welcome.",
+                outline=["The father welcomes his son"],
+                practical_next_steps=["Welcome someone this week."],
+                call_to_action="Make the first move toward welcome.",
+                quotations=["The father ran down the road."],
+                adult_discussion_questions=["Where is grace difficult to receive?"],
+                kids_discussion_questions=["How did the father show love?"],
+            )
+        )
+        generator = SimpleAIArtifactGenerator(runner=runner)
+        transcript = CleanedTranscript(
+            text="There was a father who welcomed his son home.",
+            segments=(
+                TranscriptSegment(
+                    start_seconds=0,
+                    end_seconds=5,
+                    text="There was a father who welcomed his son home.",
+                ),
+            ),
+        )
+
+        with self.assertRaisesMessage(
+            RetryableProcessingError,
+            "verbatim Sermon quotation",
+        ):
+            generator.generate(transcript)
 
     def test_simpleai_configuration_errors_are_permanent(self):
         generator = SimpleAIArtifactGenerator(
@@ -309,6 +370,7 @@ class ProviderPipelineTests(TestCase):
 
         result = processor.process(sermon)
 
+        self.assertEqual(result.title, "Grace Welcomes Us Home")
         self.assertEqual(
             [suggestion.sermon_id for suggestion in result.related_sermons],
             [related.id],

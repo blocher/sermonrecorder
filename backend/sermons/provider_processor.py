@@ -67,6 +67,7 @@ class ProviderSermonProcessor:
         transcript = self.transcriber.transcribe(sermon)
         artifacts = self.artifact_generator.generate(transcript)
         return ProcessedSermon(
+            title=artifacts.title,
             transcript_text=transcript.text,
             transcript_segments=transcript.segments,
             study_artifacts=artifacts.study_artifacts,

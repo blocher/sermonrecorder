@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { CloudUpload, LoaderCircle, Pause, Play, Trash2 } from '@lucide/vue'
+import { ChevronRight, LoaderCircle, Pause, Play, Trash2 } from '@lucide/vue'
 import type { LocalDraft } from '../recording/draftRepository'
 import { nativeDraftPlaybackUrl } from '../recording/nativeDraftFiles'
 
@@ -154,8 +154,8 @@ onBeforeUnmount(clearAudioUrl)
         @click="emit('continue', draft.id)"
       >
         <LoaderCircle v-if="uploading" class="local-draft__spinner" :size="16" aria-hidden="true" />
-        <CloudUpload v-else :size="16" aria-hidden="true" />
-        {{ uploading ? `Uploading ${uploadPercent}%` : 'Continue' }}
+        <ChevronRight v-else :size="16" aria-hidden="true" />
+        {{ uploading ? `Uploading ${uploadPercent}%` : 'Review Draft' }}
       </button>
       <button
         class="local-draft__delete"

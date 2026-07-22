@@ -9,6 +9,7 @@ import {
   MapPin,
   Mic,
   Search,
+  Trash2,
   UserRound,
   X,
 } from '@lucide/vue'
@@ -17,9 +18,9 @@ import LocalDraftCard from '../components/LocalDraftCard.vue'
 import ServerSermonCard from '../components/ServerSermonCard.vue'
 import { useDraftRecorder } from '../recording/useDraftRecorder'
 import {
+  deleteSermon,
   loadChurches,
   loadPreachers,
-  deleteInProgressSermon,
   retrySermonProcessing,
   searchServerSermons,
   serverSermonDuration,
@@ -47,8 +48,9 @@ const preachers = ref<ServerPreacher[]>([])
 const draftActionMessage = ref('')
 const retryingSermons = ref<Record<string, boolean>>({})
 const deletingSermons = ref<Record<string, boolean>>({})
+const confirmingReadyDeletes = ref<Record<string, boolean>>({})
 const { isAuthenticated } = useAuth()
-const { drafts, removeDraft, openDraftWizard } = useDraftRecorder()
+const { drafts, removeDraft, openDraftWizard, refreshDrafts } = useDraftRecorder()
 const {
   pendingSermons,
   errorMessage: serverError,
@@ -112,6 +114,7 @@ const hasMoreSermons = computed(() =>
 )
 let searchTimer: ReturnType<typeof globalThis.setTimeout> | undefined
 let searchVersion = 0
+let resumingRedirectedDraft = false
 
 async function loadReadySermons(reset: boolean): Promise<void> {
   if (!isAuthenticated.value) {
@@ -235,6 +238,11 @@ function clearSearch(): void {
   tagFilter.value = ''
   dateFromFilter.value = ''
   dateToFilter.value = ''
+  if (route.query.tag != null) {
+    const nextQuery = { ...route.query }
+    delete nextQuery.tag
+    void router.replace({ query: nextQuery })
+  }
 }
 
 function capturedDate(sermon: ServerSermon): string {
@@ -243,6 +251,17 @@ function capturedDate(sermon: ServerSermon): string {
     day: 'numeric',
     year: 'numeric',
   }).format(new Date(sermon.captured_at))
+}
+
+function capturedTime(sermon: ServerSermon): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(sermon.captured_at))
+}
+
+function occasionLabel(kind: OccasionKind | ''): string {
+  return occasionOptions.find((option) => option.value === kind)?.label ?? ''
 }
 
 function announceDraftAction(message: string): void {
@@ -254,6 +273,28 @@ function announceDraftAction(message: string): void {
 
 async function continueLocalDraft(id: string): Promise<void> {
   openDraftWizard(id)
+}
+
+async function resumeRedirectedDraft(): Promise<void> {
+  const value = route.query.draft
+  const draftId = Array.isArray(value) ? value[0] : value
+  if (!isAuthenticated.value || !draftId || resumingRedirectedDraft) return
+
+  resumingRedirectedDraft = true
+  try {
+    await refreshDrafts()
+    if (drafts.value.some((draft) => draft.id === draftId)) {
+      openDraftWizard(draftId)
+    } else {
+      announceDraftAction('That Draft is no longer on this device.')
+    }
+
+    const nextQuery = { ...route.query }
+    delete nextQuery.draft
+    await router.replace({ query: nextQuery })
+  } finally {
+    resumingRedirectedDraft = false
+  }
 }
 
 async function removeLocalDraft(id: string): Promise<void> {
@@ -285,9 +326,44 @@ async function retryFailedSermon(id: string): Promise<void> {
 async function deleteInProgressServerSermon(id: string): Promise<void> {
   deletingSermons.value = { ...deletingSermons.value, [id]: true }
   try {
-    await deleteInProgressSermon(id)
+    await deleteSermon(id)
     await refreshServerSermons()
     announceDraftAction('Sermon deleted from the server.')
+  } catch (error) {
+    announceDraftAction(
+      error instanceof Error ? error.message : 'This Sermon could not be deleted.',
+    )
+  } finally {
+    const remaining = { ...deletingSermons.value }
+    delete remaining[id]
+    deletingSermons.value = remaining
+  }
+}
+
+function confirmReadySermonDelete(id: string): void {
+  confirmingReadyDeletes.value = { ...confirmingReadyDeletes.value, [id]: true }
+}
+
+function cancelReadySermonDelete(id: string): void {
+  const remaining = { ...confirmingReadyDeletes.value }
+  delete remaining[id]
+  confirmingReadyDeletes.value = remaining
+}
+
+async function deleteReadySermon(id: string): Promise<void> {
+  deletingSermons.value = { ...deletingSermons.value, [id]: true }
+  try {
+    await deleteSermon(id)
+    if (readySermons.value.some((sermon) => sermon.id === id)) {
+      readySermons.value = readySermons.value.filter((sermon) => sermon.id !== id)
+      readyCount.value = Math.max(0, readyCount.value - 1)
+    }
+    if (searchResults.value?.some((sermon) => sermon.id === id)) {
+      searchResults.value = searchResults.value.filter((sermon) => sermon.id !== id)
+      searchCount.value = Math.max(0, searchCount.value - 1)
+    }
+    cancelReadySermonDelete(id)
+    announceDraftAction('Sermon permanently deleted.')
   } catch (error) {
     announceDraftAction(
       error instanceof Error ? error.message : 'This Sermon could not be deleted.',
@@ -321,13 +397,28 @@ watch(
 )
 
 watch(
+  () => route.query.tag,
+  (value) => {
+    const tag = Array.isArray(value) ? value[0] ?? '' : value ?? ''
+    if (tagFilter.value !== tag) tagFilter.value = tag
+  },
+  { immediate: true },
+)
+
+watch(
   isAuthenticated,
   () => {
     void loadSearchBooks()
     scheduleSearch()
     void loadReadySermons(true)
+    void resumeRedirectedDraft()
   },
   { immediate: true },
+)
+
+watch(
+  () => route.query.draft,
+  () => void resumeRedirectedDraft(),
 )
 
 watch(
@@ -354,6 +445,10 @@ async function closeSearch(): Promise<void> {
   const nextQuery = { ...route.query }
   delete nextQuery.focus
   await router.replace({ query: nextQuery })
+  await nextTick()
+  if (route.path === '/') {
+    document.querySelector<HTMLButtonElement>('.app-header__search')?.focus()
+  }
 }
 
 function clearSearchAndClose(): void {
@@ -382,7 +477,15 @@ watch(
           <h1>Sermons worth returning to.</h1>
           <p>Listen again, or search what was said.</p>
         </div>
-        <span class="library__count">{{ readyCount }} sermons</span>
+        <span class="library__count">
+          {{
+            hasSearchCriteria
+              ? searching
+                ? 'Searching…'
+                : `${visibleCount} ${visibleCount === 1 ? 'match' : 'matches'}`
+              : `${readyCount} sermons`
+          }}
+        </span>
       </div>
     </section>
 
@@ -465,44 +568,106 @@ watch(
 
       <template v-if="!searching && !loadingReady && visibleSermons.length">
         <div class="sermon-list">
-          <RouterLink
+          <article
             v-for="(sermon, index) in visibleSermons"
             :key="sermon.id"
             class="sermon-entry"
-            :to="`/sermons/${sermon.id}`"
           >
-            <span class="sermon-entry__folio">{{ String(index + 1).padStart(2, '0') }}</span>
-            <div class="sermon-entry__body">
-              <div class="sermon-entry__rubric">
-                <span>{{ sermon.liturgical_day || sermon.occasion_kind || 'Pew recording' }}</span>
-                <span class="sermon-entry__ready">Ready</span>
+            <RouterLink class="sermon-entry__link" :to="`/sermons/${sermon.id}`">
+              <span class="sermon-entry__folio">{{ String(index + 1).padStart(2, '0') }}</span>
+              <div class="sermon-entry__body">
+                <div class="sermon-entry__rubric">
+                  <span>{{
+                    sermon.liturgical_day ||
+                    occasionLabel(sermon.occasion_kind) ||
+                    'Pew recording'
+                  }}</span>
+                  <span class="sermon-entry__ready">Ready</span>
+                </div>
+                <h3>{{ serverSermonTitle(sermon) }}</h3>
+                <p class="sermon-entry__excerpt">
+                  {{ sermon.short_summary || 'Ready to revisit.' }}
+                </p>
+                <dl class="sermon-entry__register" aria-label="Sermon details">
+                  <div>
+                    <dt><MapPin :size="13" aria-hidden="true" />Church</dt>
+                    <dd>
+                      <strong :class="{ 'is-unset': !sermon.church }">{{
+                        sermon.church?.name || 'Not assigned'
+                      }}</strong>
+                      <small v-if="sermon.church?.address">{{ sermon.church.address }}</small>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt><UserRound :size="13" aria-hidden="true" />Preacher</dt>
+                    <dd>
+                      <strong :class="{ 'is-unset': !sermon.preacher }">{{
+                        sermon.preacher?.name || 'Not assigned'
+                      }}</strong>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt><CalendarDays :size="13" aria-hidden="true" />Heard</dt>
+                    <dd>
+                      <strong>{{ capturedDate(sermon) }}</strong>
+                      <small>{{ capturedTime(sermon) }}</small>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt><Clock3 :size="13" aria-hidden="true" />Length</dt>
+                    <dd>
+                      <strong>{{ serverSermonDuration(sermon.duration_seconds) }}</strong>
+                    </dd>
+                  </div>
+                </dl>
               </div>
-              <h3>{{ serverSermonTitle(sermon) }}</h3>
-              <p class="sermon-entry__excerpt">
-                {{ sermon.short_summary || 'Ready to revisit.' }}
-              </p>
-              <div class="sermon-entry__meta">
-                <span v-if="sermon.preacher">
-                  <UserRound :size="14" aria-hidden="true" />{{ sermon.preacher.name }}
-                </span>
-                <span v-if="sermon.church">
-                  <MapPin :size="14" aria-hidden="true" />{{ sermon.church.name }}
-                </span>
-                <span>
-                  <CalendarDays :size="14" aria-hidden="true" />{{ capturedDate(sermon) }}
-                </span>
-                <span>
-                  <Clock3 :size="14" aria-hidden="true" />{{
-                    serverSermonDuration(sermon.duration_seconds)
-                  }}
-                </span>
-              </div>
-              <div class="sermon-entry__tags">
-                <span v-for="tag in sermon.tag_suggestions" :key="tag">{{ tag }}</span>
-              </div>
+              <ChevronRight
+                class="sermon-entry__arrow"
+                :size="21"
+                :stroke-width="1.6"
+                aria-hidden="true"
+              />
+            </RouterLink>
+            <div v-if="sermon.tag_suggestions.length" class="sermon-entry__tags sermon-entry__tags--filters">
+              <RouterLink
+                v-for="tag in sermon.tag_suggestions"
+                :key="tag"
+                :to="{ path: '/', query: { tag } }"
+                :aria-label="`Show Sermons tagged ${tag}`"
+              >
+                {{ tag }}
+              </RouterLink>
             </div>
-            <ChevronRight class="sermon-entry__arrow" :size="21" :stroke-width="1.6" aria-hidden="true" />
-          </RouterLink>
+            <div class="sermon-entry__delete">
+              <template v-if="confirmingReadyDeletes[sermon.id]">
+                <span>Delete permanently?</span>
+                <button
+                  type="button"
+                  :disabled="deletingSermons[sermon.id]"
+                  @click="cancelReadySermonDelete(sermon.id)"
+                >
+                  Keep
+                </button>
+                <button
+                  class="sermon-entry__delete-confirm"
+                  type="button"
+                  :disabled="deletingSermons[sermon.id]"
+                  @click="deleteReadySermon(sermon.id)"
+                >
+                  {{ deletingSermons[sermon.id] ? 'Deleting…' : 'Delete' }}
+                </button>
+              </template>
+              <button
+                v-else
+                type="button"
+                :aria-label="`Delete ${serverSermonTitle(sermon)}`"
+                @click="confirmReadySermonDelete(sermon.id)"
+              >
+                <Trash2 :size="15" aria-hidden="true" />
+                Delete
+              </button>
+            </div>
+          </article>
         </div>
 
         <button
@@ -537,6 +702,7 @@ watch(
         aria-modal="true"
         aria-labelledby="library-search-title"
         @click.self="closeSearch"
+        @keydown.esc="closeSearch"
       >
         <div class="library-search-overlay__panel">
           <header class="library-search-overlay__header">
@@ -559,7 +725,7 @@ watch(
               ref="searchInput"
               v-model="query"
               type="search"
-              placeholder="Search transcripts, notes, Scripture…"
+              placeholder="Search sermons…"
               aria-label="Search your sermons"
             />
             <button
@@ -646,33 +812,71 @@ watch(
 
             <template v-if="!searching && !loadingReady && visibleSermons.length">
               <div class="sermon-list">
-                <RouterLink
+                <article
                   v-for="(sermon, index) in visibleSermons"
                   :key="sermon.id"
                   class="sermon-entry"
-                  :to="`/sermons/${sermon.id}`"
-                  @click="closeSearch"
                 >
-                  <span class="sermon-entry__folio">{{ String(index + 1).padStart(2, '0') }}</span>
-                  <div class="sermon-entry__body">
-                    <div class="sermon-entry__rubric">
-                      <span>{{
-                        sermon.liturgical_day || sermon.occasion_kind || 'Pew recording'
-                      }}</span>
-                      <span class="sermon-entry__ready">Ready</span>
+                  <RouterLink
+                    class="sermon-entry__link"
+                    :to="`/sermons/${sermon.id}`"
+                    @click="closeSearch"
+                  >
+                    <span class="sermon-entry__folio">{{ String(index + 1).padStart(2, '0') }}</span>
+                    <div class="sermon-entry__body">
+                      <div class="sermon-entry__rubric">
+                        <span>{{
+                          sermon.liturgical_day ||
+                          occasionLabel(sermon.occasion_kind) ||
+                          'Pew recording'
+                        }}</span>
+                        <span class="sermon-entry__ready">Ready</span>
+                      </div>
+                      <h3>{{ serverSermonTitle(sermon) }}</h3>
+                      <p class="sermon-entry__excerpt">
+                        {{ sermon.short_summary || 'Ready to revisit.' }}
+                      </p>
+                      <dl class="sermon-entry__register" aria-label="Sermon details">
+                        <div>
+                          <dt><MapPin :size="13" aria-hidden="true" />Church</dt>
+                          <dd>
+                            <strong :class="{ 'is-unset': !sermon.church }">{{
+                              sermon.church?.name || 'Not assigned'
+                            }}</strong>
+                            <small v-if="sermon.church?.address">{{ sermon.church.address }}</small>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt><UserRound :size="13" aria-hidden="true" />Preacher</dt>
+                          <dd>
+                            <strong :class="{ 'is-unset': !sermon.preacher }">{{
+                              sermon.preacher?.name || 'Not assigned'
+                            }}</strong>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt><CalendarDays :size="13" aria-hidden="true" />Heard</dt>
+                          <dd>
+                            <strong>{{ capturedDate(sermon) }}</strong>
+                            <small>{{ capturedTime(sermon) }}</small>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt><Clock3 :size="13" aria-hidden="true" />Length</dt>
+                          <dd>
+                            <strong>{{ serverSermonDuration(sermon.duration_seconds) }}</strong>
+                          </dd>
+                        </div>
+                      </dl>
                     </div>
-                    <h3>{{ serverSermonTitle(sermon) }}</h3>
-                    <p class="sermon-entry__excerpt">
-                      {{ sermon.short_summary || 'Ready to revisit.' }}
-                    </p>
-                  </div>
-                  <ChevronRight
-                    class="sermon-entry__arrow"
-                    :size="21"
-                    :stroke-width="1.6"
-                    aria-hidden="true"
-                  />
-                </RouterLink>
+                    <ChevronRight
+                      class="sermon-entry__arrow"
+                      :size="21"
+                      :stroke-width="1.6"
+                      aria-hidden="true"
+                    />
+                  </RouterLink>
+                </article>
               </div>
 
               <button
@@ -970,6 +1174,10 @@ watch(
   margin: 0;
 }
 
+.library-search-overlay .sermon-entry {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .library__search {
   align-items: center;
   background: var(--color-vellum-light);
@@ -1130,26 +1338,35 @@ watch(
 }
 
 .sermon-entry {
-  align-items: start;
+  align-items: center;
   border-bottom: 1px solid var(--color-margin);
+  color: inherit;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  transition: background-color 160ms ease;
+}
+
+.sermon-entry:hover {
+  background: rgba(250, 248, 241, 0.76);
+}
+
+.sermon-entry__link {
+  align-items: start;
   color: inherit;
   display: grid;
   gap: 1.25rem;
   grid-template-columns: 2.5rem 1fr auto;
+  min-width: 0;
   padding: 1.75rem 0.75rem 1.75rem 0;
   text-decoration: none;
-  transition:
-    background-color 160ms ease,
-    padding 160ms ease;
+  transition: padding 160ms ease;
 }
 
-.sermon-entry:hover,
-.sermon-entry:focus-visible {
-  background: rgba(250, 248, 241, 0.76);
+.sermon-entry__link:hover {
   padding-left: 0.75rem;
 }
 
-.sermon-entry:focus-visible {
+.sermon-entry__link:focus-visible {
   outline: 2px solid var(--color-lapis);
   outline-offset: 2px;
 }
@@ -1203,20 +1420,71 @@ watch(
   max-width: 62ch;
 }
 
-.sermon-entry__meta {
-  color: var(--color-ink-muted);
-  display: flex;
-  flex-wrap: wrap;
-  font-family: var(--font-utility);
-  font-size: 0.76rem;
-  gap: 0.5rem 1.1rem;
-  margin-top: 1rem;
+.sermon-entry__register {
+  border-top: 1px solid color-mix(in srgb, var(--color-rule-gold) 72%, transparent);
+  display: grid;
+  gap: 0;
+  grid-template-columns: 1.35fr 1fr 1fr 0.7fr;
+  margin: 1rem 0 0;
+  padding-top: 0.85rem;
 }
 
-.sermon-entry__meta span {
+.sermon-entry__register > div {
+  min-width: 0;
+  padding: 0 0.65rem;
+}
+
+.sermon-entry__register > div:first-child {
+  padding-left: 0;
+}
+
+.sermon-entry__register > div + div {
+  border-left: 1px solid var(--color-margin);
+}
+
+.sermon-entry__register dt {
   align-items: center;
-  display: inline-flex;
-  gap: 0.3rem;
+  color: var(--color-rubric);
+  display: flex;
+  font-family: var(--font-utility);
+  font-size: 0.64rem;
+  font-weight: 720;
+  gap: 0.28rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sermon-entry__register dd {
+  margin: 0.35rem 0 0;
+  min-width: 0;
+}
+
+.sermon-entry__register strong,
+.sermon-entry__register small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sermon-entry__register strong {
+  color: var(--color-ink);
+  font-family: var(--font-reading);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.sermon-entry__register strong.is-unset {
+  color: var(--color-ink-muted);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.sermon-entry__register small {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.62rem;
+  margin-top: 0.18rem;
 }
 
 .sermon-entry__tags {
@@ -1226,17 +1494,84 @@ watch(
   margin-top: 1rem;
 }
 
-.sermon-entry__tags span {
+.sermon-entry__tags span,
+.sermon-entry__tags a {
   border-bottom: 1px solid rgba(47, 75, 124, 0.35);
   color: var(--color-lapis);
   font-family: var(--font-utility);
   font-size: 0.72rem;
   padding-bottom: 0.1rem;
+  text-decoration: none;
+}
+
+.sermon-entry__tags--filters {
+  grid-column: 1;
+  margin-top: -1.2rem;
+  padding: 0 0 1.25rem 3.75rem;
+}
+
+.sermon-entry__tags--filters a {
+  position: relative;
+  z-index: 2;
+}
+
+.sermon-entry__tags--filters a:focus-visible {
+  outline: 2px solid var(--color-lapis);
+  outline-offset: 3px;
 }
 
 .sermon-entry__arrow {
   align-self: center;
   color: var(--color-rule-gold);
+}
+
+.sermon-entry__delete {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  opacity: 0.58;
+  padding: 1rem 0.75rem;
+  transition: opacity 160ms ease;
+}
+
+.sermon-entry:hover .sermon-entry__delete,
+.sermon-entry:focus-within .sermon-entry__delete {
+  opacity: 1;
+}
+
+.sermon-entry__delete > span {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.72rem;
+}
+
+.sermon-entry__delete button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--color-lapis);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font-utility);
+  font-size: 0.72rem;
+  font-weight: 700;
+  gap: 0.3rem;
+  min-height: 2.25rem;
+  padding: 0.35rem;
+}
+
+.sermon-entry__delete button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.sermon-entry__delete > button:first-child,
+.sermon-entry__delete-confirm {
+  color: var(--color-rubric);
 }
 
 .empty-search {
@@ -1290,9 +1625,50 @@ watch(
   }
 
   .sermon-entry {
+    grid-template-columns: 1fr;
+  }
+
+  .sermon-entry__link {
     gap: 0.7rem;
     grid-template-columns: 1.8rem 1fr;
     padding-right: 0;
+  }
+
+  .sermon-entry__delete {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: end;
+    opacity: 0.82;
+    padding-top: 0;
+  }
+
+  .sermon-entry__tags--filters {
+    padding-left: 2.5rem;
+  }
+
+  .sermon-entry__register {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sermon-entry__register > div {
+    padding: 0.7rem 0.55rem 0;
+  }
+
+  .sermon-entry__register > div:first-child {
+    padding-left: 0;
+  }
+
+  .sermon-entry__register > div + div {
+    border-left: 0;
+  }
+
+  .sermon-entry__register > div:nth-child(even) {
+    border-left: 1px solid var(--color-margin);
+  }
+
+  .sermon-entry__register > div:nth-child(n + 3) {
+    border-top: 1px solid var(--color-margin);
+    margin-top: 0.65rem;
   }
 
   .sermon-entry__arrow {
@@ -1304,6 +1680,7 @@ watch(
     overflow: hidden;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
   }
 }
 </style>

@@ -36,6 +36,7 @@ export interface ChurchSuggestion {
 export interface ServerSermon {
   id: string
   source_draft_id: string
+  title: string
   captured_at: string
   duration_seconds: number
   audio_url: string
@@ -69,6 +70,9 @@ export type StudyArtifactKind =
   | 'short_summary'
   | 'long_summary'
   | 'outline'
+  | 'practical_next_steps'
+  | 'call_to_action'
+  | 'quotations'
   | 'adult_discussion_questions'
   | 'kids_discussion_questions'
 
@@ -90,6 +94,7 @@ export interface ServerScriptureReference {
 
 export interface RelatedServerSermon {
   id: string
+  title: string
   captured_at: string
   score: number
   reason: string
@@ -118,6 +123,7 @@ export interface ServerShareLink {
 }
 
 export interface SharedSermonDetail {
+  title: string
   captured_at: string
   duration_seconds: number
   church: ServerChurch | null
@@ -162,7 +168,10 @@ export interface PaginatedSermons {
   results: ServerSermon[]
 }
 
-export function serverSermonTitle(sermon: Pick<ServerSermon, 'captured_at'>): string {
+export function serverSermonTitle(
+  sermon: Pick<ServerSermon, 'captured_at'> & { title?: string },
+): string {
+  if (sermon.title?.trim()) return sermon.title.trim()
   const captured = new Date(sermon.captured_at)
   return `${new Intl.DateTimeFormat(undefined, {
     weekday: 'long',
@@ -226,7 +235,7 @@ export async function retrySermonProcessing(id: string): Promise<ServerSermon> {
   )
 }
 
-export async function deleteInProgressSermon(id: string): Promise<void> {
+export async function deleteSermon(id: string): Promise<void> {
   return authorizedJson<void>(
     `/api/sermons/${encodeURIComponent(id)}/`,
     { method: 'DELETE' },
@@ -486,6 +495,7 @@ export async function createPreacher(name: string): Promise<ServerPreacher> {
 export async function updateSermonContext(
   sermonId: string,
   context: {
+    title?: string
     church_id: string | null
     preacher_id: string | null
     occasion_kind: OccasionKind | ''

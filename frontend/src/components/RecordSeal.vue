@@ -282,13 +282,42 @@ onBeforeUnmount(() => {
 
 @media (max-width: 640px) {
   .record-control {
-    bottom: calc(1.1rem + env(safe-area-inset-bottom));
-    right: 1.1rem;
+    backdrop-filter: blur(14px);
+    background: color-mix(in srgb, var(--color-vellum) 94%, transparent);
+    border-top: 1px solid var(--color-margin);
+    bottom: 0;
+    box-shadow: 0 -8px 24px rgba(28, 36, 48, 0.08);
+    flex-direction: row;
+    justify-content: center;
+    left: 0;
+    padding: 0.5rem 1rem calc(0.5rem + env(safe-area-inset-bottom));
+    right: 0;
   }
 
   .record-seal {
-    height: 4.5rem;
-    width: 4.5rem;
+    box-shadow:
+      0 0 0 3px var(--color-vellum),
+      0 0 0 4px rgba(184, 150, 62, 0.45),
+      0 6px 18px rgba(28, 36, 48, 0.16);
+    height: 3.5rem;
+    width: 3.5rem;
+  }
+
+  .record-seal::before {
+    inset: 0.32rem;
+  }
+
+  .record-seal__beading {
+    inset: 0.56rem;
+  }
+
+  .record-seal__field :deep(svg) {
+    height: 1.45rem;
+    width: 1.45rem;
+  }
+
+  .record-control__label {
+    margin: 0 0 0 0.8rem;
   }
 
   .record-seal--overlay {
