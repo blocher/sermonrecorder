@@ -18,7 +18,8 @@ function googleIsConfigured(): boolean {
 }
 
 function appleIsConfigured(): boolean {
-  if (platform === 'ios' || platform === 'android') return Boolean(appleClientId)
+  if (platform === 'ios') return true
+  if (platform === 'android') return Boolean(appleClientId)
   return Boolean(appleClientId && appleRedirectUrl)
 }
 

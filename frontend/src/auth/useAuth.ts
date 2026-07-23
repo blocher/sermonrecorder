@@ -24,10 +24,17 @@ interface TokenPair {
 
 const SESSION_KEY = 'pewcorder-auth-session'
 
-export const API_BASE_URL = (
-  import.meta.env.VITE_API_URL ??
-  (Capacitor.getPlatform() === 'android' ? 'http://10.0.2.2:8000' : 'http://127.0.0.1:8000')
-).replace(/\/$/, '')
+const platform = Capacitor.getPlatform()
+const isNative = platform === 'ios' || platform === 'android'
+
+const defaultApiUrl =
+  import.meta.env.PROD || (isNative && !import.meta.env.DEV)
+    ? 'https://api.pewcorder.benlocher.com'
+    : platform === 'android'
+      ? 'http://10.0.2.2:8000'
+      : 'http://127.0.0.1:8000'
+
+export const API_BASE_URL = (import.meta.env.VITE_API_URL || defaultApiUrl).replace(/\/$/, '')
 
 function storedSession(): AuthSession | undefined {
   try {
@@ -71,15 +78,32 @@ function responseError(data: unknown): string {
   return 'The request could not be completed.'
 }
 
+function networkErrorMessage(error: unknown, fallback: string): string {
+  if (
+    error instanceof TypeError &&
+    (error.message === 'Load failed' ||
+      error.message === 'Failed to fetch' ||
+      error.message.includes('NetworkError') ||
+      error.message.includes('network'))
+  ) {
+    return 'Unable to connect to the Pewcorder server. Please check your network connection.'
+  }
+  return error instanceof Error ? error.message : fallback
+}
+
 async function postJson<T>(path: string, body: object): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  const data = (await response.json()) as unknown
-  if (!response.ok) throw new Error(responseError(data))
-  return data as T
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = (await response.json()) as unknown
+    if (!response.ok) throw new Error(responseError(data))
+    return data as T
+  } catch (error) {
+    throw new Error(networkErrorMessage(error, 'The request could not be completed.'))
+  }
 }
 
 function tokenExpiresSoon(token: string): boolean {
@@ -124,12 +148,18 @@ export async function authorizedAccessToken(): Promise<string> {
 
 async function loadCurrentUser(): Promise<Congregant> {
   const token = await authorizedAccessToken()
-  const response = await fetch(`${API_BASE_URL}/api/auth/me/`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  const data = (await response.json()) as unknown
-  if (!response.ok) throw new Error(responseError(data))
-  return data as Congregant
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/me/`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const data = (await response.json()) as unknown
+    if (!response.ok) throw new Error(responseError(data))
+    return data as Congregant
+  } catch (error) {
+    throw new Error(
+      networkErrorMessage(error, 'User details could not be loaded from the server.'),
+    )
+  }
 }
 
 async function login(email: string, password: string): Promise<void> {
