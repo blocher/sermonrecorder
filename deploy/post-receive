@@ -13,8 +13,8 @@ VENV_DIR="$BACKEND_DIR/.venv"
 MEDIA_DIR="$BACKEND_DIR/media"
 ENV_FILE="$BACKEND_DIR/.env"
 UV_BIN="$(command -v uv)"
-NODE_BIN="$(command -v node)"
-NPM_BIN="$(command -v npm)"
+# NODE_BIN / NPM_BIN resolved later under a clean PATH (Node 22+)
+
 
 # Deploy the branch that was pushed (last ref wins if multiple).
 REF_NAME=""
@@ -85,8 +85,14 @@ chmod -R g+rx "$BACKEND_DIR/staticfiles" || true
 
 echo "====== Building frontend ======"
 cd "$FRONTEND_DIR"
-sudo -u pewcorder "$NPM_BIN" ci
-sudo -u pewcorder env \
+# Ensure NodeSource Node 22 is preferred over any older /usr/bin/node
+export PATH="/usr/bin:/bin:/usr/local/bin"
+NODE_BIN="$(command -v node)"
+NPM_BIN="$(command -v npm)"
+"$NODE_BIN" -v
+rm -rf node_modules
+sudo -u pewcorder -H env PATH="$PATH" "$NPM_BIN" ci
+sudo -u pewcorder -H env PATH="$PATH" \
   VITE_API_URL=https://api.pewcorder.benlocher.com \
   "$NPM_BIN" run build
 rm -rf "$WEB_ROOT/dist"
