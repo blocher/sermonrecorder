@@ -162,9 +162,10 @@ class SermonViewSet(
         return SermonSerializer
 
     def create(self, request, *args, **kwargs):
-        source_draft_id = request.data.get(
-            "source_draft_id"
-        ) or request.query_params.get("source_draft_id")
+        source_draft_id = (
+            request.data.get("source_draft_id")
+            or request.query_params.get("source_draft_id")
+        )
         if source_draft_id:
             existing = (
                 self.get_queryset().filter(source_draft_id=source_draft_id).first()
@@ -175,11 +176,31 @@ class SermonViewSet(
                 )
 
         data = request.data.copy()
+
+        # Handle audio field file key aliases ('file' or 'media' -> 'audio')
+        if not data.get("audio"):
+            for file_alias in ("file", "media", "document"):
+                if data.get(file_alias):
+                    data["audio"] = data[file_alias]
+                    break
+                elif file_alias in request.FILES:
+                    data["audio"] = request.FILES[file_alias]
+                    break
+
+        # Handle metadata fields from query params if missing or blank in form data
         for field in UPLOAD_METADATA_FIELDS:
-            if field not in data and field in request.query_params:
+            if not data.get(field) and request.query_params.get(field):
                 data[field] = request.query_params[field]
 
         serializer = self.get_serializer(data=data)
+        if not serializer.is_valid():
+            import logging
+            logging.error(
+                f"[UPLOAD_VALIDATION_ERROR] {serializer.errors} | "
+                f"data_keys: {list(data.keys())} | "
+                f"FILES_keys: {list(request.FILES.keys())} | "
+                f"query_params: {dict(request.query_params)}"
+            )
         serializer.is_valid(raise_exception=True)
         sermon = serializer.save(owner=request.user)
         transaction.on_commit(lambda: enqueue_sermon_processing(str(sermon.id)))

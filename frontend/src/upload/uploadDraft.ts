@@ -64,7 +64,9 @@ async function uploadNativeDraft(
 ): Promise<UploadedSermon> {
   if (!draft.audioPath) throw new Error('The local Draft audio file could not be opened.')
 
-  const url = `${API_BASE_URL}/api/sermons/`
+  const meta = metadata(draft)
+  const query = new URLSearchParams(meta).toString()
+  const url = `${API_BASE_URL}/api/sermons/?${query}`
   const listener = await FileTransfer.addListener('progress', (event) => {
     if (event.type !== 'upload' || event.url !== url || !event.lengthComputable) return
     onProgress?.(Math.min(1, event.bytes / event.contentLength))
@@ -77,7 +79,7 @@ async function uploadNativeDraft(
       method: 'POST',
       fileKey: 'audio',
       mimeType: draft.mimeType || 'audio/mp4',
-      params: metadata(draft),
+      params: meta,
       headers: { Authorization: `Bearer ${token}` },
       chunkedMode: false,
       progress: true,
