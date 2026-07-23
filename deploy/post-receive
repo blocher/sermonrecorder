@@ -9,7 +9,7 @@ API_ROOT="/var/www/api.pewcorder.benlocher.com"
 WEB_ROOT="/var/www/pewcorder.benlocher.com"
 BACKEND_DIR="$API_ROOT/backend"
 FRONTEND_DIR="$API_ROOT/frontend"
-VENV_DIR="$API_ROOT/.venv"
+VENV_DIR="$BACKEND_DIR/.venv"
 MEDIA_DIR="$BACKEND_DIR/media"
 ENV_FILE="$BACKEND_DIR/.env"
 UV_BIN="$(command -v uv)"
@@ -65,8 +65,10 @@ chown -R pewcorder:pewcorder "$API_ROOT" "$WEB_ROOT"
 chmod 750 "$ENV_FILE" 2>/dev/null || true
 
 echo "====== Installing backend (uv + Python 3.14) ======"
-sudo -u pewcorder "$UV_BIN" venv "$VENV_DIR" --python 3.14 --clear
-sudo -u pewcorder "$UV_BIN" sync --project "$BACKEND_DIR" --directory "$BACKEND_DIR" --no-dev
+cd "$BACKEND_DIR"
+sudo -u pewcorder "$UV_BIN" sync --python 3.14 --no-dev
+# Ensure venv path exists for systemd
+test -x "$VENV_DIR/bin/gunicorn"
 
 echo "====== Migrating database ======"
 sudo -u pewcorder env \
