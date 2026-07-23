@@ -26,7 +26,9 @@ class ScriptureReferenceOutput(BaseModel):
 
 
 class StudyArtifactOutput(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
+    # SimpleAI strips JSON Schema's reserved "title" keyword recursively for
+    # OpenAI, so a property with that exact name disappears from strict schemas.
+    sermon_title: str = Field(min_length=1, max_length=160)
     short_summary: str = Field(min_length=1)
     long_summary: str = Field(min_length=1)
     outline: list[str] = Field(min_length=1)
@@ -115,6 +117,12 @@ Cleaned Transcript:
         except (SettingsError, ModelResolutionError) as error:
             raise PermanentProcessingError(str(error)) from error
         except SimpleAIException as error:
+            error_message = str(error)
+            if (
+                "invalid schema for response_format" in error_message.casefold()
+                or "invalid_json_schema" in error_message.casefold()
+            ):
+                raise PermanentProcessingError(error_message) from error
             raise RetryableProcessingError(str(error)) from error
 
         quotations = _verbatim_quotations(output.quotations, transcript.text)
@@ -124,7 +132,7 @@ Cleaned Transcript:
             )
 
         return GeneratedArtifacts(
-            title=output.title.strip(),
+            title=output.sermon_title.strip(),
             study_artifacts=(
                 StudyArtifactResult(
                     kind=StudyArtifact.Kind.SHORT_SUMMARY,

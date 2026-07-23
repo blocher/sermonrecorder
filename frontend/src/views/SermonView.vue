@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
@@ -70,11 +70,13 @@ const route = useRoute()
 const router = useRouter()
 const { isAuthenticated } = useAuth()
 const sermon = ref<ServerSermonDetail>()
+const processingSermon = ref<ServerSermonDetail>()
 const sectionTabs = ref<HTMLElement>()
 const loading = ref(true)
 const errorMessage = ref('')
 const failedSermonId = ref('')
 const retrying = ref(false)
+const checkingProcessing = ref(false)
 const activeSection = ref<Section>('study')
 const transcriptView = ref<TranscriptView>('timeline')
 const audio = ref<HTMLAudioElement>()
@@ -128,6 +130,7 @@ const churchSuggestions = ref<ChurchSuggestion[]>([])
 const findingChurches = ref(false)
 const addingPreacher = ref(false)
 const newPreacherName = ref('')
+let processingPollTimer: ReturnType<typeof setTimeout> | undefined
 
 const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
@@ -172,6 +175,15 @@ const capturedTime = computed(() =>
         hour: 'numeric',
         minute: '2-digit',
       }).format(new Date(sermon.value.captured_at))
+    : '',
+)
+const processingCapturedDate = computed(() =>
+  processingSermon.value
+    ? new Intl.DateTimeFormat(undefined, {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      }).format(new Date(processingSermon.value.captured_at))
     : '',
 )
 const occasionOptions: [OccasionKind, string][] = [
@@ -718,11 +730,64 @@ async function saveContext(): Promise<void> {
   }
 }
 
+function clearProcessingPoll(): void {
+  if (processingPollTimer !== undefined) {
+    window.clearTimeout(processingPollTimer)
+    processingPollTimer = undefined
+  }
+}
+
+function scheduleProcessingPoll(id: string): void {
+  clearProcessingPoll()
+  processingPollTimer = window.setTimeout(() => void refreshProcessing(id), 5000)
+}
+
+function applyLoadedSermon(loadedSermon: ServerSermonDetail, id: string): void {
+  clearProcessingPoll()
+  errorMessage.value = ''
+  failedSermonId.value = ''
+
+  if (loadedSermon.processing_status === 'ready') {
+    processingSermon.value = undefined
+    sermon.value = loadedSermon
+    reflectionContent.value = loadedSermon.reflections[0]?.content ?? ''
+    return
+  }
+
+  sermon.value = undefined
+  processingSermon.value = loadedSermon
+  if (loadedSermon.processing_status === 'failed') {
+    failedSermonId.value = loadedSermon.id
+  } else {
+    scheduleProcessingPoll(id)
+  }
+}
+
+async function refreshProcessing(id: string, manual = false): Promise<void> {
+  if (String(route.params.id) !== id) return
+  if (manual) checkingProcessing.value = true
+  try {
+    const loadedSermon = await loadServerSermon(id)
+    if (String(route.params.id) === id) applyLoadedSermon(loadedSermon, id)
+  } catch {
+    if (
+      String(route.params.id) === id &&
+      processingSermon.value?.processing_status !== 'failed'
+    ) {
+      scheduleProcessingPoll(id)
+    }
+  } finally {
+    if (manual) checkingProcessing.value = false
+  }
+}
+
 async function load(id: string): Promise<void> {
+  clearProcessingPoll()
   loading.value = true
   errorMessage.value = ''
   failedSermonId.value = ''
   sermon.value = undefined
+  processingSermon.value = undefined
   editingKind.value = undefined
   editMessage.value = ''
   editingTags.value = false
@@ -742,15 +807,7 @@ async function load(id: string): Promise<void> {
   contextMessage.value = ''
   try {
     const loadedSermon = await loadServerSermon(id)
-    if (loadedSermon.processing_status !== 'ready') {
-      errorMessage.value = loadedSermon.processing_message
-      if (loadedSermon.processing_status === 'failed') {
-        failedSermonId.value = loadedSermon.id
-      }
-      return
-    }
-    sermon.value = loadedSermon
-    reflectionContent.value = loadedSermon.reflections[0]?.content ?? ''
+    applyLoadedSermon(loadedSermon, id)
   } catch (error) {
     if (!isAuthenticated.value) {
       await router.replace({
@@ -769,9 +826,12 @@ async function retryFailedProcessing(): Promise<void> {
   if (!failedSermonId.value || retrying.value) return
   retrying.value = true
   try {
-    await retrySermonProcessing(failedSermonId.value)
-    errorMessage.value = 'Safely uploaded and waiting to process.'
+    const retried = await retrySermonProcessing(failedSermonId.value)
+    if (processingSermon.value) {
+      processingSermon.value = { ...processingSermon.value, ...retried }
+    }
     failedSermonId.value = ''
+    scheduleProcessingPoll(retried.id)
   } catch (error) {
     errorMessage.value =
       error instanceof Error ? error.message : 'This Sermon could not be retried.'
@@ -809,6 +869,8 @@ watch(
   },
   { immediate: true },
 )
+
+onBeforeUnmount(clearProcessingPoll)
 </script>
 
 <template>
@@ -819,12 +881,51 @@ watch(
     </button>
 
     <p v-if="loading" class="detail-state" role="status">Opening your Sermon…</p>
-    <section v-else-if="errorMessage" class="detail-state detail-state--error" role="alert">
-      <p class="rubric-label">{{ failedSermonId ? 'Needs attention' : 'Unable to open' }}</p>
-      <h1>{{ failedSermonId ? 'Processing couldn’t finish' : 'This Sermon isn’t available' }}</h1>
-      <p class="detail-state__body">{{ errorMessage }}</p>
+    <section
+      v-else-if="processingSermon && processingSermon.processing_status !== 'failed'"
+      class="detail-state detail-state--processing"
+      role="status"
+      aria-live="polite"
+    >
+      <p class="detail-state__status">
+        <span class="detail-state__pulse" aria-hidden="true"></span>
+        Preparing your Sermon
+      </p>
+      <h1>{{ serverSermonTitle(processingSermon) }}</h1>
+      <div class="detail-state__meta">
+        <span>{{ processingCapturedDate }}</span>
+        <span>{{ serverSermonDuration(processingSermon.duration_seconds) }}</span>
+      </div>
+      <p class="detail-state__body">{{ processingSermon.processing_message }}</p>
+      <p class="detail-state__note">
+        We’re creating the Transcript, title, and study notes. You can leave this page and check
+        back soon—it will update automatically while it’s open.
+      </p>
       <button
-        v-if="failedSermonId"
+        class="detail-state__retry"
+        type="button"
+        :disabled="checkingProcessing"
+        @click="refreshProcessing(processingSermon.id, true)"
+      >
+        <RotateCcw
+          :class="{ 'is-spinning': checkingProcessing }"
+          :size="16"
+          aria-hidden="true"
+        />
+        {{ checkingProcessing ? 'Checking…' : 'Check now' }}
+      </button>
+    </section>
+    <section
+      v-else-if="processingSermon?.processing_status === 'failed'"
+      class="detail-state detail-state--error"
+      role="alert"
+    >
+      <p class="rubric-label">Needs attention</p>
+      <h1>Processing couldn’t finish</h1>
+      <p class="detail-state__body">
+        {{ errorMessage || processingSermon.processing_message }}
+      </p>
+      <button
         class="detail-state__retry"
         type="button"
         :disabled="retrying"
@@ -833,6 +934,11 @@ watch(
         <RotateCcw :size="16" aria-hidden="true" />
         {{ retrying ? 'Retrying…' : 'Try again' }}
       </button>
+    </section>
+    <section v-else-if="errorMessage" class="detail-state detail-state--error" role="alert">
+      <p class="rubric-label">Unable to open</p>
+      <h1>This Sermon isn’t available</h1>
+      <p class="detail-state__body">{{ errorMessage }}</p>
     </section>
 
     <article v-else-if="sermon">
@@ -1809,14 +1915,60 @@ watch(
   padding: 4rem 0;
 }
 
-.detail-state--error h1 {
+.detail-state--processing {
+  background: color-mix(in srgb, var(--color-vellum-light) 70%, transparent);
+  border-bottom: 1px solid var(--color-rule-gold);
+  border-top: 1px solid var(--color-rule-gold);
+  margin-top: 1.5rem;
+  padding: clamp(2.5rem, 8vw, 5rem) clamp(1.25rem, 6vw, 4rem);
+}
+
+.detail-state h1 {
   color: var(--color-ink);
   font-family: var(--font-display);
   font-size: clamp(2.4rem, 7vw, 4.5rem);
   font-weight: 520;
   letter-spacing: -0.05em;
   line-height: 0.98;
-  max-width: 13ch;
+  margin: 0.75rem 0 0;
+  max-width: 16ch;
+}
+
+.detail-state__status {
+  align-items: center;
+  color: var(--color-rubric);
+  display: flex;
+  font-family: var(--font-utility);
+  font-size: 0.72rem;
+  font-weight: 700;
+  gap: 0.55rem;
+  letter-spacing: 0.11em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.detail-state__pulse {
+  background: var(--color-rubric);
+  border-radius: 50%;
+  display: inline-block;
+  height: 0.55rem;
+  width: 0.55rem;
+  animation: processing-pulse 1.8s ease-in-out infinite;
+}
+
+.detail-state__meta {
+  color: var(--color-ink-muted);
+  display: flex;
+  font-family: var(--font-utility);
+  font-size: 0.78rem;
+  gap: 1.2rem;
+  margin-top: 1.1rem;
+}
+
+.detail-state__meta span + span::before {
+  color: var(--color-rule-gold);
+  content: '·';
+  margin-right: 1.2rem;
 }
 
 .detail-state__body {
@@ -1826,6 +1978,15 @@ watch(
   line-height: 1.55;
   margin-top: 1rem;
   max-width: 36rem;
+}
+
+.detail-state__note {
+  color: var(--color-ink);
+  font-family: var(--font-reading);
+  font-size: 1.05rem;
+  line-height: 1.65;
+  margin: 1.25rem 0 0;
+  max-width: 38rem;
 }
 
 .detail-state__retry {
@@ -1847,6 +2008,33 @@ watch(
 .detail-state__retry:disabled {
   cursor: wait;
   opacity: 0.65;
+}
+
+.detail-state__retry .is-spinning {
+  animation: processing-spin 0.9s linear infinite;
+}
+
+@keyframes processing-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-rubric) 35%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 0.4rem transparent;
+  }
+}
+
+@keyframes processing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detail-state__pulse,
+  .detail-state__retry .is-spinning {
+    animation: none;
+  }
 }
 
 .sermon-header {

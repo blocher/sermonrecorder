@@ -11,6 +11,7 @@ from openai.types.audio.transcription_diarized_segment import (
     TranscriptionDiarizedSegment,
 )
 from simpleai.exceptions import ProviderError, SettingsError
+from simpleai.schema import openai_response_schema
 
 from accounts.models import User
 
@@ -195,7 +196,7 @@ class ProviderPipelineTests(TestCase):
     def test_simpleai_generator_maps_structured_output_to_domain_artifacts(self):
         runner = Mock(
             return_value=StudyArtifactOutput(
-                title="The Father Runs to Welcome",
+                sermon_title="The Father Runs to Welcome",
                 short_summary="God welcomes the lost.",
                 long_summary="A longer account of welcome and repentance.",
                 outline=["The younger son leaves", "The father runs to welcome him"],
@@ -270,10 +271,18 @@ class ProviderPipelineTests(TestCase):
         self.assertEqual(result.tag_suggestions, ("Grace", "Homecoming"))
         self.assertIn(transcript.text, runner.call_args.args[0])
 
+    def test_artifact_output_schema_is_openai_strict_compatible(self):
+        schema = openai_response_schema(StudyArtifactOutput)
+
+        self.assertEqual(
+            set(schema["required"]),
+            set(schema["properties"]),
+        )
+
     def test_simpleai_generator_rejects_non_verbatim_quotations(self):
         runner = Mock(
             return_value=StudyArtifactOutput(
-                title="Welcome Home",
+                sermon_title="Welcome Home",
                 short_summary="God welcomes the lost.",
                 long_summary="A longer account of welcome.",
                 outline=["The father welcomes his son"],
@@ -326,6 +335,25 @@ class ProviderPipelineTests(TestCase):
         with self.assertRaisesMessage(
             RetryableProcessingError,
             "provider unavailable",
+        ):
+            generator.generate(transcript)
+
+    def test_invalid_artifact_schema_is_a_permanent_failure(self):
+        generator = SimpleAIArtifactGenerator(
+            runner=Mock(
+                side_effect=ProviderError(
+                    "Invalid schema for response_format 'simpleai_output'"
+                )
+            )
+        )
+        transcript = CleanedTranscript(
+            text="A Transcript.",
+            segments=(TranscriptSegment(0, 1, "A Transcript."),),
+        )
+
+        with self.assertRaisesMessage(
+            PermanentProcessingError,
+            "Invalid schema for response_format",
         ):
             generator.generate(transcript)
 
