@@ -119,7 +119,7 @@ describe('Draft upload', () => {
 
     expect(mocks.uploadFile).toHaveBeenCalledWith(
       expect.objectContaining({
-        chunkedMode: true,
+        chunkedMode: false,
         fileKey: 'audio',
         headers: { Authorization: 'Bearer access-token' },
         mimeType: 'audio/mp4',

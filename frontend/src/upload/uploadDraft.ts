@@ -13,10 +13,11 @@ export interface UploadedSermon {
 type UploadProgress = (value: number) => void
 
 function metadata(draft: LocalDraft): Record<string, string> {
+  const duration = Math.max(1, Math.round(Number(draft.durationSeconds) || 1))
   return {
     source_draft_id: draft.id,
     captured_at: draft.createdAt,
-    duration_seconds: String(draft.durationSeconds),
+    duration_seconds: String(duration),
   }
 }
 
@@ -75,16 +76,29 @@ async function uploadNativeDraft(
       path: await nativeDraftFileUri(draft.audioPath),
       method: 'POST',
       fileKey: 'audio',
-      mimeType: draft.mimeType,
+      mimeType: draft.mimeType || 'audio/mp4',
       params: metadata(draft),
       headers: { Authorization: `Bearer ${token}` },
-      chunkedMode: true,
+      chunkedMode: false,
       progress: true,
       connectTimeout: 30_000,
       readTimeout: 10 * 60_000,
     })
     onProgress?.(1)
     return parseResponse(result.response)
+  } catch (error: unknown) {
+    const transferError = error as { data?: { body?: string }; body?: string; response?: string }
+    const responseBody = transferError?.data?.body ?? transferError?.body ?? transferError?.response
+    if (responseBody && typeof responseBody === 'string') {
+      try {
+        const details = JSON.parse(responseBody) as Record<string, unknown>
+        const firstMessage = Object.values(details).flat()[0]
+        if (typeof firstMessage === 'string' && firstMessage) throw new Error(firstMessage)
+      } catch (parseError) {
+        if (!(parseError instanceof SyntaxError)) throw parseError
+      }
+    }
+    throw error
   } finally {
     await listener.remove()
   }

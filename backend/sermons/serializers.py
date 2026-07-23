@@ -19,11 +19,22 @@ from .tagging import normalize_tag
 
 MAX_AUDIO_SIZE_BYTES = 500 * 1024 * 1024
 SUPPORTED_AUDIO_TYPES = {
+    "application/octet-stream",
+    "audio/3gp",
+    "audio/3gpp",
     "audio/aac",
+    "audio/caf",
     "audio/m4a",
+    "audio/mp3",
     "audio/mp4",
+    "audio/mpeg",
     "audio/ogg",
+    "audio/wav",
     "audio/webm",
+    "audio/x-caf",
+    "audio/x-m4a",
+    "audio/x-mp4",
+    "audio/x-wav",
     "video/mp4",
 }
 
