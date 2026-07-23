@@ -137,6 +137,7 @@ onMounted(() => {
   background: color-mix(in srgb, var(--color-vellum) 95%, transparent);
   border-bottom: 1px solid var(--color-margin);
   height: var(--header-height);
+  padding-top: env(safe-area-inset-top);
   left: 0;
   position: fixed;
   right: 0;

@@ -30,5 +30,5 @@
   --radius-medium: 0.75rem;
   --page-width: 72rem;
   --reading-width: 40rem;
-  --header-height: 4.75rem;
+  --header-height: calc(4.75rem + env(safe-area-inset-top));
 }
