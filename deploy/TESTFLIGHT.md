@@ -1,37 +1,35 @@
 # TestFlight checklist (Pewcorder iOS)
 
-Bundle id: `com.pewcorder.app`
+Bundle id: `com.pewcorder.app`  
+Display name: Pewcorder  
+Team: **The Daily Office, LLC** (`2TG4YK78KZ`)  
+Version: `1.0` (build `1`)
 
-## One-time Apple setup
+## Already done on the server
 
-1. App Store Connect → create app for `com.pewcorder.app`.
-2. Apple Developer → Identifiers: enable **Push Notifications** and **Sign in with Apple**.
-3. Create an APNs Auth Key (`.p8`) → download once; note Key ID + Team ID.
-4. On the server:
+- APNs Auth Key installed (`AuthKey_499SMMSNMR.p8`)
+- `APNS_KEY_ID=499SMMSNMR`
+- `APNS_TEAM_ID=2TG4YK78KZ` (The Daily Office, LLC)
+- `APNS_USE_SANDBOX=0` (TestFlight / App Store use production APNs)
+- `PUSH_ALERT_SENDER=sermons.push_alerts.NativePushAlertSender`
 
-```bash
-# copy AuthKey_XXXX.p8 to:
-/var/www/api.pewcorder.benlocher.com/backend/credentials/AuthKey_XXXXX.p8
-chown pewcorder:pewcorder ...
-chmod 600 ...
-```
+If push delivery fails after TestFlight install, create a new APNs Auth Key under the **Daily Office** Apple Developer account and replace the `.p8` + `APNS_KEY_ID` on the server (keys are team-scoped).
 
-Add to `/var/www/api.pewcorder.benlocher.com/backend/.env`:
+## One-time Apple Developer / App Store Connect
 
-```
-APNS_KEY_ID=...
-APNS_TEAM_ID=...
-APNS_AUTH_KEY_PATH=/var/www/api.pewcorder.benlocher.com/backend/credentials/AuthKey_XXXXX.p8
-APNS_TOPIC=com.pewcorder.app
-APNS_USE_SANDBOX=1
-PUSH_ALERT_SENDER=sermons.push_alerts.NativePushAlertSender
-```
+Use the **The Daily Office, LLC** membership (not the personal Benjamin Locher team).
 
-Then `systemctl restart pewcorder pewcorder-worker pewcorder-beat`.
+1. [developer.apple.com/account](https://developer.apple.com/account) → **Identifiers** → App ID `com.pewcorder.app`
+   - Enable **Push Notifications**
+   - Enable **Sign in with Apple**
+2. [appstoreconnect.apple.com](https://appstoreconnect.apple.com) → **My Apps** → **+** → New App
+   - Platforms: iOS
+   - Name: Pewcorder
+   - Bundle ID: `com.pewcorder.app`
+   - SKU: e.g. `pewcorder`
+3. Fill the minimum App Privacy / export compliance answers when prompted on first upload.
 
-## Build + upload
-
-From your Mac (with Xcode signing configured):
+## Build + upload (Mac)
 
 ```bash
 cd frontend
@@ -39,6 +37,17 @@ VITE_API_URL=https://api.pewcorder.benlocher.com npm run native:sync
 open ios/App/App.xcodeproj
 ```
 
-In Xcode: select a Team, Archive → Distribute App → App Store Connect → TestFlight.
+In Xcode:
 
-Set `VITE_APPLE_CLIENT_ID` / redirect URL in the frontend env used for the Capacitor build if Sign in with Apple is enabled for web-style flows.
+1. Signing & Capabilities → Team: **The Daily Office, LLC** (`2TG4YK78KZ`), Automatic signing
+2. Confirm capabilities: **Push Notifications**, **Sign in with Apple**, Background Modes (Audio + Remote notifications)
+3. Scheme: **App** → destination **Any iOS Device**
+4. Product → **Archive**
+5. Organizer → **Distribute App** → App Store Connect → Upload
+6. App Store Connect → TestFlight → wait for processing → add Internal testers → Install from TestFlight
+
+## Notes
+
+- Native iOS Sign in with Apple uses the app entitlement (no `VITE_APPLE_CLIENT_ID` required on iOS).
+- Google iOS sign-in needs `VITE_GOOGLE_IOS_CLIENT_ID` plus the reversed client ID URL scheme in `Info.plist` — can ship TestFlight without Google first.
+- After each web/API client change that should land in the app: `npm run native:sync`, bump `CURRENT_PROJECT_VERSION`, Archive again.
