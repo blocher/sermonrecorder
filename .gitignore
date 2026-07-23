@@ -13,6 +13,7 @@ frontend/.vite/
 backend/.venv/
 backend/db.sqlite3
 backend/media/
+backend/staticfiles/
 backend/credentials/
 **/__pycache__/
 *.py[cod]

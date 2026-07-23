@@ -1,0 +1,101 @@
+#!/bin/sh
+# Installed on the server as:
+#   /var/repo/pewcorder.benlocher.com.git/hooks/post-receive
+# Triggered by: git push production <branch>
+set -eu
+
+REPO_DIR="/var/repo/pewcorder.benlocher.com.git"
+API_ROOT="/var/www/api.pewcorder.benlocher.com"
+WEB_ROOT="/var/www/pewcorder.benlocher.com"
+BACKEND_DIR="$API_ROOT/backend"
+FRONTEND_DIR="$API_ROOT/frontend"
+VENV_DIR="$API_ROOT/.venv"
+MEDIA_DIR="$BACKEND_DIR/media"
+ENV_FILE="$BACKEND_DIR/.env"
+UV_BIN="$(command -v uv)"
+NODE_BIN="$(command -v node)"
+NPM_BIN="$(command -v npm)"
+
+# Deploy the branch that was pushed (last ref wins if multiple).
+REF_NAME=""
+while read -r _oldrev newrev ref; do
+  if [ "$newrev" = "0000000000000000000000000000000000000000" ]; then
+    continue
+  fi
+  REF_NAME="$ref"
+done
+
+if [ -z "$REF_NAME" ]; then
+  echo "No branch updated; skipping deploy."
+  exit 0
+fi
+
+BRANCH="${REF_NAME#refs/heads/}"
+echo "====== Deploying branch: $BRANCH ======"
+
+# uv discovers config by walking up from cwd; never run it from /root.
+cd /tmp
+
+echo "====== Checking out code ======"
+mkdir -p "$API_ROOT" "$WEB_ROOT"
+# Preserve secrets + media across force-checkout
+TMP_PRESERVE="$(mktemp -d)"
+if [ -f "$ENV_FILE" ]; then
+  cp "$ENV_FILE" "$TMP_PRESERVE/.env"
+fi
+if [ -d "$MEDIA_DIR" ]; then
+  mv "$MEDIA_DIR" "$TMP_PRESERVE/media"
+fi
+
+git --work-tree="$API_ROOT" --git-dir="$REPO_DIR" checkout -f "$BRANCH"
+
+mkdir -p "$BACKEND_DIR" "$FRONTEND_DIR"
+if [ -f "$TMP_PRESERVE/.env" ]; then
+  cp "$TMP_PRESERVE/.env" "$ENV_FILE"
+fi
+if [ -d "$TMP_PRESERVE/media" ]; then
+  mv "$TMP_PRESERVE/media" "$MEDIA_DIR"
+else
+  mkdir -p "$MEDIA_DIR"
+fi
+rm -rf "$TMP_PRESERVE"
+
+echo "====== Setting ownership ======"
+chown -R pewcorder:pewcorder "$API_ROOT" "$WEB_ROOT"
+chmod 750 "$ENV_FILE" 2>/dev/null || true
+
+echo "====== Installing backend (uv + Python 3.14) ======"
+sudo -u pewcorder "$UV_BIN" venv "$VENV_DIR" --python 3.14 --clear
+sudo -u pewcorder "$UV_BIN" sync --project "$BACKEND_DIR" --directory "$BACKEND_DIR" --no-dev
+
+echo "====== Migrating database ======"
+sudo -u pewcorder env \
+  PYTHONPATH="$BACKEND_DIR" \
+  DJANGO_SETTINGS_MODULE=config.settings \
+  "$VENV_DIR/bin/python" "$BACKEND_DIR/manage.py" migrate --no-input
+
+echo "====== Collecting static files ======"
+sudo -u pewcorder env \
+  PYTHONPATH="$BACKEND_DIR" \
+  DJANGO_SETTINGS_MODULE=config.settings \
+  "$VENV_DIR/bin/python" "$BACKEND_DIR/manage.py" collectstatic --noinput --clear
+chmod -R g+rx "$BACKEND_DIR/staticfiles" || true
+
+echo "====== Building frontend ======"
+cd "$FRONTEND_DIR"
+sudo -u pewcorder "$NPM_BIN" ci
+sudo -u pewcorder env \
+  VITE_API_URL=https://api.pewcorder.benlocher.com \
+  "$NPM_BIN" run build
+rm -rf "$WEB_ROOT/dist"
+mkdir -p "$WEB_ROOT"
+cp -a "$FRONTEND_DIR/dist" "$WEB_ROOT/dist"
+chown -R pewcorder:pewcorder "$WEB_ROOT"
+
+echo "====== Restarting services ======"
+systemctl restart pewcorder
+systemctl restart pewcorder-worker
+systemctl restart pewcorder-beat
+
+echo "====== Deploy complete ($BRANCH) ======"
+systemctl --no-pager --full status pewcorder pewcorder-worker pewcorder-beat | sed -n '1,80p' || true

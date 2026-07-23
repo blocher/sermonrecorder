@@ -9,9 +9,11 @@ dependencies = [
     "djangorestframework>=3.17.1",
     "djangorestframework-simplejwt>=5.5.1",
     "google-auth>=2.55.2",
+    "gunicorn>=23.0.0",
     "haesimpleai",
     "httpx[http2]>=0.28.1",
     "openai>=2.46.0",
+    "psycopg[binary]>=3.2.0",
     "pyjwt[crypto]>=2.13.0",
     "python-dotenv>=1.2.2",
 ]

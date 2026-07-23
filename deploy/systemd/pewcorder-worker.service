@@ -1,0 +1,24 @@
+[Unit]
+Description=Pewcorder Celery worker
+After=network.target redis-server.service postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pewcorder
+Group=pewcorder
+WorkingDirectory=/var/www/api.pewcorder.benlocher.com/backend
+Environment=PYTHONPATH=/var/www/api.pewcorder.benlocher.com/backend
+Environment=DJANGO_SETTINGS_MODULE=config.settings
+EnvironmentFile=-/var/www/api.pewcorder.benlocher.com/backend/.env
+ExecStart=/var/www/api.pewcorder.benlocher.com/.venv/bin/celery \
+  -A config worker \
+  --loglevel=INFO \
+  --concurrency=1
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
