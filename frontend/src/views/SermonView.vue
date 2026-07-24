@@ -1563,58 +1563,60 @@ onBeforeUnmount(clearProcessingPoll)
         :aria-labelledby="`sermon-tab-${activeSection}`"
       >
         <template v-if="activeSection === 'study'">
-          <section class="artifact artifact--lead">
-            <div class="artifact__heading">
-              <p class="rubric-label">In brief</p>
-              <button
-                class="artifact__edit"
-                type="button"
-                aria-label="Edit short summary"
-                @click="beginArtifactEdit('short_summary')"
-              >
-                <PencilLine :size="16" />
-              </button>
-            </div>
-            <div v-if="editingKind === 'short_summary'" class="artifact-editor">
-              <textarea v-model="editContent" rows="6" aria-label="Short summary"></textarea>
-              <div class="artifact-editor__actions">
-                <button type="button" @click="cancelArtifactEdit">
-                  <X :size="15" /> Cancel
-                </button>
-                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
-                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+          <section class="artifact artifact--summary">
+            <div class="summary-brief">
+              <div class="artifact__heading">
+                <p class="rubric-label">In brief</p>
+                <button
+                  class="artifact__edit"
+                  type="button"
+                  aria-label="Edit short summary"
+                  @click="beginArtifactEdit('short_summary')"
+                >
+                  <PencilLine :size="16" />
                 </button>
               </div>
+              <div v-if="editingKind === 'short_summary'" class="artifact-editor">
+                <textarea v-model="editContent" rows="6" aria-label="Short summary"></textarea>
+                <div class="artifact-editor__actions">
+                  <button type="button" @click="cancelArtifactEdit">
+                    <X :size="15" /> Cancel
+                  </button>
+                  <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                    <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                  </button>
+                </div>
+              </div>
+              <p v-else class="artifact__summary">{{ artifact('short_summary') }}</p>
             </div>
-            <p v-else class="artifact__summary">{{ artifact('short_summary') }}</p>
-          </section>
 
-          <section class="artifact artifact--long-summary">
-            <div class="artifact__heading artifact__heading--quiet">
-              <button
-                class="artifact__edit"
-                type="button"
-                aria-label="Edit long summary"
-                @click="beginArtifactEdit('long_summary')"
-              >
-                <PencilLine :size="16" />
-              </button>
-            </div>
-            <div v-if="editingKind === 'long_summary'" class="artifact-editor">
-              <textarea v-model="editContent" rows="12" aria-label="Long summary"></textarea>
-              <div class="artifact-editor__actions">
-                <button type="button" @click="cancelArtifactEdit">
-                  <X :size="15" /> Cancel
-                </button>
-                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
-                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+            <div class="summary-long">
+              <div class="summary-long__toolbar">
+                <button
+                  class="artifact__edit"
+                  type="button"
+                  aria-label="Edit long summary"
+                  @click="beginArtifactEdit('long_summary')"
+                >
+                  <PencilLine :size="16" />
                 </button>
               </div>
-            </div>
-            <div v-else class="artifact__prose artifact__prose--compact">
-              <p v-for="paragraph in paragraphs(artifact('long_summary'))" :key="paragraph">
-                {{ paragraph }}
-              </p>
+              <div v-if="editingKind === 'long_summary'" class="artifact-editor">
+                <textarea v-model="editContent" rows="12" aria-label="Long summary"></textarea>
+                <div class="artifact-editor__actions">
+                  <button type="button" @click="cancelArtifactEdit">
+                    <X :size="15" /> Cancel
+                  </button>
+                  <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                    <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                  </button>
+                </div>
+              </div>
+              <div v-else class="artifact__prose artifact__prose--compact">
+                <p v-for="paragraph in paragraphs(artifact('long_summary'))" :key="paragraph">
+                  {{ paragraph }}
+                </p>
+              </div>
             </div>
           </section>
 
@@ -1686,16 +1688,17 @@ onBeforeUnmount(clearProcessingPoll)
             </div>
           </section>
 
-          <section v-if="artifact('call_to_action')" class="artifact artifact--call">
+          <section
+            v-if="artifact('call_to_action') || artifact('practical_next_steps')"
+            class="artifact artifact--call"
+          >
             <div class="artifact__heading">
-              <div>
-                <p class="rubric-label">One next action</p>
-                <h2>Carry this with you</h2>
-              </div>
+              <h2>Action Items</h2>
               <button
+                v-if="artifact('call_to_action')"
                 class="artifact__edit"
                 type="button"
-                aria-label="Edit one next action"
+                aria-label="Edit action item"
                 @click="beginArtifactEdit('call_to_action')"
               >
                 <PencilLine :size="16" />
@@ -1706,7 +1709,7 @@ onBeforeUnmount(clearProcessingPoll)
                 v-model="editContent"
                 rows="3"
                 maxlength="240"
-                aria-label="One next action"
+                aria-label="Action item"
               ></textarea>
               <div class="artifact-editor__actions">
                 <button type="button" @click="cancelArtifactEdit">
@@ -1717,7 +1720,43 @@ onBeforeUnmount(clearProcessingPoll)
                 </button>
               </div>
             </div>
-            <p v-else class="artifact__call">{{ artifact('call_to_action') }}</p>
+            <p v-else-if="artifact('call_to_action')" class="artifact__call">
+              {{ artifact('call_to_action') }}
+            </p>
+
+            <div v-if="artifact('practical_next_steps')" class="action-items__carry">
+              <div class="action-items__carry-heading">
+                <p class="action-items__carry-label">Carry this with you</p>
+                <button
+                  class="artifact__edit"
+                  type="button"
+                  aria-label="Edit carry-this-with-you steps"
+                  @click="beginArtifactEdit('practical_next_steps')"
+                >
+                  <PencilLine :size="16" />
+                </button>
+              </div>
+              <div v-if="editingKind === 'practical_next_steps'" class="artifact-editor">
+                <textarea
+                  v-model="editContent"
+                  rows="8"
+                  aria-label="Carry this with you"
+                ></textarea>
+                <div class="artifact-editor__actions">
+                  <button type="button" @click="cancelArtifactEdit">
+                    <X :size="15" /> Cancel
+                  </button>
+                  <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                    <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                  </button>
+                </div>
+              </div>
+              <ol v-else class="practical-steps">
+                <li v-for="step in numberedItems(artifact('practical_next_steps'))" :key="step">
+                  {{ step }}
+                </li>
+              </ol>
+            </div>
           </section>
 
           <section v-if="artifact('sermon_feedback')" class="artifact artifact--feedback">
@@ -1873,43 +1912,6 @@ onBeforeUnmount(clearProcessingPoll)
             <p v-if="scriptureMessage" class="artifact__message" role="status">
               {{ scriptureMessage }}
             </p>
-          </section>
-
-          <section v-if="artifact('practical_next_steps')" class="artifact">
-            <div class="artifact__heading">
-              <div>
-                <p class="rubric-label">Put it into practice</p>
-                <h2>Practical next steps</h2>
-              </div>
-              <button
-                class="artifact__edit"
-                type="button"
-                aria-label="Edit practical next steps"
-                @click="beginArtifactEdit('practical_next_steps')"
-              >
-                <PencilLine :size="16" />
-              </button>
-            </div>
-            <div v-if="editingKind === 'practical_next_steps'" class="artifact-editor">
-              <textarea
-                v-model="editContent"
-                rows="8"
-                aria-label="Practical next steps"
-              ></textarea>
-              <div class="artifact-editor__actions">
-                <button type="button" @click="cancelArtifactEdit">
-                  <X :size="15" /> Cancel
-                </button>
-                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
-                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
-                </button>
-              </div>
-            </div>
-            <ol v-else class="practical-steps">
-              <li v-for="step in numberedItems(artifact('practical_next_steps'))" :key="step">
-                {{ step }}
-              </li>
-            </ol>
           </section>
 
           <section v-if="sermon.related_sermons.length" class="artifact">
@@ -2596,7 +2598,7 @@ a.tag-chip:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  margin-top: 1.5rem;
+  margin-top: 1.15rem;
 }
 
 .sermon-header__actions button {
@@ -3016,7 +3018,7 @@ a.tag-chip:focus-visible {
   display: grid;
   gap: 1rem;
   grid-template-columns: auto 1fr;
-  margin: 1.5rem 0;
+  margin: 1.15rem 0 1.35rem;
   padding: 1rem 1.15rem;
 }
 
@@ -3120,11 +3122,11 @@ a.tag-chip:focus-visible {
 
 .artifact {
   border-bottom: 1px solid var(--color-margin);
-  padding: 0 0 3rem;
+  padding: 0 0 1.85rem;
 }
 
 .artifact + .artifact {
-  padding-top: 3rem;
+  padding-top: 1.85rem;
 }
 
 .artifact__heading {
@@ -3134,13 +3136,20 @@ a.tag-chip:focus-visible {
   justify-content: space-between;
 }
 
-.artifact__heading--quiet {
-  justify-content: end;
-  margin-bottom: -0.5rem;
+.artifact--summary {
+  display: grid;
+  gap: 0.85rem;
 }
 
-.artifact--long-summary {
-  margin-top: 0.5rem;
+.summary-long {
+  border-top: 1px solid color-mix(in srgb, var(--color-margin) 70%, transparent);
+  padding-top: 0.85rem;
+}
+
+.summary-long__toolbar {
+  display: flex;
+  justify-content: end;
+  margin: -0.35rem 0 -0.55rem;
 }
 
 .artifact h2 {
@@ -3235,13 +3244,13 @@ a.tag-chip:focus-visible {
   font-family: var(--font-reading);
   font-size: clamp(1.18rem, 3vw, 1.42rem);
   line-height: 1.6;
-  margin: 1rem 0 0;
+  margin: 0.7rem 0 0;
 }
 
 .quotation-list {
   display: grid;
-  gap: 1.25rem;
-  margin-top: 1.5rem;
+  gap: 1rem;
+  margin-top: 1.1rem;
 }
 
 .quotation-list blockquote {
@@ -3279,45 +3288,72 @@ a.tag-chip:focus-visible {
   padding: clamp(1.25rem, 4vw, 2rem);
 }
 
-.artifact--call + .artifact {
-  padding-top: 3rem;
-}
-
 .artifact__call {
   font-family: var(--font-display);
   font-size: clamp(1.55rem, 4vw, 2.15rem);
   font-variation-settings: 'opsz' 38, 'SOFT' 48;
   letter-spacing: -0.025em;
   line-height: 1.25;
-  margin: 1.1rem 0 0;
+  margin: 0.85rem 0 0;
+}
+
+.action-items__carry {
+  border-top: 1px solid color-mix(in srgb, var(--color-rule-gold) 35%, var(--color-margin));
+  margin-top: 1.25rem;
+  padding-top: 0.95rem;
+}
+
+.action-items__carry-heading {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.action-items__carry-label {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.action-items__carry .practical-steps {
+  margin-top: 0.75rem;
 }
 
 .practical-steps {
   display: grid;
-  gap: 0.9rem;
+  gap: 0.7rem;
   list-style: none;
-  margin: 1.5rem 0 0;
+  margin: 1.1rem 0 0;
   padding: 0;
 }
 
 .practical-steps li {
   border-left: 2px solid var(--color-rule-gold);
   font-family: var(--font-reading);
-  font-size: 1.03rem;
-  line-height: 1.6;
-  padding: 0.4rem 0 0.4rem 1rem;
+  font-size: 0.98rem;
+  line-height: 1.55;
+  padding: 0.2rem 0 0.2rem 0.9rem;
 }
 
 .artifact--feedback {
   background: color-mix(in srgb, var(--color-lapis) 5%, var(--color-vellum-light));
   border: 1px solid color-mix(in srgb, var(--color-lapis) 22%, var(--color-margin));
-  margin-top: 3rem;
-  padding: clamp(1.5rem, 5vw, 2.4rem);
+  margin-top: 0;
+  padding: clamp(1.25rem, 4vw, 1.85rem);
+}
+
+.artifact--feedback + .artifact {
+  padding-top: 1.85rem;
 }
 
 .feedback-list {
   list-style: none;
-  margin: 1.5rem 0 0;
+  margin: 1.1rem 0 0;
   padding: 0;
 }
 
@@ -3326,14 +3362,14 @@ a.tag-chip:focus-visible {
   font-family: var(--font-utility);
   font-size: 0.75rem;
   line-height: 1.5;
-  margin: 0.8rem 0 0;
+  margin: 0.55rem 0 0;
 }
 
 .feedback-list li {
   border-top: 1px solid var(--color-margin);
   font-family: var(--font-reading);
   line-height: 1.65;
-  padding: 1rem 0 1rem 2rem;
+  padding: 0.85rem 0 0.85rem 2rem;
   position: relative;
 }
 
@@ -3441,7 +3477,7 @@ a.tag-chip:focus-visible {
   color: color-mix(in srgb, var(--color-ink) 88%, var(--color-ink-muted));
   font-size: 0.92rem;
   line-height: 1.65;
-  margin-top: 0.35rem;
+  margin-top: 0;
 }
 
 .artifact__prose p + p {
@@ -3449,14 +3485,14 @@ a.tag-chip:focus-visible {
 }
 
 .artifact__prose--compact p + p {
-  margin-top: 0.75rem;
+  margin-top: 0.65rem;
 }
 
 .scripture-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem 1rem;
-  margin-top: 1.25rem;
+  gap: 0.65rem 0.9rem;
+  margin-top: 1rem;
 }
 
 .scripture-links a {
@@ -3558,7 +3594,7 @@ a.tag-chip:focus-visible {
 .outline {
   counter-reset: outline;
   list-style: none;
-  margin: 1.4rem 0 0;
+  margin: 1.1rem 0 0;
   padding: 0;
 }
 
@@ -3571,7 +3607,7 @@ a.tag-chip:focus-visible {
   gap: 1rem;
   grid-template-columns: 2rem 1fr;
   line-height: 1.5;
-  padding: 0.9rem 0;
+  padding: 0.75rem 0;
 }
 
 .outline li::before {
@@ -3657,8 +3693,8 @@ a.tag-chip:focus-visible {
 
 .related-sermons {
   display: grid;
-  gap: 0.75rem;
-  margin-top: 1.25rem;
+  gap: 0.65rem;
+  margin-top: 1rem;
 }
 
 .related-sermons a {

@@ -277,11 +277,19 @@ onBeforeUnmount(() => {
       </section>
 
       <section
-        v-if="artifact('call_to_action')"
+        v-if="artifact('call_to_action') || artifact('practical_next_steps')"
         class="share-section share-section--call page-gather"
       >
-        <p class="rubric-label">One next action</p>
-        <p>{{ artifact('call_to_action') }}</p>
+        <h2>Action Items</h2>
+        <p v-if="artifact('call_to_action')">{{ artifact('call_to_action') }}</p>
+        <div v-if="artifact('practical_next_steps')" class="share-carry">
+          <p class="rubric-label">Carry this with you</p>
+          <ol class="share-practical">
+            <li v-for="item in numberedItems(artifact('practical_next_steps'))" :key="item">
+              {{ item }}
+            </li>
+          </ol>
+        </div>
       </section>
 
       <section v-if="sermon.scripture_references.length" class="share-section page-gather">
@@ -307,16 +315,6 @@ onBeforeUnmount(() => {
             {{ paragraph }}
           </p>
         </div>
-      </section>
-
-      <section v-if="artifact('practical_next_steps')" class="share-section page-gather">
-        <p class="rubric-label">Put it into practice</p>
-        <h2>Practical next steps</h2>
-        <ol class="share-practical">
-          <li v-for="item in numberedItems(artifact('practical_next_steps'))" :key="item">
-            {{ item }}
-          </li>
-        </ol>
       </section>
 
       <section class="share-section page-gather">
@@ -672,12 +670,22 @@ onBeforeUnmount(() => {
   padding: clamp(1.5rem, 5vw, 2.5rem);
 }
 
-.share-section--call > p:last-child {
+.share-section--call > p {
   font-family: var(--font-display);
   font-size: clamp(1.55rem, 4vw, 2.2rem);
   letter-spacing: -0.025em;
   line-height: 1.25;
   margin: 1rem 0 0;
+}
+
+.share-carry {
+  border-top: 1px solid color-mix(in srgb, var(--color-rule-gold) 35%, var(--color-margin));
+  margin-top: 1.25rem;
+  padding-top: 0.95rem;
+}
+
+.share-carry .share-practical {
+  margin-top: 0.75rem;
 }
 
 .share-prose {
