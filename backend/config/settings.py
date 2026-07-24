@@ -282,7 +282,7 @@ EMAIL_BACKEND = os.environ.get(
 )
 DEFAULT_FROM_EMAIL = os.environ.get(
     "DJANGO_DEFAULT_FROM_EMAIL",
-    "Pewcorder <share@pewcorder.app>",
+    "Pewcorder <share@pewcorder.benlocher.com>",
 )
 EMAIL_HOST = os.environ.get("DJANGO_EMAIL_HOST", "localhost")
 EMAIL_PORT = int(os.environ.get("DJANGO_EMAIL_PORT", "587"))
