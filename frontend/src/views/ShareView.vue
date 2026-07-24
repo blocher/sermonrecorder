@@ -211,6 +211,8 @@ watch(
 )
 
 onMounted(() => {
+  document.documentElement.classList.add('share-lock')
+  document.body.classList.add('share-lock')
   robotsMeta = document.querySelector('meta[name="robots"]')
   previousRobotsContent = robotsMeta?.getAttribute('content') ?? null
   if (!robotsMeta) {
@@ -222,6 +224,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  document.documentElement.classList.remove('share-lock')
+  document.body.classList.remove('share-lock')
   if (!robotsMeta) return
   if (previousRobotsContent === null) robotsMeta.remove()
   else robotsMeta.content = previousRobotsContent
@@ -229,57 +233,58 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="share-page">
-    <header class="share-header">
-      <BrandMark />
-      <span class="share-header__note">Shared sermon</span>
-    </header>
-
-    <article v-if="loading" class="share-state" role="status">
-      <p class="rubric-label">Shared sermon</p>
-      <h1>Opening the illuminated page…</h1>
-    </article>
-
-    <article v-else-if="errorMessage" class="share-state share-state--error" role="alert">
-      <p class="rubric-label">Link unavailable</p>
-      <h1>{{ errorMessage }}</h1>
-      <p>The Congregant may have revoked this unlisted link.</p>
-    </article>
-
-    <article v-else-if="sermon" class="share-document">
-      <header class="share-title page-gather">
-        <p class="rubric-label">
-          {{ sermon.liturgical_day || occasionLabel(sermon.occasion_kind) || 'Shared sermon' }}
-        </p>
-        <h1>{{ serverSermonTitle(sermon) }}</h1>
-        <div class="share-title__meta">
-          <span v-if="sermon.preacher">
-            <UserRound :size="15" aria-hidden="true" />{{ sermon.preacher.name }}
-          </span>
-          <span v-if="sermon.church">
-            <MapPin :size="15" aria-hidden="true" />{{ sermon.church.name }}
-          </span>
-          <span><CalendarDays :size="15" aria-hidden="true" />{{ capturedDate }}</span>
-          <span>
-            <Clock3 :size="15" aria-hidden="true" />{{
-              serverSermonDuration(sermon.duration_seconds)
-            }}
-          </span>
-        </div>
+  <div class="share-shell">
+    <div class="share-scroll">
+      <header class="share-header">
+        <BrandMark />
+        <span class="share-header__note">Shared sermon</span>
       </header>
 
-      <SermonSectionTabs
-        ref="sectionTabs"
-        class="share-tabs"
-        :active-section="activeSection"
-        @select="selectSection"
-      />
+      <article v-if="loading" class="share-state" role="status">
+        <p class="rubric-label">Shared sermon</p>
+        <h1>Opening the illuminated page…</h1>
+      </article>
 
-      <div
-        :id="`sermon-panel-${activeSection}`"
-        role="tabpanel"
-        :aria-labelledby="`sermon-tab-${activeSection}`"
-      >
+      <article v-else-if="errorMessage" class="share-state share-state--error" role="alert">
+        <p class="rubric-label">Link unavailable</p>
+        <h1>{{ errorMessage }}</h1>
+        <p>The Congregant may have revoked this unlisted link.</p>
+      </article>
+
+      <article v-else-if="sermon" class="share-document">
+        <header class="share-title page-gather">
+          <p class="rubric-label">
+            {{ sermon.liturgical_day || occasionLabel(sermon.occasion_kind) || 'Shared sermon' }}
+          </p>
+          <h1>{{ serverSermonTitle(sermon) }}</h1>
+          <div class="share-title__meta">
+            <span v-if="sermon.preacher">
+              <UserRound :size="15" aria-hidden="true" />{{ sermon.preacher.name }}
+            </span>
+            <span v-if="sermon.church">
+              <MapPin :size="15" aria-hidden="true" />{{ sermon.church.name }}
+            </span>
+            <span><CalendarDays :size="15" aria-hidden="true" />{{ capturedDate }}</span>
+            <span>
+              <Clock3 :size="15" aria-hidden="true" />{{
+                serverSermonDuration(sermon.duration_seconds)
+              }}
+            </span>
+          </div>
+        </header>
+
+        <SermonSectionTabs
+          ref="sectionTabs"
+          class="share-tabs"
+          :active-section="activeSection"
+          @select="selectSection"
+        />
+
+        <div
+          :id="`sermon-panel-${activeSection}`"
+          role="tabpanel"
+          :aria-labelledby="`sermon-tab-${activeSection}`"
+        >
         <template v-if="activeSection === 'study'">
           <section class="share-section share-section--summary page-gather">
             <div class="share-summary-brief">
@@ -507,9 +512,8 @@ onBeforeUnmount(() => {
       <p>This unlisted link was shared by a Pewcorder Congregant.</p>
       <RouterLink to="/">Open Pewcorder</RouterLink>
     </footer>
-  </main>
+    </div>
 
-  <Teleport to="body">
     <section v-if="sermon" class="share-player" aria-label="Shared sermon audio">
       <audio
         ref="audio"
@@ -562,16 +566,28 @@ onBeforeUnmount(() => {
         <span :style="{ width: progressPercent }"></span>
       </div>
     </section>
-  </Teleport>
+  </div>
 </template>
 
 <style scoped>
-.share-page {
+.share-shell {
   background:
     linear-gradient(90deg, transparent 0 6%, rgba(184, 150, 62, 0.12) 6% calc(6% + 1px), transparent calc(6% + 1px)),
     var(--color-vellum);
-  min-height: 100svh;
-  padding-bottom: 7rem;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.share-scroll {
+  -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: none;
 }
 
 .share-header {
@@ -582,6 +598,7 @@ onBeforeUnmount(() => {
   margin: 0 auto;
   max-width: 72rem;
   padding: 1.5rem clamp(1.25rem, 5vw, 3.5rem);
+  width: 100%;
 }
 
 .share-header__note {
@@ -1120,7 +1137,7 @@ onBeforeUnmount(() => {
   align-items: center;
   display: flex;
   flex-direction: column;
-  margin: 4rem auto 0;
+  margin: 4rem auto 2.5rem;
   max-width: 40rem;
   padding: 2rem 1.5rem;
   text-align: center;
@@ -1144,18 +1161,15 @@ onBeforeUnmount(() => {
 .share-player {
   align-items: center;
   background: color-mix(in srgb, var(--color-ink) 96%, transparent);
-  bottom: 0;
   box-shadow: 0 -10px 30px rgba(28, 36, 48, 0.17);
   color: var(--color-vellum);
   display: grid;
+  flex: none;
   gap: 1rem;
   grid-template-columns: auto minmax(8rem, auto) minmax(5rem, 20rem);
-  /* Avoid transform-based centering: iOS Chrome overscroll pulls transformed fixed bars. */
-  inset-inline: max(1rem, calc((100% - 42rem) / 2));
-  max-width: 42rem;
+  justify-content: center;
   padding: 0.85rem 1rem calc(0.85rem + env(safe-area-inset-bottom));
-  position: fixed;
-  width: auto;
+  width: 100%;
   z-index: 20;
 }
 
@@ -1211,7 +1225,7 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 600px) {
-  .share-page {
+  .share-shell {
     background: var(--color-vellum);
   }
 
@@ -1240,9 +1254,7 @@ onBeforeUnmount(() => {
 
   .share-player {
     grid-template-columns: auto 1fr;
-    inset-inline: 0;
-    max-width: none;
-    width: 100%;
+    justify-content: stretch;
   }
 
   .share-player__line {

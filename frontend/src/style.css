@@ -62,6 +62,18 @@ body.draft-wizard-lock {
   overflow: hidden;
 }
 
+html.share-lock,
+body.share-lock {
+  height: 100%;
+  overflow: hidden;
+}
+
+#app:has(.share-shell) {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .rubric-label {
   color: var(--color-rubric);
   font-family: var(--font-utility);
