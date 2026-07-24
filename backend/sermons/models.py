@@ -203,6 +203,13 @@ class StudyArtifact(models.Model):
             "kids_discussion_questions",
             "Kids discussion questions",
         )
+        SERMON_FEEDBACK = "sermon_feedback", "Sermon feedback"
+        HYMN = "hymn", "Hymn"
+        HYMN_TUNE_SUGGESTIONS = (
+            "hymn_tune_suggestions",
+            "Hymn tune suggestions",
+        )
+        QUIZ = "quiz", "Quiz"
 
     sermon = models.ForeignKey(
         Sermon,

@@ -75,6 +75,10 @@ export type StudyArtifactKind =
   | 'quotations'
   | 'adult_discussion_questions'
   | 'kids_discussion_questions'
+  | 'sermon_feedback'
+  | 'hymn'
+  | 'hymn_tune_suggestions'
+  | 'quiz'
 
 export interface ServerStudyArtifact {
   kind: StudyArtifactKind

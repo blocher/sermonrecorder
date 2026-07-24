@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   BookOpenText,
@@ -11,6 +11,16 @@ import {
   UserRound,
 } from '@lucide/vue'
 import BrandMark from '../components/BrandMark.vue'
+import SermonSectionTabs from '../components/SermonSectionTabs.vue'
+import {
+  numberedItems,
+  paragraphs,
+  parseHymn,
+  parseQuiz,
+  parseTuneSuggestions,
+  quotationItems,
+} from '../sermons/artifactContent'
+import type { SermonSection } from '../sermons/sections'
 import {
   loadSharedSermon,
   serverSermonDuration,
@@ -21,12 +31,14 @@ import {
 
 const route = useRoute()
 const sermon = ref<SharedSermonDetail>()
+const sectionTabs = ref<InstanceType<typeof SermonSectionTabs>>()
 const loading = ref(true)
 const errorMessage = ref('')
 const audio = ref<HTMLAudioElement>()
 const playing = ref(false)
 const currentSeconds = ref(0)
 const playbackError = ref(false)
+const activeSection = ref<SermonSection>('study')
 let robotsMeta: HTMLMetaElement | null = null
 let previousRobotsContent: string | null = null
 
@@ -34,6 +46,9 @@ const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
 )
 const progressLabel = computed(() => `${Math.round(progress.value * 100)}%`)
+const hymn = computed(() => parseHymn(artifact('hymn')))
+const hymnTunes = computed(() => parseTuneSuggestions(artifact('hymn_tune_suggestions')))
+const quiz = computed(() => parseQuiz(artifact('quiz')))
 const capturedDate = computed(() =>
   sermon.value
     ? new Intl.DateTimeFormat(undefined, {
@@ -46,33 +61,6 @@ const capturedDate = computed(() =>
 
 function artifact(kind: StudyArtifactKind): string {
   return sermon.value?.study_artifacts.find((candidate) => candidate.kind === kind)?.content ?? ''
-}
-
-function numberedItems(content: string): string[] {
-  return content
-    .split(/\n+/)
-    .map((item) => item.replace(/^\s*\d+\.\s*/, '').trim())
-    .filter(Boolean)
-}
-
-function quotationItems(content: string): string[] {
-  const quotePairs = new Set(['""', '“”', '‘’'])
-  return content
-    .split(/\n+/)
-    .map((item) => item.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
-    .map((item) =>
-      item.length >= 2 && quotePairs.has(`${item[0]}${item.at(-1)}`)
-        ? item.slice(1, -1).trim()
-        : item,
-    )
-    .filter(Boolean)
-}
-
-function paragraphs(content: string): string[] {
-  return content
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
 }
 
 function timestamp(seconds: number): string {
@@ -95,6 +83,15 @@ function occasionLabel(kind: SharedSermonDetail['occasion_kind']): string {
     midweek: 'Midweek service',
     other: 'Other occasion',
   }[kind]
+}
+
+async function selectSection(section: SermonSection): Promise<void> {
+  activeSection.value = section
+  await nextTick()
+  sectionTabs.value?.scrollIntoView({
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    block: 'start',
+  })
 }
 
 async function togglePlayback(): Promise<void> {
@@ -127,6 +124,7 @@ async function load(token: string): Promise<void> {
   loading.value = true
   errorMessage.value = ''
   sermon.value = undefined
+  activeSection.value = 'study'
   try {
     sermon.value = await loadSharedSermon(token)
   } catch (error) {
@@ -201,10 +199,23 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <section class="share-section share-section--lead page-gather">
+      <SermonSectionTabs
+        ref="sectionTabs"
+        class="share-tabs"
+        :active-section="activeSection"
+        @select="selectSection"
+      />
+
+      <div
+        :id="`sermon-panel-${activeSection}`"
+        role="tabpanel"
+        :aria-labelledby="`sermon-tab-${activeSection}`"
+      >
+        <template v-if="activeSection === 'study'">
+          <section class="share-section share-section--lead page-gather">
         <p class="rubric-label">In brief</p>
         <p class="share-summary">{{ artifact('short_summary') }}</p>
-      </section>
+          </section>
 
       <section
         v-if="artifact('quotations')"
@@ -272,7 +283,65 @@ onBeforeUnmount(() => {
         </ol>
       </section>
 
-      <section class="share-section page-gather">
+          <section
+            v-if="artifact('sermon_feedback')"
+            class="share-section share-feedback page-gather"
+          >
+            <p class="rubric-label">If this sermon were revised</p>
+            <h2>Sermon feedback</h2>
+            <p class="share-feedback__note">
+              Generated critique can miss context. Verify doctrinal judgments against Scripture
+              and the Church’s teaching.
+            </p>
+            <ol>
+              <li v-for="item in numberedItems(artifact('sermon_feedback'))" :key="item">
+                {{ item }}
+              </li>
+            </ol>
+          </section>
+        </template>
+
+        <template v-else-if="activeSection === 'hymn'">
+          <section v-if="artifact('hymn')" class="share-section share-hymn page-gather">
+            <p class="rubric-label">Inspired by this sermon</p>
+            <h2>{{ hymn.title || 'Hymn' }}</h2>
+            <p v-if="hymn.meter" class="share-hymn__meter">Meter · {{ hymn.meter }}</p>
+            <div class="share-hymn__verses">
+              <div v-for="(verse, index) in hymn.verses" :key="index">
+                <span aria-hidden="true">{{ index + 1 }}</span>
+                <p>
+                  <template v-for="(line, lineIndex) in verse" :key="lineIndex">
+                    {{ line }}<br v-if="lineIndex < verse.length - 1" />
+                  </template>
+                </p>
+              </div>
+            </div>
+          </section>
+          <section
+            v-if="artifact('hymn_tune_suggestions')"
+            class="share-section share-tunes page-gather"
+          >
+            <p class="rubric-label">Sing it with</p>
+            <h2>Compatible tunes</h2>
+            <ul>
+              <li v-for="tune in hymnTunes" :key="tune.name">
+                <strong>{{ tune.name }}</strong>
+                <span>{{ tune.traditions }}</span>
+              </li>
+            </ul>
+          </section>
+          <section
+            v-if="!artifact('hymn') && !artifact('hymn_tune_suggestions')"
+            class="share-section share-empty page-gather"
+          >
+            <p class="rubric-label">Earlier sermon</p>
+            <h2>No hymn was generated</h2>
+            <p>Hymns are included when newly uploaded Sermons are prepared.</p>
+          </section>
+        </template>
+
+        <template v-else-if="activeSection === 'discuss'">
+          <section class="share-section page-gather">
         <h2>Discussion</h2>
         <ol class="share-questions">
           <li
@@ -282,7 +351,7 @@ onBeforeUnmount(() => {
             {{ question }}
           </li>
         </ol>
-      </section>
+          </section>
 
       <section class="share-section page-gather">
         <p class="rubric-label">With children</p>
@@ -297,7 +366,23 @@ onBeforeUnmount(() => {
         </ol>
       </section>
 
-      <section class="share-section share-transcript page-gather">
+          <section v-if="artifact('quiz')" class="share-section share-quiz page-gather">
+            <p class="rubric-label">Check the takeaways</p>
+            <h2>Comprehension quiz</h2>
+            <ol>
+              <li v-for="item in quiz" :key="item.question">
+                <p>{{ item.question }}</p>
+                <details>
+                  <summary>Reveal answer</summary>
+                  <p>{{ item.answer }}</p>
+                </details>
+              </li>
+            </ol>
+          </section>
+        </template>
+
+        <template v-else-if="activeSection === 'transcript'">
+          <section class="share-section share-transcript page-gather">
         <p class="rubric-label">Cleaned transcript</p>
         <h2>Follow the sermon</h2>
         <div class="share-transcript__segments">
@@ -315,7 +400,9 @@ onBeforeUnmount(() => {
             <p>{{ segment.text }}</p>
           </div>
         </div>
-      </section>
+          </section>
+        </template>
+      </div>
     </article>
 
     <footer class="share-footer">
@@ -461,6 +548,10 @@ onBeforeUnmount(() => {
   align-items: center;
   display: inline-flex;
   gap: 0.3rem;
+}
+
+.share-tabs {
+  margin-top: 1.25rem;
 }
 
 .share-section {
@@ -609,6 +700,124 @@ onBeforeUnmount(() => {
   font-size: 0.78rem;
 }
 
+.share-feedback {
+  background: color-mix(in srgb, var(--color-lapis) 5%, var(--color-vellum-light));
+  border: 1px solid color-mix(in srgb, var(--color-lapis) 22%, var(--color-margin));
+  margin-top: 3rem;
+  padding: clamp(1.5rem, 5vw, 2.4rem);
+}
+
+.share-feedback ol,
+.share-quiz ol {
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+}
+
+.share-feedback__note {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  margin: 0.8rem 0 0;
+}
+
+.share-feedback li {
+  border-top: 1px solid var(--color-margin);
+  font-family: var(--font-reading);
+  line-height: 1.65;
+  padding: 1rem 0 1rem 2rem;
+  position: relative;
+}
+
+.share-feedback li::before {
+  color: var(--color-rubric);
+  content: '✦';
+  left: 0.25rem;
+  position: absolute;
+}
+
+.share-hymn {
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0 2rem,
+      color-mix(in srgb, var(--color-rule-gold) 28%, transparent) 2rem calc(2rem + 1px),
+      transparent calc(2rem + 1px)
+    ),
+    var(--color-vellum-light);
+  border: 1px solid var(--color-margin);
+  padding: clamp(1.5rem, 6vw, 3.5rem);
+}
+
+.share-hymn__meter {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  margin: 0.65rem 0 0;
+  text-transform: uppercase;
+}
+
+.share-hymn__verses {
+  display: grid;
+  gap: 2rem;
+  margin: 2.5rem auto 0;
+  max-width: 31rem;
+}
+
+.share-hymn__verses > div {
+  align-items: start;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1.5rem 1fr;
+}
+
+.share-hymn__verses span {
+  color: var(--color-rubric);
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  padding-top: 0.25rem;
+}
+
+.share-hymn__verses p {
+  font-family: var(--font-reading);
+  font-size: clamp(1.05rem, 2.5vw, 1.2rem);
+  line-height: 1.75;
+  margin: 0;
+}
+
+.share-tunes ul {
+  display: grid;
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+}
+
+.share-tunes li {
+  align-items: baseline;
+  border-top: 1px solid var(--color-margin);
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(9rem, 0.8fr) 1.4fr;
+  padding: 1rem 0;
+}
+
+.share-tunes strong {
+  color: var(--color-lapis);
+  font-family: var(--font-utility);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+}
+
+.share-tunes span,
+.share-empty > p:last-child {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  font-size: 0.92rem;
+}
+
 .share-questions {
   counter-reset: share-question;
 }
@@ -629,6 +838,54 @@ onBeforeUnmount(() => {
   font-family: var(--font-display);
   left: 0.4rem;
   position: absolute;
+}
+
+.share-quiz ol {
+  counter-reset: share-quiz;
+}
+
+.share-quiz li {
+  border-top: 1px solid var(--color-margin);
+  counter-increment: share-quiz;
+  padding: 1.25rem 0 1.25rem 2.5rem;
+  position: relative;
+}
+
+.share-quiz li::before {
+  color: var(--color-rubric);
+  content: counter(share-quiz);
+  font-family: var(--font-display);
+  left: 0.5rem;
+  position: absolute;
+  top: 1.4rem;
+}
+
+.share-quiz li > p {
+  font-family: var(--font-reading);
+  font-size: 1.05rem;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.share-quiz details {
+  margin-top: 0.75rem;
+}
+
+.share-quiz summary {
+  color: var(--color-lapis);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.share-quiz details p {
+  background: color-mix(in srgb, var(--color-rule-gold) 9%, transparent);
+  border-left: 2px solid var(--color-rule-gold);
+  font-family: var(--font-reading);
+  line-height: 1.6;
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 1rem;
 }
 
 .share-transcript h2 {
@@ -772,6 +1029,17 @@ onBeforeUnmount(() => {
 
   .share-title h1 {
     font-size: clamp(3.5rem, 17vw, 5.5rem);
+  }
+
+  .share-hymn {
+    background: var(--color-vellum-light);
+    margin-inline: -0.75rem;
+    padding-inline: 1.25rem;
+  }
+
+  .share-tunes li {
+    gap: 0.3rem;
+    grid-template-columns: 1fr;
   }
 
   .share-player {

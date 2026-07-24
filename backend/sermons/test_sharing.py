@@ -83,6 +83,34 @@ class SermonSharingTests(APITestCase):
             kind=StudyArtifact.Kind.SHORT_SUMMARY,
             content="A shareable summary.",
         )
+        StudyArtifact.objects.bulk_create(
+            (
+                StudyArtifact(
+                    sermon=self.sermon,
+                    kind=StudyArtifact.Kind.SERMON_FEEDBACK,
+                    content="1. State the central claim earlier.",
+                ),
+                StudyArtifact(
+                    sermon=self.sermon,
+                    kind=StudyArtifact.Kind.HYMN,
+                    content=(
+                        "Title: Grace Has Brought Us Home\n"
+                        "Meter: CM (8.6.8.6)\n\n"
+                        "1.\nThe lost are welcomed home"
+                    ),
+                ),
+                StudyArtifact(
+                    sermon=self.sermon,
+                    kind=StudyArtifact.Kind.HYMN_TUNE_SUGGESTIONS,
+                    content="ST ANNE — Anglican, Methodist, and Catholic hymnals",
+                ),
+                StudyArtifact(
+                    sermon=self.sermon,
+                    kind=StudyArtifact.Kind.QUIZ,
+                    content="Q1. What does grace do?\nA1. Grace welcomes the lost.",
+                ),
+            )
+        )
         ScriptureReference.objects.create(
             sermon=self.sermon,
             book="Luke",
@@ -165,10 +193,24 @@ class SermonSharingTests(APITestCase):
             response.data["transcript"]["text"],
             "The cleaned public Transcript.",
         )
+        artifact_contents = {
+            artifact["kind"]: artifact["content"]
+            for artifact in response.data["study_artifacts"]
+        }
         self.assertEqual(
-            response.data["study_artifacts"][0]["content"],
+            artifact_contents[StudyArtifact.Kind.SHORT_SUMMARY],
             "A shareable summary.",
         )
+        self.assertIn(
+            StudyArtifact.Kind.SERMON_FEEDBACK,
+            artifact_contents,
+        )
+        self.assertIn(StudyArtifact.Kind.HYMN, artifact_contents)
+        self.assertIn(
+            StudyArtifact.Kind.HYMN_TUNE_SUGGESTIONS,
+            artifact_contents,
+        )
+        self.assertIn(StudyArtifact.Kind.QUIZ, artifact_contents)
         self.assertEqual(
             response.data["scripture_references"][0]["display"],
             "Luke 14:12–24",
@@ -184,6 +226,7 @@ class SermonSharingTests(APITestCase):
         self.assertIn(f"/api/shares/{token}/audio/", response.data["audio_url"])
         self.assertEqual(response["Cache-Control"], "private, no-store")
         self.assertNotIn("reflections", response.data)
+        self.assertNotIn("This response is private.", str(response.data))
         self.assertNotIn("source_draft_id", response.data)
         self.assertNotIn("id", response.data)
 

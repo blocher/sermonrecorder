@@ -22,8 +22,18 @@ import {
   X,
 } from '@lucide/vue'
 import ReflectionEditor from '../components/ReflectionEditor.vue'
+import SermonSectionTabs from '../components/SermonSectionTabs.vue'
 import { useAuth } from '../auth/useAuth'
 import { findNearbyChurches } from '../location/findNearbyChurches'
+import {
+  numberedItems,
+  paragraphs,
+  parseHymn,
+  parseQuiz,
+  parseTuneSuggestions,
+  quotationItems,
+} from '../sermons/artifactContent'
+import type { SermonSection } from '../sermons/sections'
 import {
   createChurch,
   createPreacher,
@@ -54,7 +64,6 @@ import {
   type StudyArtifactKind,
 } from '../sermons/serverSermon'
 
-type Section = 'study' | 'transcript' | 'discuss' | 'reflection'
 type TranscriptView = 'timeline' | 'reading'
 type ScriptureReferenceDraft = Omit<
   ServerScriptureReference,
@@ -71,13 +80,13 @@ const router = useRouter()
 const { isAuthenticated } = useAuth()
 const sermon = ref<ServerSermonDetail>()
 const processingSermon = ref<ServerSermonDetail>()
-const sectionTabs = ref<HTMLElement>()
+const sectionTabs = ref<InstanceType<typeof SermonSectionTabs>>()
 const loading = ref(true)
 const errorMessage = ref('')
 const failedSermonId = ref('')
 const retrying = ref(false)
 const checkingProcessing = ref(false)
-const activeSection = ref<Section>('study')
+const activeSection = ref<SermonSection>('study')
 const transcriptView = ref<TranscriptView>('timeline')
 const audio = ref<HTMLAudioElement>()
 const playing = ref(false)
@@ -136,6 +145,9 @@ const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
 )
 const progressLabel = computed(() => `${Math.round(progress.value * 100)}%`)
+const hymn = computed(() => parseHymn(artifact('hymn')))
+const hymnTunes = computed(() => parseTuneSuggestions(artifact('hymn_tune_suggestions')))
+const quiz = computed(() => parseQuiz(artifact('quiz')))
 const readingTranscriptParagraphs = computed(() => {
   const segments = sermon.value?.transcript?.segments ?? []
   if (!segments.length) {
@@ -201,33 +213,6 @@ function occasionLabel(kind: OccasionKind | ''): string {
 
 function artifact(kind: StudyArtifactKind): string {
   return sermon.value?.study_artifacts.find((candidate) => candidate.kind === kind)?.content ?? ''
-}
-
-function numberedItems(content: string): string[] {
-  return content
-    .split(/\n+/)
-    .map((item) => item.replace(/^\s*\d+\.\s*/, '').trim())
-    .filter(Boolean)
-}
-
-function quotationItems(content: string): string[] {
-  const quotePairs = new Set(['""', '“”', '‘’'])
-  return content
-    .split(/\n+/)
-    .map((item) => item.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
-    .map((item) =>
-      item.length >= 2 && quotePairs.has(`${item[0]}${item.at(-1)}`)
-        ? item.slice(1, -1).trim()
-        : item,
-    )
-    .filter(Boolean)
-}
-
-function paragraphs(content: string): string[] {
-  return content
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
 }
 
 function timestamp(seconds: number): string {
@@ -456,7 +441,7 @@ async function persistReflection(): Promise<void> {
   }
 }
 
-async function selectSection(section: Section): Promise<void> {
+async function selectSection(section: SermonSection): Promise<void> {
   activeSection.value = section
   await nextTick()
   sectionTabs.value?.scrollIntoView({
@@ -1282,27 +1267,21 @@ onBeforeUnmount(clearProcessingPoll)
         </div>
       </section>
 
-      <nav ref="sectionTabs" class="section-tabs" aria-label="Sermon sections">
-        <button
-          v-for="section in ([
-            ['study', 'Study'],
-            ['transcript', 'Transcript'],
-            ['discuss', 'Discuss'],
-            ['reflection', 'Reflect'],
-          ] as [Section, string][])"
-          :key="section[0]"
-          type="button"
-          :class="{ active: activeSection === section[0] }"
-          :aria-pressed="activeSection === section[0]"
-          @click="selectSection(section[0])"
-        >
-          {{ section[1] }}
-        </button>
-      </nav>
+      <SermonSectionTabs
+        ref="sectionTabs"
+        :active-section="activeSection"
+        include-reflection
+        @select="selectSection"
+      />
 
       <p v-if="editMessage" class="edit-message" role="status">{{ editMessage }}</p>
 
-      <div class="sermon-content">
+      <div
+        :id="`sermon-panel-${activeSection}`"
+        class="sermon-content"
+        role="tabpanel"
+        :aria-labelledby="`sermon-tab-${activeSection}`"
+      >
         <template v-if="activeSection === 'study'">
           <section class="artifact artifact--lead">
             <div class="artifact__heading">
@@ -1695,6 +1674,142 @@ onBeforeUnmount(clearProcessingPoll)
               </RouterLink>
             </div>
           </section>
+
+          <section v-if="artifact('sermon_feedback')" class="artifact artifact--feedback">
+            <div class="artifact__heading">
+              <div>
+                <p class="rubric-label">If this sermon were revised</p>
+                <h2>Sermon feedback</h2>
+              </div>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit Sermon feedback"
+                @click="beginArtifactEdit('sermon_feedback')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <p class="feedback-note">
+              Generated critique can miss context. Verify doctrinal judgments against Scripture
+              and the Church’s teaching.
+            </p>
+            <div v-if="editingKind === 'sermon_feedback'" class="artifact-editor">
+              <textarea
+                v-model="editContent"
+                rows="10"
+                aria-label="Sermon feedback"
+              ></textarea>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <ol v-else class="feedback-list">
+              <li v-for="item in numberedItems(artifact('sermon_feedback'))" :key="item">
+                {{ item }}
+              </li>
+            </ol>
+          </section>
+        </template>
+
+        <template v-else-if="activeSection === 'hymn'">
+          <section v-if="artifact('hymn')" class="artifact hymn-sheet">
+            <div class="artifact__heading">
+              <div>
+                <p class="rubric-label">Inspired by this sermon</p>
+                <h2>{{ hymn.title || 'Hymn' }}</h2>
+                <p v-if="hymn.meter" class="hymn-sheet__meter">Meter · {{ hymn.meter }}</p>
+              </div>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit Hymn"
+                @click="beginArtifactEdit('hymn')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <div v-if="editingKind === 'hymn'" class="artifact-editor">
+              <textarea v-model="editContent" rows="18" aria-label="Hymn"></textarea>
+              <p class="artifact-editor__hint">
+                Keep the Title and Meter lines, then number each verse on its own block.
+              </p>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <div v-else class="hymn-verses">
+              <div v-for="(verse, index) in hymn.verses" :key="index" class="hymn-verse">
+                <span aria-hidden="true">{{ index + 1 }}</span>
+                <p>
+                  <template v-for="(line, lineIndex) in verse" :key="lineIndex">
+                    {{ line }}<br v-if="lineIndex < verse.length - 1" />
+                  </template>
+                </p>
+              </div>
+            </div>
+          </section>
+          <section
+            v-if="artifact('hymn_tune_suggestions')"
+            class="artifact tune-suggestions"
+          >
+            <div class="artifact__heading">
+              <div>
+                <p class="rubric-label">Sing it with</p>
+                <h2>Compatible tunes</h2>
+              </div>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit Hymn tune suggestions"
+                @click="beginArtifactEdit('hymn_tune_suggestions')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <div
+              v-if="editingKind === 'hymn_tune_suggestions'"
+              class="artifact-editor"
+            >
+              <textarea
+                v-model="editContent"
+                rows="7"
+                aria-label="Hymn tune suggestions"
+              ></textarea>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <ul v-else class="tune-list">
+              <li v-for="tune in hymnTunes" :key="tune.name">
+                <strong>{{ tune.name }}</strong>
+                <span>{{ tune.traditions }}</span>
+              </li>
+            </ul>
+          </section>
+          <section
+            v-if="!artifact('hymn') && !artifact('hymn_tune_suggestions')"
+            class="artifact artifact--empty"
+          >
+            <p class="rubric-label">Earlier sermon</p>
+            <h2>No hymn was generated</h2>
+            <p>Hymns are included when newly uploaded Sermons are prepared.</p>
+          </section>
         </template>
 
         <template v-else-if="activeSection === 'transcript'">
@@ -1863,6 +1978,45 @@ onBeforeUnmount(clearProcessingPoll)
                 :key="question"
               >
                 {{ question }}
+              </li>
+            </ol>
+          </section>
+          <section v-if="artifact('quiz')" class="artifact quiz">
+            <div class="artifact__heading">
+              <div>
+                <p class="rubric-label">Check the takeaways</p>
+                <h2>Comprehension quiz</h2>
+              </div>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit comprehension quiz"
+                @click="beginArtifactEdit('quiz')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <div v-if="editingKind === 'quiz'" class="artifact-editor">
+              <textarea v-model="editContent" rows="16" aria-label="Comprehension quiz"></textarea>
+              <p class="artifact-editor__hint">
+                Keep each Q line paired with its A line, with a blank line between pairs.
+              </p>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <ol v-else class="quiz-list">
+              <li v-for="item in quiz" :key="item.question">
+                <p>{{ item.question }}</p>
+                <details>
+                  <summary>Reveal answer</summary>
+                  <p>{{ item.answer }}</p>
+                </details>
               </li>
             </ol>
           </section>
@@ -2574,36 +2728,6 @@ onBeforeUnmount(clearProcessingPoll)
   margin-top: 0.65rem;
 }
 
-.section-tabs {
-  border-bottom: 1px solid var(--color-margin);
-  display: flex;
-  gap: clamp(0.2rem, 3vw, 1.5rem);
-  margin-bottom: 3rem;
-  overflow-x: auto;
-  scroll-margin-top: calc(var(--header-height) + 1rem);
-}
-
-.section-tabs button {
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  color: var(--color-ink-muted);
-  cursor: pointer;
-  flex: none;
-  font-family: var(--font-utility);
-  font-size: 0.8rem;
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  min-height: 3rem;
-  padding: 0 0.5rem;
-  text-transform: uppercase;
-}
-
-.section-tabs button.active {
-  border-bottom-color: var(--color-rubric);
-  color: var(--color-rubric);
-}
-
 .edit-message {
   color: var(--color-lapis);
   font-family: var(--font-utility);
@@ -2796,6 +2920,128 @@ onBeforeUnmount(clearProcessingPoll)
   font-size: 1.03rem;
   line-height: 1.6;
   padding: 0.4rem 0 0.4rem 1rem;
+}
+
+.artifact--feedback {
+  background: color-mix(in srgb, var(--color-lapis) 5%, var(--color-vellum-light));
+  border: 1px solid color-mix(in srgb, var(--color-lapis) 22%, var(--color-margin));
+  margin-top: 3rem;
+  padding: clamp(1.5rem, 5vw, 2.4rem);
+}
+
+.feedback-list {
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+}
+
+.feedback-note {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  margin: 0.8rem 0 0;
+}
+
+.feedback-list li {
+  border-top: 1px solid var(--color-margin);
+  font-family: var(--font-reading);
+  line-height: 1.65;
+  padding: 1rem 0 1rem 2rem;
+  position: relative;
+}
+
+.feedback-list li::before {
+  color: var(--color-rubric);
+  content: '✦';
+  left: 0.25rem;
+  position: absolute;
+}
+
+.hymn-sheet {
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0 2rem,
+      color-mix(in srgb, var(--color-rule-gold) 28%, transparent) 2rem calc(2rem + 1px),
+      transparent calc(2rem + 1px)
+    ),
+    var(--color-vellum-light);
+  border: 1px solid var(--color-margin);
+  padding: clamp(1.5rem, 6vw, 3.5rem);
+}
+
+.hymn-sheet__meter {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  margin: 0.65rem 0 0;
+  text-transform: uppercase;
+}
+
+.hymn-verses {
+  display: grid;
+  gap: 2rem;
+  margin: 2.5rem auto 0;
+  max-width: 31rem;
+}
+
+.hymn-verse {
+  align-items: start;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1.5rem 1fr;
+}
+
+.hymn-verse > span {
+  color: var(--color-rubric);
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  padding-top: 0.25rem;
+}
+
+.hymn-verse p {
+  font-family: var(--font-reading);
+  font-size: clamp(1.05rem, 2.5vw, 1.2rem);
+  line-height: 1.75;
+  margin: 0;
+}
+
+.tune-list {
+  display: grid;
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+}
+
+.tune-list li {
+  align-items: baseline;
+  border-top: 1px solid var(--color-margin);
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(9rem, 0.8fr) 1.4fr;
+  padding: 1rem 0;
+}
+
+.tune-list strong {
+  color: var(--color-lapis);
+  font-family: var(--font-utility);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+}
+
+.tune-list span {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  font-size: 0.92rem;
+}
+
+.artifact--empty > p:last-child {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  line-height: 1.6;
 }
 
 .artifact__prose {
@@ -3209,6 +3455,61 @@ onBeforeUnmount(clearProcessingPoll)
   padding: 2rem;
 }
 
+.quiz {
+  padding-top: 3rem;
+}
+
+.quiz-list {
+  counter-reset: quiz-question;
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+}
+
+.quiz-list > li {
+  border-top: 1px solid var(--color-margin);
+  counter-increment: quiz-question;
+  padding: 1.25rem 0 1.25rem 2.5rem;
+  position: relative;
+}
+
+.quiz-list > li::before {
+  color: var(--color-rubric);
+  content: counter(quiz-question);
+  font-family: var(--font-display);
+  left: 0.5rem;
+  position: absolute;
+  top: 1.4rem;
+}
+
+.quiz-list > li > p {
+  font-family: var(--font-reading);
+  font-size: 1.05rem;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.quiz-list details {
+  margin-top: 0.75rem;
+}
+
+.quiz-list summary {
+  color: var(--color-lapis);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.quiz-list details p {
+  background: color-mix(in srgb, var(--color-rule-gold) 9%, transparent);
+  border-left: 2px solid var(--color-rule-gold);
+  font-family: var(--font-reading);
+  line-height: 1.6;
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 1rem;
+}
+
 .reflection__prompt {
   color: var(--color-lapis);
   font-family: var(--font-reading);
@@ -3275,17 +3576,20 @@ onBeforeUnmount(clearProcessingPoll)
     flex-direction: column;
   }
 
-  .section-tabs {
-    margin-inline: -0.4rem;
-  }
-
-  .section-tabs button {
-    font-size: 0.72rem;
-  }
-
   .question-set--kids {
     margin-inline: -0.75rem;
     padding: 1.5rem 0.75rem;
+  }
+
+  .hymn-sheet {
+    background: var(--color-vellum-light);
+    margin-inline: -0.75rem;
+    padding-inline: 1.25rem;
+  }
+
+  .tune-list li {
+    gap: 0.3rem;
+    grid-template-columns: 1fr;
   }
 }
 </style>

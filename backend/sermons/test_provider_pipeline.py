@@ -32,6 +32,8 @@ from .processing import (
 from .provider_processor import ProviderSermonProcessor
 from .simpleai_artifacts import (
     GeneratedArtifacts,
+    HymnVerseOutput,
+    QuizQuestionOutput,
     SimpleAIArtifactGenerator,
     ScriptureReferenceOutput,
     StudyArtifactOutput,
@@ -210,6 +212,40 @@ class ProviderPipelineTests(TestCase):
                 ],
                 adult_discussion_questions=["Where is grace difficult to receive?"],
                 kids_discussion_questions=["How did the father show love?"],
+                sermon_feedback=[
+                    "State the invitation to receive grace earlier in the Sermon.",
+                ],
+                hymn_title="The Father Runs to Welcome",
+                hymn_meter="CM (8.6.8.6)",
+                hymn_verses=[
+                    HymnVerseOutput(
+                        lines=[
+                            "The child had wandered far",
+                            "Yet home remained in view",
+                            "The father ran with open arms",
+                            "And made the lost one new",
+                        ]
+                    ),
+                    HymnVerseOutput(
+                        lines=[
+                            "O grace that welcomes home",
+                            "Teach us to welcome too",
+                            "To cross the road with open arms",
+                            "As Christ has taught us to",
+                        ]
+                    ),
+                ],
+                hymn_tunes=["ST ANNE", "FOREST GREEN"],
+                quiz_questions=[
+                    QuizQuestionOutput(
+                        question_text="What did the father do when his son returned?",
+                        answer_text="He welcomed his son home.",
+                    ),
+                    QuizQuestionOutput(
+                        question_text="What is the Sermon's central invitation?",
+                        answer_text="Receive grace and extend welcome to others.",
+                    ),
+                ],
                 scripture_references=[
                     ScriptureReferenceOutput(
                         book="Luke",
@@ -267,6 +303,29 @@ class ProviderPipelineTests(TestCase):
             quotations.content,
             "There was a father who welcomed his son home.",
         )
+        hymn = next(
+            artifact
+            for artifact in result.study_artifacts
+            if artifact.kind == StudyArtifact.Kind.HYMN
+        )
+        self.assertIn("Meter: CM (8.6.8.6)", hymn.content)
+        self.assertIn("1.\nThe child had wandered far", hymn.content)
+        tunes = next(
+            artifact
+            for artifact in result.study_artifacts
+            if artifact.kind == StudyArtifact.Kind.HYMN_TUNE_SUGGESTIONS
+        )
+        self.assertIn("ST ANNE", tunes.content)
+        quiz = next(
+            artifact
+            for artifact in result.study_artifacts
+            if artifact.kind == StudyArtifact.Kind.QUIZ
+        )
+        self.assertIn(
+            "Q1. What did the father do when his son returned?",
+            quiz.content,
+        )
+        self.assertIn("A1. He welcomed his son home.", quiz.content)
         self.assertEqual(result.scripture_references[0].book, "Luke")
         self.assertEqual(result.tag_suggestions, ("Grace", "Homecoming"))
         self.assertIn(transcript.text, runner.call_args.args[0])
@@ -291,6 +350,38 @@ class ProviderPipelineTests(TestCase):
                 quotations=["The father ran down the road."],
                 adult_discussion_questions=["Where is grace difficult to receive?"],
                 kids_discussion_questions=["How did the father show love?"],
+                sermon_feedback=["Clarify the Sermon's account of grace."],
+                hymn_title="Welcome Home",
+                hymn_meter="LM (8.8.8.8)",
+                hymn_verses=[
+                    HymnVerseOutput(
+                        lines=[
+                            "A line of eight",
+                            "A line of eight",
+                            "A line of eight",
+                            "A line of eight",
+                        ]
+                    ),
+                    HymnVerseOutput(
+                        lines=[
+                            "A line of eight",
+                            "A line of eight",
+                            "A line of eight",
+                            "A line of eight",
+                        ]
+                    ),
+                ],
+                hymn_tunes=["OLD HUNDREDTH"],
+                quiz_questions=[
+                    QuizQuestionOutput(
+                        question_text="What did the father do?",
+                        answer_text="He welcomed his son.",
+                    ),
+                    QuizQuestionOutput(
+                        question_text="What does grace do?",
+                        answer_text="Grace welcomes the lost.",
+                    ),
+                ],
             )
         )
         generator = SimpleAIArtifactGenerator(runner=runner)
