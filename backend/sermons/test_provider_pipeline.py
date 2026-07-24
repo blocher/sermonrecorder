@@ -1,6 +1,7 @@
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+import json
 
 import httpx
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -313,7 +314,7 @@ class ProviderPipelineTests(TestCase):
         self.assertEqual(request["model"], "gpt-4o-transcribe-diarize")
         self.assertEqual(request["response_format"], "diarized_json")
         self.assertEqual(
-            request["chunking_strategy"],
+            json.loads(request["chunking_strategy"]),
             {
                 "type": "server_vad",
                 "threshold": 0.3,
@@ -329,7 +330,7 @@ class ProviderPipelineTests(TestCase):
             OPENAI_TRANSCRIPTION_VAD_SILENCE_DURATION_MS=1200,
         ):
             self.assertEqual(
-                transcription_chunking_strategy(),
+                json.loads(transcription_chunking_strategy()),
                 {
                     "type": "server_vad",
                     "threshold": 0.25,
@@ -337,6 +338,7 @@ class ProviderPipelineTests(TestCase):
                     "silence_duration_ms": 1200,
                 },
             )
+            self.assertIsInstance(transcription_chunking_strategy(), str)
 
     def test_openai_connection_failures_are_retryable(self):
         client = Mock()

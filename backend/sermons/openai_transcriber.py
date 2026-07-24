@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 
 from django.conf import settings
 from openai import (
@@ -34,14 +35,16 @@ class CleanedTranscript:
     raw_segments: tuple[RawTranscriptSegment, ...] = ()
 
 
-def transcription_chunking_strategy() -> dict[str, float | int | str]:
-    """Server VAD tuned for distant pew recordings rather than close-mic speech."""
-    return {
-        "type": "server_vad",
-        "threshold": settings.OPENAI_TRANSCRIPTION_VAD_THRESHOLD,
-        "prefix_padding_ms": settings.OPENAI_TRANSCRIPTION_VAD_PREFIX_PADDING_MS,
-        "silence_duration_ms": settings.OPENAI_TRANSCRIPTION_VAD_SILENCE_DURATION_MS,
-    }
+def transcription_chunking_strategy() -> str:
+    """JSON server_vad config for multipart uploads (nested dicts are dropped by the API)."""
+    return json.dumps(
+        {
+            "type": "server_vad",
+            "threshold": settings.OPENAI_TRANSCRIPTION_VAD_THRESHOLD,
+            "prefix_padding_ms": settings.OPENAI_TRANSCRIPTION_VAD_PREFIX_PADDING_MS,
+            "silence_duration_ms": settings.OPENAI_TRANSCRIPTION_VAD_SILENCE_DURATION_MS,
+        }
+    )
 
 
 def raw_diarized_segments(
