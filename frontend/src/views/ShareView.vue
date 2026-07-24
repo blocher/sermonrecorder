@@ -255,74 +255,74 @@ onBeforeUnmount(() => {
         :aria-labelledby="`sermon-tab-${activeSection}`"
       >
         <template v-if="activeSection === 'study'">
-          <section class="share-section share-section--lead page-gather">
-        <p class="rubric-label">In brief</p>
-        <p class="share-summary">{{ artifact('short_summary') }}</p>
+          <section class="share-section share-section--summary page-gather">
+            <div class="share-summary-brief">
+              <p class="rubric-label">In brief</p>
+              <p class="share-summary">{{ artifact('short_summary') }}</p>
+            </div>
+            <div class="share-summary-long">
+              <div class="share-prose share-prose--compact">
+                <p v-for="paragraph in paragraphs(artifact('long_summary'))" :key="paragraph">
+                  {{ paragraph }}
+                </p>
+              </div>
+            </div>
           </section>
 
-      <section
-        v-if="artifact('quotations')"
-        class="share-section share-quotations page-gather"
-      >
-        <p class="rubric-label">In the preacher’s words</p>
-        <h2>Quotations</h2>
-        <div>
-          <blockquote
-            v-for="quotation in quotationItems(artifact('quotations'))"
-            :key="quotation"
+          <section class="share-section page-gather">
+            <h2>Outline</h2>
+            <ol class="share-outline">
+              <li v-for="item in numberedItems(artifact('outline'))" :key="item">{{ item }}</li>
+            </ol>
+          </section>
+
+          <section
+            v-if="artifact('quotations')"
+            class="share-section share-quotations page-gather"
           >
-            <p>{{ quotation }}</p>
-          </blockquote>
-        </div>
-      </section>
+            <p class="rubric-label">In the preacher’s words</p>
+            <h2>Quotations</h2>
+            <div>
+              <blockquote
+                v-for="quotation in quotationItems(artifact('quotations'))"
+                :key="quotation"
+              >
+                <p>{{ quotation }}</p>
+              </blockquote>
+            </div>
+          </section>
 
-      <section
-        v-if="artifact('call_to_action') || artifact('practical_next_steps')"
-        class="share-section share-section--call page-gather"
-      >
-        <h2>Action Items</h2>
-        <p v-if="artifact('call_to_action')">{{ artifact('call_to_action') }}</p>
-        <div v-if="artifact('practical_next_steps')" class="share-carry">
-          <p class="rubric-label">Carry this with you</p>
-          <ol class="share-practical">
-            <li v-for="item in numberedItems(artifact('practical_next_steps'))" :key="item">
-              {{ item }}
-            </li>
-          </ol>
-        </div>
-      </section>
-
-      <section v-if="sermon.scripture_references.length" class="share-section page-gather">
-        <h2>Scripture</h2>
-        <div class="share-scripture">
-          <a
-            v-for="reference in sermon.scripture_references"
-            :key="reference.display"
-            :href="scriptureUrl(reference.display)"
-            target="_blank"
-            rel="noreferrer"
+          <section
+            v-if="artifact('call_to_action') || artifact('practical_next_steps')"
+            class="share-section share-section--call page-gather"
           >
-            <BookOpenText :size="18" :stroke-width="1.6" aria-hidden="true" />
-            {{ reference.display }}
-          </a>
-        </div>
-      </section>
+            <h2>Action Items</h2>
+            <p v-if="artifact('call_to_action')">{{ artifact('call_to_action') }}</p>
+            <div v-if="artifact('practical_next_steps')" class="share-carry">
+              <p class="rubric-label">Carry this with you</p>
+              <ol class="share-practical">
+                <li v-for="item in numberedItems(artifact('practical_next_steps'))" :key="item">
+                  {{ item }}
+                </li>
+              </ol>
+            </div>
+          </section>
 
-      <section class="share-section page-gather">
-        <h2>Long summary</h2>
-        <div class="share-prose">
-          <p v-for="paragraph in paragraphs(artifact('long_summary'))" :key="paragraph">
-            {{ paragraph }}
-          </p>
-        </div>
-      </section>
-
-      <section class="share-section page-gather">
-        <h2>Outline</h2>
-        <ol class="share-outline">
-          <li v-for="item in numberedItems(artifact('outline'))" :key="item">{{ item }}</li>
-        </ol>
-      </section>
+          <section v-if="sermon.scripture_references.length" class="share-section page-gather">
+            <h2>Scripture</h2>
+            <div class="share-scripture">
+              <a
+                v-for="reference in sermon.scripture_references"
+                :key="reference.display"
+                :href="scriptureUrl(reference.display)"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <BookOpenText :size="18" :stroke-width="1.6" aria-hidden="true" />
+                {{ reference.display }}
+              </a>
+            </div>
+          </section>
 
           <section
             v-if="artifact('sermon_feedback')"
@@ -628,6 +628,32 @@ onBeforeUnmount(() => {
   margin: 0.8rem 0 0;
 }
 
+.share-section--summary {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.share-summary-long {
+  border-top: 1px solid color-mix(in srgb, var(--color-margin) 70%, transparent);
+  padding-top: 0.85rem;
+}
+
+.share-prose--compact {
+  color: color-mix(in srgb, var(--color-ink) 88%, var(--color-ink-muted));
+  font-size: 0.92rem;
+  line-height: 1.65;
+  margin-top: 0;
+}
+
+.share-prose--compact p {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.share-prose--compact p + p {
+  margin-top: 0.65rem;
+}
+
 .share-quotations > div {
   display: grid;
   gap: 1.35rem;
@@ -672,9 +698,9 @@ onBeforeUnmount(() => {
 
 .share-section--call > p {
   font-family: var(--font-display);
-  font-size: clamp(1.55rem, 4vw, 2.2rem);
-  letter-spacing: -0.025em;
-  line-height: 1.25;
+  font-size: clamp(1.2rem, 2.6vw, 1.45rem);
+  letter-spacing: -0.02em;
+  line-height: 1.35;
   margin: 1rem 0 0;
 }
 
@@ -766,7 +792,7 @@ onBeforeUnmount(() => {
 .share-feedback {
   background: color-mix(in srgb, var(--color-lapis) 5%, var(--color-vellum-light));
   border: 1px solid color-mix(in srgb, var(--color-lapis) 22%, var(--color-margin));
-  margin-top: 3rem;
+  margin-top: 3.5rem;
   padding: clamp(1.5rem, 5vw, 2.4rem);
 }
 

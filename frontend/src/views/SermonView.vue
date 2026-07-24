@@ -1759,47 +1759,6 @@ onBeforeUnmount(clearProcessingPoll)
             </div>
           </section>
 
-          <section v-if="artifact('sermon_feedback')" class="artifact artifact--feedback">
-            <div class="artifact__heading">
-              <div>
-                <p class="rubric-label">If this sermon were revised</p>
-                <h2>Sermon feedback</h2>
-              </div>
-              <button
-                class="artifact__edit"
-                type="button"
-                aria-label="Edit Sermon feedback"
-                @click="beginArtifactEdit('sermon_feedback')"
-              >
-                <PencilLine :size="16" />
-              </button>
-            </div>
-            <p class="feedback-note">
-              Generated critique can miss context. Verify doctrinal judgments against Scripture
-              and the Church’s teaching.
-            </p>
-            <div v-if="editingKind === 'sermon_feedback'" class="artifact-editor">
-              <textarea
-                v-model="editContent"
-                rows="10"
-                aria-label="Sermon feedback"
-              ></textarea>
-              <div class="artifact-editor__actions">
-                <button type="button" @click="cancelArtifactEdit">
-                  <X :size="15" /> Cancel
-                </button>
-                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
-                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
-                </button>
-              </div>
-            </div>
-            <ol v-else class="feedback-list">
-              <li v-for="item in numberedItems(artifact('sermon_feedback'))" :key="item">
-                {{ item }}
-              </li>
-            </ol>
-          </section>
-
           <section class="artifact">
             <div class="artifact__heading">
               <h2>Scripture</h2>
@@ -1928,6 +1887,47 @@ onBeforeUnmount(clearProcessingPoll)
                 <span>{{ related.reason }}</span>
               </RouterLink>
             </div>
+          </section>
+
+          <section v-if="artifact('sermon_feedback')" class="artifact artifact--feedback">
+            <div class="artifact__heading">
+              <div>
+                <p class="rubric-label">If this sermon were revised</p>
+                <h2>Sermon feedback</h2>
+              </div>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit Sermon feedback"
+                @click="beginArtifactEdit('sermon_feedback')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <p class="feedback-note">
+              Generated critique can miss context. Verify doctrinal judgments against Scripture
+              and the Church’s teaching.
+            </p>
+            <div v-if="editingKind === 'sermon_feedback'" class="artifact-editor">
+              <textarea
+                v-model="editContent"
+                rows="10"
+                aria-label="Sermon feedback"
+              ></textarea>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <ol v-else class="feedback-list">
+              <li v-for="item in numberedItems(artifact('sermon_feedback'))" :key="item">
+                {{ item }}
+              </li>
+            </ol>
           </section>
         </template>
 
@@ -3288,13 +3288,17 @@ a.tag-chip:focus-visible {
   padding: clamp(1.25rem, 4vw, 2rem);
 }
 
+.artifact--call + .artifact {
+  padding-top: 2.35rem;
+}
+
 .artifact__call {
   font-family: var(--font-display);
-  font-size: clamp(1.55rem, 4vw, 2.15rem);
-  font-variation-settings: 'opsz' 38, 'SOFT' 48;
-  letter-spacing: -0.025em;
-  line-height: 1.25;
-  margin: 0.85rem 0 0;
+  font-size: clamp(1.2rem, 2.6vw, 1.45rem);
+  font-variation-settings: 'opsz' 32, 'SOFT' 48;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+  margin: 0.75rem 0 0;
 }
 
 .action-items__carry {
@@ -3343,12 +3347,13 @@ a.tag-chip:focus-visible {
 .artifact--feedback {
   background: color-mix(in srgb, var(--color-lapis) 5%, var(--color-vellum-light));
   border: 1px solid color-mix(in srgb, var(--color-lapis) 22%, var(--color-margin));
-  margin-top: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-lapis) 22%, var(--color-margin));
+  margin-top: 3.5rem;
   padding: clamp(1.25rem, 4vw, 1.85rem);
 }
 
-.artifact--feedback + .artifact {
-  padding-top: 1.85rem;
+.artifact + .artifact--feedback {
+  padding-top: clamp(1.25rem, 4vw, 1.85rem);
 }
 
 .feedback-list {
