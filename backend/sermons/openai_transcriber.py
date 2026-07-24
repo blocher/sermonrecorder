@@ -34,6 +34,16 @@ class CleanedTranscript:
     raw_segments: tuple[RawTranscriptSegment, ...] = ()
 
 
+def transcription_chunking_strategy() -> dict[str, float | int | str]:
+    """Server VAD tuned for distant pew recordings rather than close-mic speech."""
+    return {
+        "type": "server_vad",
+        "threshold": settings.OPENAI_TRANSCRIPTION_VAD_THRESHOLD,
+        "prefix_padding_ms": settings.OPENAI_TRANSCRIPTION_VAD_PREFIX_PADDING_MS,
+        "silence_duration_ms": settings.OPENAI_TRANSCRIPTION_VAD_SILENCE_DURATION_MS,
+    }
+
+
 def raw_diarized_segments(
     segments: list[TranscriptionDiarizedSegment],
     *,
@@ -78,7 +88,7 @@ class OpenAIDiarizedTranscriber:
                             model=settings.OPENAI_TRANSCRIPTION_MODEL,
                             file=audio,
                             response_format="diarized_json",
-                            chunking_strategy="auto",
+                            chunking_strategy=transcription_chunking_strategy(),
                         )
                     raw_segments.extend(
                         raw_diarized_segments(

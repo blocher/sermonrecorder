@@ -21,6 +21,7 @@ from .openai_transcriber import (
     CleanedTranscript,
     OpenAIDiarizedTranscriber,
     raw_diarized_segments,
+    transcription_chunking_strategy,
 )
 from .processing import (
     PermanentProcessingError,
@@ -280,6 +281,9 @@ class ProviderPipelineTests(TestCase):
 
     @override_settings(
         OPENAI_TRANSCRIPTION_MODEL="gpt-4o-transcribe-diarize",
+        OPENAI_TRANSCRIPTION_VAD_THRESHOLD=0.3,
+        OPENAI_TRANSCRIPTION_VAD_PREFIX_PADDING_MS=400,
+        OPENAI_TRANSCRIPTION_VAD_SILENCE_DURATION_MS=1000,
     )
     def test_openai_transcriber_requests_diarization_and_returns_cleaned_text(self):
         client = Mock()
@@ -308,7 +312,31 @@ class ProviderPipelineTests(TestCase):
         request = client.audio.transcriptions.create.call_args.kwargs
         self.assertEqual(request["model"], "gpt-4o-transcribe-diarize")
         self.assertEqual(request["response_format"], "diarized_json")
-        self.assertEqual(request["chunking_strategy"], "auto")
+        self.assertEqual(
+            request["chunking_strategy"],
+            {
+                "type": "server_vad",
+                "threshold": 0.3,
+                "prefix_padding_ms": 400,
+                "silence_duration_ms": 1000,
+            },
+        )
+
+    def test_transcription_chunking_strategy_uses_configured_vad(self):
+        with override_settings(
+            OPENAI_TRANSCRIPTION_VAD_THRESHOLD=0.25,
+            OPENAI_TRANSCRIPTION_VAD_PREFIX_PADDING_MS=500,
+            OPENAI_TRANSCRIPTION_VAD_SILENCE_DURATION_MS=1200,
+        ):
+            self.assertEqual(
+                transcription_chunking_strategy(),
+                {
+                    "type": "server_vad",
+                    "threshold": 0.25,
+                    "prefix_padding_ms": 500,
+                    "silence_duration_ms": 1200,
+                },
+            )
 
     def test_openai_connection_failures_are_retryable(self):
         client = Mock()

@@ -307,6 +307,17 @@ OPENAI_TRANSCRIPTION_TIMEOUT_SECONDS = float(
 OPENAI_TRANSCRIPTION_REQUEST_RETRIES = int(
     os.environ.get("OPENAI_TRANSCRIPTION_REQUEST_RETRIES", "2")
 )
+# Pew-friendly server VAD: lower threshold catches quieter preaching that
+# chunking_strategy="auto" can treat as non-speech.
+OPENAI_TRANSCRIPTION_VAD_THRESHOLD = float(
+    os.environ.get("OPENAI_TRANSCRIPTION_VAD_THRESHOLD", "0.3")
+)
+OPENAI_TRANSCRIPTION_VAD_PREFIX_PADDING_MS = int(
+    os.environ.get("OPENAI_TRANSCRIPTION_VAD_PREFIX_PADDING_MS", "400")
+)
+OPENAI_TRANSCRIPTION_VAD_SILENCE_DURATION_MS = int(
+    os.environ.get("OPENAI_TRANSCRIPTION_VAD_SILENCE_DURATION_MS", "1000")
+)
 
 SERMON_ARTIFACT_MODEL = os.environ.get("SERMON_ARTIFACT_MODEL", "openai")
 SERMON_ARTIFACT_REASONING_LEVEL = os.environ.get(
