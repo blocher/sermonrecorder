@@ -86,26 +86,55 @@ class SermonViewSet(
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            sermon.processing_status = Sermon.ProcessingStatus.UPLOADED
-            sermon.processing_error = ""
-            sermon.processing_attempts = 0
-            sermon.processing_claim_id = ""
-            sermon.processing_started_at = None
-            sermon.processing_finished_at = None
-            sermon.save(
-                update_fields=(
-                    "processing_status",
-                    "processing_error",
-                    "processing_attempts",
-                    "processing_claim_id",
-                    "processing_started_at",
-                    "processing_finished_at",
-                    "updated_at",
-                )
-            )
+            self._queue_reprocessing(sermon)
 
         transaction.on_commit(lambda: enqueue_sermon_processing(str(sermon.id)))
         return Response(SermonSerializer(sermon, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"], url_path="regenerate")
+    def regenerate(self, request, pk=None):
+        with transaction.atomic():
+            try:
+                sermon = (
+                    Sermon.objects.select_for_update()
+                    .filter(owner=request.user, pk=pk)
+                    .get()
+                )
+            except (Sermon.DoesNotExist, ValueError):
+                return Response(status=status.HTTP_404_NOT_FOUND)
+
+            if sermon.processing_status not in (
+                Sermon.ProcessingStatus.READY,
+                Sermon.ProcessingStatus.FAILED,
+            ):
+                return Response(
+                    {"detail": ("Only Ready or Failed Sermons can be regenerated.")},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            self._queue_reprocessing(sermon)
+
+        transaction.on_commit(lambda: enqueue_sermon_processing(str(sermon.id)))
+        return Response(SermonSerializer(sermon, context={"request": request}).data)
+
+    def _queue_reprocessing(self, sermon: Sermon) -> None:
+        sermon.processing_status = Sermon.ProcessingStatus.UPLOADED
+        sermon.processing_error = ""
+        sermon.processing_attempts = 0
+        sermon.processing_claim_id = ""
+        sermon.processing_started_at = None
+        sermon.processing_finished_at = None
+        sermon.save(
+            update_fields=(
+                "processing_status",
+                "processing_error",
+                "processing_attempts",
+                "processing_claim_id",
+                "processing_started_at",
+                "processing_finished_at",
+                "updated_at",
+            )
+        )
 
     def _filter_library(self, queryset, query):
         search = query.get("search", "").strip()

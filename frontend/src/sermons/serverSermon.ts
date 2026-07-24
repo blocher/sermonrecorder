@@ -239,6 +239,14 @@ export async function retrySermonProcessing(id: string): Promise<ServerSermon> {
   )
 }
 
+export async function regenerateSermon(id: string): Promise<ServerSermon> {
+  return authorizedJson<ServerSermon>(
+    `/api/sermons/${encodeURIComponent(id)}/regenerate/`,
+    { method: 'POST' },
+    'This Sermon could not be regenerated.',
+  )
+}
+
 export async function deleteSermon(id: string): Promise<void> {
   return authorizedJson<void>(
     `/api/sermons/${encodeURIComponent(id)}/`,

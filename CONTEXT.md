@@ -57,8 +57,8 @@ A Congregant's personal journal response tied to a Sermon — freeform or starte
 _Avoid_: Journal entry (as the only name), diary, answer (too tied to quiz-style questions)
 
 **Transcript**:
-The cleaned, timestamped text of a Sermon's pew recording meant for reading and skip-to playback. Built by identifying the predominant speaker and dropping side conversation; the Congregant edits this text, not a full multi-speaker tape.
-_Avoid_: Diarization (the process), full tape, captions
+The cleaned, timestamped text of a Sermon's pew recording meant for reading and skip-to playback. Built from diarized speech by keeping intentional service speech (preaching, liturgy, reading, responses, and any speaker who appears part of the service) and dropping only clearly incidental pew conversation; the Congregant edits this text. Raw diarized segments are retained so cleanup can be regenerated without retranscribing when possible.
+_Avoid_: Predominant speaker filter (too lossy), full tape as the edited reading text, captions
 
 **Related Sermon**:
 A link from one Sermon to another Sermon in the same Congregant's library, suggested by similarity (tags, content). Never points at another Congregant's Sermon.

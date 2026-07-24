@@ -20,14 +20,19 @@ from .models import Sermon, StudyArtifact, TagSuggestion
 from .openai_transcriber import (
     CleanedTranscript,
     OpenAIDiarizedTranscriber,
-    predominant_speaker_segments,
+    raw_diarized_segments,
 )
 from .processing import (
     PermanentProcessingError,
+    RawTranscriptSegment,
     RetryableProcessingError,
     ScriptureReferenceResult,
     StudyArtifactResult,
     TranscriptSegment,
+)
+from .transcript_cleanup import (
+    TranscriptCleanupOutput,
+    intentional_service_segments,
 )
 from .provider_processor import ProviderSermonProcessor
 from .simpleai_artifacts import (
@@ -102,21 +107,64 @@ class ProviderPipelineTests(TestCase):
             audio_size_bytes=10,
         )
 
-    def test_predominant_speaker_filter_drops_side_conversation(self):
+    def test_raw_diarized_segments_preserve_every_speaker(self):
         segments = [
-            diarized_segment("preacher", 0, 20, "The kingdom is near."),
-            diarized_segment("pew", 20, 24, "Where is the bulletin?"),
-            diarized_segment("preacher", 24, 50, "Receive this good news."),
+            diarized_segment("A", 0, 20, "The kingdom is near."),
+            diarized_segment("B", 20, 24, "Sit down kids."),
+            diarized_segment("C", 24, 50, "Receive this good news."),
         ]
 
-        cleaned = predominant_speaker_segments(segments, offset_seconds=60)
+        raw = raw_diarized_segments(segments, offset_seconds=60)
+
+        self.assertEqual(
+            [(segment.speaker, segment.text) for segment in raw],
+            [
+                ("A", "The kingdom is near."),
+                ("B", "Sit down kids."),
+                ("C", "Receive this good news."),
+            ],
+        )
+        self.assertEqual(raw[0].start_seconds, 60)
+        self.assertEqual(raw[2].end_seconds, 110)
+
+    def test_intentional_cleanup_drops_only_incidental_indexes(self):
+        raw = (
+            RawTranscriptSegment("A", 0, 20, "The kingdom is near."),
+            RawTranscriptSegment("B", 20, 24, "Sit down kids."),
+            RawTranscriptSegment("A", 24, 50, "Receive this good news."),
+            RawTranscriptSegment("C", 50, 70, "Let us pray together."),
+        )
+
+        cleaned = intentional_service_segments(
+            raw,
+            runner=lambda *args, **kwargs: TranscriptCleanupOutput(
+                incidental_segment_indexes=[1]
+            ),
+        )
 
         self.assertEqual(
             [segment.text for segment in cleaned],
-            ["The kingdom is near.", "Receive this good news."],
+            [
+                "The kingdom is near.",
+                "Receive this good news.",
+                "Let us pray together.",
+            ],
         )
-        self.assertEqual(cleaned[0].start_seconds, 60)
-        self.assertEqual(cleaned[1].end_seconds, 110)
+
+    def test_intentional_cleanup_keeps_everything_when_ai_marks_all_incidental(self):
+        raw = (
+            RawTranscriptSegment("A", 0, 20, "The kingdom is near."),
+            RawTranscriptSegment("B", 20, 40, "Mercy remakes us."),
+        )
+
+        cleaned = intentional_service_segments(
+            raw,
+            runner=lambda *args, **kwargs: TranscriptCleanupOutput(
+                incidental_segment_indexes=[0, 1]
+            ),
+        )
+
+        self.assertEqual(len(cleaned), 2)
 
     @override_settings(
         FFMPEG_BINARY="ffmpeg-test",
@@ -159,10 +207,15 @@ class ProviderPipelineTests(TestCase):
             segments=[
                 diarized_segment("A", 0, 30, "Blessed are the merciful."),
                 diarized_segment("B", 30, 33, "Can you move over?"),
-                diarized_segment("A", 33, 60, "Mercy remakes us."),
+                diarized_segment("C", 33, 60, "Mercy remakes us."),
             ]
         )
-        transcriber = OpenAIDiarizedTranscriber(client=client)
+        transcriber = OpenAIDiarizedTranscriber(
+            client=client,
+            cleanup_runner=lambda *args, **kwargs: TranscriptCleanupOutput(
+                incidental_segment_indexes=[1]
+            ),
+        )
 
         result = transcriber.transcribe(self.sermon())
 
@@ -170,6 +223,8 @@ class ProviderPipelineTests(TestCase):
             result.text,
             "Blessed are the merciful. Mercy remakes us.",
         )
+        self.assertEqual(len(result.raw_segments), 3)
+        self.assertEqual(result.raw_segments[1].text, "Can you move over?")
         request = client.audio.transcriptions.create.call_args.kwargs
         self.assertEqual(request["model"], "gpt-4o-transcribe-diarize")
         self.assertEqual(request["response_format"], "diarized_json")

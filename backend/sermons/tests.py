@@ -347,6 +347,38 @@ class SermonApiTests(APITestCase):
             "Only Failed Sermons can be retried.",
         )
 
+    def test_owner_can_regenerate_a_ready_sermon(self):
+        uploaded = self.upload("regenerate-ready")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        sermon.processing_status = Sermon.ProcessingStatus.READY
+        sermon.save(update_fields=("processing_status", "updated_at"))
+        self.client.force_authenticate(user=self.user)
+
+        with patch("sermons.views.enqueue_sermon_processing") as enqueue:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(f"/api/sermons/{sermon.id}/regenerate/")
+
+        sermon.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["processing_status"], "uploaded")
+        self.assertEqual(sermon.processing_status, Sermon.ProcessingStatus.UPLOADED)
+        enqueue.assert_called_once_with(str(sermon.id))
+
+    def test_regenerate_rejects_sermons_still_processing(self):
+        uploaded = self.upload("regenerate-processing")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        sermon.processing_status = Sermon.ProcessingStatus.PROCESSING
+        sermon.save(update_fields=("processing_status", "updated_at"))
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(f"/api/sermons/{sermon.id}/regenerate/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["detail"],
+            "Only Ready or Failed Sermons can be regenerated.",
+        )
+
     def test_retry_is_owner_private(self):
         uploaded = self.upload("retry-private")
         sermon = Sermon.objects.get(id=uploaded.data["id"])

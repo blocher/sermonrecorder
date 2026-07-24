@@ -12,6 +12,13 @@ import {
   type LocalDraft,
   type LocalDraftMetadataPatch,
 } from './draftRepository'
+import {
+  clearRecordingStartedAt,
+  elapsedSecondsSince,
+  loadRecordingStartedAt,
+  persistRecordingStartedAt,
+  wallClockNow,
+} from './recordingClock'
 
 export type RecorderState = 'idle' | 'requesting' | 'recording' | 'saving' | 'error'
 
@@ -33,11 +40,29 @@ function stopElapsedTimer(): void {
   elapsedTimer = undefined
 }
 
+function syncElapsedFromWallClock(): void {
+  if (!startedAt) return
+  elapsedSeconds.value = elapsedSecondsSince(startedAt)
+}
+
 function startElapsedTimer(): void {
   stopElapsedTimer()
+  syncElapsedFromWallClock()
   elapsedTimer = window.setInterval(() => {
-    elapsedSeconds.value = Math.floor((performance.now() - startedAt) / 1_000)
+    syncElapsedFromWallClock()
   }, 250)
+}
+
+function beginRecordingClock(startedAtMs = wallClockNow()): void {
+  startedAt = startedAtMs
+  persistRecordingStartedAt(startedAt)
+  elapsedSeconds.value = elapsedSecondsSince(startedAt)
+  startElapsedTimer()
+}
+
+function endRecordingClock(): void {
+  stopElapsedTimer()
+  clearRecordingStartedAt()
 }
 
 function recordingError(error: unknown): string {
@@ -92,10 +117,11 @@ async function initialize(): Promise<void> {
 
     if (Capacitor.isNativePlatform()) {
       if (await recorder.isActive()) {
-        elapsedSeconds.value = 0
-        startedAt = performance.now()
+        const restored = loadRecordingStartedAt()
         state.value = 'recording'
-        startElapsedTimer()
+        beginRecordingClock(restored ?? wallClockNow())
+      } else {
+        clearRecordingStartedAt()
       }
 
       if (!lifecycleListenerInstalled) {
@@ -117,12 +143,18 @@ async function reconcileNativeRecording(): Promise<void> {
   if (!Capacitor.isNativePlatform() || state.value !== 'recording') return
 
   try {
-    if (await recorder.isActive()) return
+    if (await recorder.isActive()) {
+      const restored = loadRecordingStartedAt()
+      if (restored) startedAt = restored
+      syncElapsedFromWallClock()
+      startElapsedTimer()
+      return
+    }
   } catch {
     return
   }
 
-  stopElapsedTimer()
+  endRecordingClock()
   state.value = 'error'
   errorMessage.value =
     'Recording stopped while Pewcorder was in the background. Any audio returned by the device could not be recovered.'
@@ -142,10 +174,10 @@ async function start(): Promise<void> {
 
   try {
     await recorder.start()
-    startedAt = performance.now()
     state.value = 'recording'
-    startElapsedTimer()
+    beginRecordingClock()
   } catch (error) {
+    endRecordingClock()
     state.value = 'error'
     errorMessage.value = recordingError(error)
   }
@@ -179,12 +211,9 @@ async function savePendingRecording(): Promise<void> {
 async function stop(): Promise<void> {
   if (state.value !== 'recording') return
 
-  stopElapsedTimer()
-  const durationSeconds = Math.max(
-    1,
-    elapsedSeconds.value,
-    Math.round((performance.now() - startedAt) / 1_000),
-  )
+  syncElapsedFromWallClock()
+  const durationSeconds = Math.max(1, elapsedSeconds.value)
+  endRecordingClock()
   state.value = 'saving'
 
   try {

@@ -148,6 +148,7 @@ def persist_processed_sermon(sermon: Sermon, result: ProcessedSermon) -> None:
             defaults={
                 "text": result.transcript_text.strip(),
                 "segments": segments,
+                "raw_segments": list(result.raw_transcript_segments),
             },
         )
 

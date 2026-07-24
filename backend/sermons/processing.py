@@ -28,6 +28,14 @@ class TranscriptSegment:
 
 
 @dataclass(frozen=True)
+class RawTranscriptSegment:
+    speaker: str
+    start_seconds: float
+    end_seconds: float
+    text: str
+
+
+@dataclass(frozen=True)
 class StudyArtifactResult:
     kind: str
     content: str
@@ -58,6 +66,7 @@ class ProcessedSermon:
     scripture_references: tuple[ScriptureReferenceResult, ...] = ()
     tag_suggestions: tuple[str, ...] = ()
     related_sermons: tuple[RelatedSermonResult, ...] = ()
+    raw_transcript_segments: tuple[dict, ...] = ()
 
 
 class SermonProcessor(Protocol):

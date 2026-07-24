@@ -1,4 +1,3 @@
-from collections import defaultdict
 from dataclasses import dataclass
 
 from django.conf import settings
@@ -20,44 +19,40 @@ from .audio_chunks import prepared_audio_chunks
 from .models import Sermon
 from .processing import (
     PermanentProcessingError,
+    RawTranscriptSegment,
     RetryableProcessingError,
     TranscriptSegment,
 )
+from .transcript_cleanup import intentional_service_segments
 
 
 @dataclass(frozen=True)
 class CleanedTranscript:
     text: str
     segments: tuple[TranscriptSegment, ...]
+    raw_segments: tuple[RawTranscriptSegment, ...] = ()
 
 
-def predominant_speaker_segments(
+def raw_diarized_segments(
     segments: list[TranscriptionDiarizedSegment],
     *,
     offset_seconds: float = 0,
-) -> tuple[TranscriptSegment, ...]:
-    durations: dict[str, float] = defaultdict(float)
-    for segment in segments:
-        durations[segment.speaker] += max(0, segment.end - segment.start)
-    if not durations:
-        return ()
-
-    predominant_speaker = max(durations, key=durations.get)
+) -> tuple[RawTranscriptSegment, ...]:
     return tuple(
-        TranscriptSegment(
+        RawTranscriptSegment(
+            speaker=segment.speaker,
             start_seconds=offset_seconds + segment.start,
             end_seconds=offset_seconds + segment.end,
             text=segment.text.strip(),
         )
         for segment in segments
-        if segment.speaker == predominant_speaker
-        and segment.end > segment.start
-        and segment.text.strip()
+        if segment.end > segment.start and segment.text.strip()
     )
 
 
 class OpenAIDiarizedTranscriber:
-    def __init__(self, client: OpenAI | None = None):
+    def __init__(self, client: OpenAI | None = None, cleanup_runner=None):
+        self.cleanup_runner = cleanup_runner
         if client is not None:
             self.client = client
             return
@@ -72,7 +67,7 @@ class OpenAIDiarizedTranscriber:
         )
 
     def transcribe(self, sermon: Sermon) -> CleanedTranscript:
-        cleaned_segments: list[TranscriptSegment] = []
+        raw_segments: list[RawTranscriptSegment] = []
 
         try:
             with prepared_audio_chunks(sermon) as chunks:
@@ -84,8 +79,8 @@ class OpenAIDiarizedTranscriber:
                             response_format="diarized_json",
                             chunking_strategy="auto",
                         )
-                    cleaned_segments.extend(
-                        predominant_speaker_segments(
+                    raw_segments.extend(
+                        raw_diarized_segments(
                             transcription.segments,
                             offset_seconds=chunk.start_seconds,
                         )
@@ -106,12 +101,18 @@ class OpenAIDiarizedTranscriber:
         except OpenAIError as error:
             raise PermanentProcessingError(str(error)) from error
 
-        if not cleaned_segments:
-            raise PermanentProcessingError(
-                "No predominant-speaker speech was found in the Sermon audio."
-            )
+        if not raw_segments:
+            raise PermanentProcessingError("No speech was found in the Sermon audio.")
 
+        cleanup_kwargs = {}
+        if self.cleanup_runner is not None:
+            cleanup_kwargs["runner"] = self.cleanup_runner
+        cleaned_segments = intentional_service_segments(
+            raw_segments,
+            **cleanup_kwargs,
+        )
         return CleanedTranscript(
             text=" ".join(segment.text for segment in cleaned_segments),
-            segments=tuple(cleaned_segments),
+            segments=cleaned_segments,
+            raw_segments=tuple(raw_segments),
         )

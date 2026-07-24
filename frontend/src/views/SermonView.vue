@@ -43,6 +43,7 @@ import {
   loadPreachers,
   loadShareLink,
   loadServerSermon,
+  regenerateSermon,
   retrySermonProcessing,
   revokeShareLink,
   saveReflection,
@@ -121,6 +122,9 @@ const shareMessage = ref('')
 const confirmingDelete = ref(false)
 const deleting = ref(false)
 const deleteMessage = ref('')
+const confirmingRegenerate = ref(false)
+const regenerating = ref(false)
+const regenerateMessage = ref('')
 const contextPanelOpen = ref(false)
 const contextLoading = ref(false)
 const contextSaving = ref(false)
@@ -587,7 +591,39 @@ async function toggleContextPanel(): Promise<void> {
 
 function beginDeleteConfirmation(): void {
   sharePanelOpen.value = false
+  confirmingRegenerate.value = false
   confirmingDelete.value = true
+}
+
+function beginRegenerateConfirmation(): void {
+  sharePanelOpen.value = false
+  confirmingDelete.value = false
+  regenerateMessage.value = ''
+  confirmingRegenerate.value = true
+}
+
+async function regenerateCurrentSermon(): Promise<void> {
+  if (!sermon.value || regenerating.value) return
+  regenerating.value = true
+  regenerateMessage.value = ''
+  try {
+    audio.value?.pause()
+    const current = sermon.value
+    const queued = await regenerateSermon(current.id)
+    confirmingRegenerate.value = false
+    applyLoadedSermon(
+      {
+        ...current,
+        ...queued,
+      },
+      queued.id,
+    )
+  } catch (error) {
+    regenerateMessage.value =
+      error instanceof Error ? error.message : 'This Sermon could not be regenerated.'
+  } finally {
+    regenerating.value = false
+  }
 }
 
 async function saveNewChurch(): Promise<void> {
@@ -788,6 +824,8 @@ async function load(id: string): Promise<void> {
   shareMessage.value = ''
   confirmingDelete.value = false
   deleteMessage.value = ''
+  confirmingRegenerate.value = false
+  regenerateMessage.value = ''
   contextPanelOpen.value = false
   contextMessage.value = ''
   try {
@@ -994,7 +1032,17 @@ onBeforeUnmount(clearProcessingPoll)
             Email handout
           </button>
           <button
-            v-if="!confirmingDelete"
+            v-if="!confirmingRegenerate && !confirmingDelete"
+            class="sermon-header__regenerate"
+            type="button"
+            :disabled="regenerating"
+            @click="beginRegenerateConfirmation"
+          >
+            <RotateCcw :size="16" aria-hidden="true" />
+            Regenerate
+          </button>
+          <button
+            v-if="!confirmingDelete && !confirmingRegenerate"
             class="sermon-header__delete"
             type="button"
             :disabled="deleting"
@@ -1005,6 +1053,41 @@ onBeforeUnmount(clearProcessingPoll)
           </button>
         </div>
       </header>
+
+      <section
+        v-if="confirmingRegenerate"
+        class="sermon-delete-confirm sermon-regenerate-confirm"
+        aria-labelledby="regenerate-sermon-title"
+      >
+        <div>
+          <p class="rubric-label">Destructive regeneration</p>
+          <h2 id="regenerate-sermon-title">Regenerate this Sermon?</h2>
+          <p>
+            This rewrites the Transcript, title suggestion, Study artifacts, Scripture references,
+            Tags, and Related Sermons from the original recording. Your existing summaries and
+            other AI-generated notes will be permanently replaced.
+          </p>
+          <p>
+            Reflections and Share links are kept. The audio itself is never deleted.
+          </p>
+          <p v-if="regenerateMessage" class="sermon-delete-confirm__error" role="alert">
+            {{ regenerateMessage }}
+          </p>
+        </div>
+        <div class="sermon-delete-confirm__actions">
+          <button type="button" :disabled="regenerating" @click="confirmingRegenerate = false">
+            Keep current notes
+          </button>
+          <button
+            class="sermon-delete-confirm__delete"
+            type="button"
+            :disabled="regenerating"
+            @click="regenerateCurrentSermon"
+          >
+            {{ regenerating ? 'Starting…' : 'Regenerate and replace notes' }}
+          </button>
+        </div>
+      </section>
 
       <section
         v-if="confirmingDelete"
@@ -2309,10 +2392,18 @@ onBeforeUnmount(clearProcessingPoll)
   padding: 0.6rem 0.9rem;
 }
 
+.sermon-header__actions .sermon-header__regenerate {
+  margin-left: auto;
+}
+
 .sermon-header__actions .sermon-header__delete {
   border-color: color-mix(in srgb, var(--color-rubric) 55%, transparent);
   color: var(--color-rubric);
-  margin-left: auto;
+}
+
+.sermon-regenerate-confirm {
+  background: color-mix(in srgb, var(--color-lapis) 6%, var(--color-vellum-light));
+  border-color: color-mix(in srgb, var(--color-lapis) 40%, var(--color-margin));
 }
 
 .sermon-header__actions button:disabled {
@@ -3559,6 +3650,7 @@ onBeforeUnmount(clearProcessingPoll)
     flex-direction: column;
   }
 
+  .sermon-header__actions .sermon-header__regenerate,
   .sermon-header__actions .sermon-header__delete {
     margin-left: 0;
   }

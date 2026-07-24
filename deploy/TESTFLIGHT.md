@@ -3,7 +3,7 @@
 Bundle id: `com.pewcorder.app`  
 Display name: Pewcorder  
 Team: **The Daily Office, LLC** (`2TG4YK78KZ`)  
-Version: `1.0` (build `1`)
+Version: `1.0` (build `7`)
 
 ## Already done on the server
 

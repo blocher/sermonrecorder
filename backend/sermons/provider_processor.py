@@ -1,8 +1,9 @@
 from typing import Protocol
 
+from .audio_duration import probe_audio_duration_seconds
 from .models import Sermon
 from .openai_transcriber import CleanedTranscript, OpenAIDiarizedTranscriber
-from .processing import ProcessedSermon, RelatedSermonResult
+from .processing import PermanentProcessingError, ProcessedSermon, RelatedSermonResult
 from .simpleai_artifacts import GeneratedArtifacts, SimpleAIArtifactGenerator
 
 
@@ -64,6 +65,7 @@ class ProviderSermonProcessor:
         self.artifact_generator = artifact_generator or SimpleAIArtifactGenerator()
 
     def process(self, sermon: Sermon) -> ProcessedSermon:
+        _sync_duration_from_audio(sermon)
         transcript = self.transcriber.transcribe(sermon)
         artifacts = self.artifact_generator.generate(transcript)
         return ProcessedSermon(
@@ -74,4 +76,27 @@ class ProviderSermonProcessor:
             scripture_references=artifacts.scripture_references,
             tag_suggestions=artifacts.tag_suggestions,
             related_sermons=_related_sermons(sermon, artifacts.tag_suggestions),
+            raw_transcript_segments=tuple(
+                {
+                    "speaker": segment.speaker,
+                    "start_seconds": segment.start_seconds,
+                    "end_seconds": segment.end_seconds,
+                    "text": segment.text,
+                }
+                for segment in getattr(transcript, "raw_segments", ())
+            ),
         )
+
+
+def _sync_duration_from_audio(sermon: Sermon) -> None:
+    try:
+        audio_path = sermon.audio.path
+    except (NotImplementedError, ValueError):
+        return
+    try:
+        measured = probe_audio_duration_seconds(audio_path)
+    except PermanentProcessingError:
+        return
+    if measured != sermon.duration_seconds:
+        sermon.duration_seconds = measured
+        sermon.save(update_fields=("duration_seconds", "updated_at"))

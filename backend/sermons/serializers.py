@@ -243,10 +243,21 @@ class SermonSerializer(serializers.ModelSerializer):
         return audio
 
     def create(self, validated_data):
+        from .audio_duration import probe_audio_duration_seconds
+        from .processing import PermanentProcessingError
+
         audio = validated_data["audio"]
         validated_data["audio_mime_type"] = (audio.content_type or "").lower()
         validated_data["audio_size_bytes"] = audio.size
-        return super().create(validated_data)
+        sermon = super().create(validated_data)
+        try:
+            measured = probe_audio_duration_seconds(sermon.audio.path)
+        except (PermanentProcessingError, NotImplementedError, ValueError, OSError):
+            return sermon
+        if measured != sermon.duration_seconds:
+            sermon.duration_seconds = measured
+            sermon.save(update_fields=("duration_seconds", "updated_at"))
+        return sermon
 
     def get_audio_url(self, sermon: Sermon) -> str:
         request = self.context.get("request")

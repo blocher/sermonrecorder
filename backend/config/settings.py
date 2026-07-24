@@ -292,6 +292,7 @@ EMAIL_USE_TLS = os.environ.get("DJANGO_EMAIL_USE_TLS", "1") == "1"
 EMAIL_TIMEOUT = int(os.environ.get("DJANGO_EMAIL_TIMEOUT_SECONDS", "30"))
 
 FFMPEG_BINARY = os.environ.get("FFMPEG_BINARY", "ffmpeg")
+FFPROBE_BINARY = os.environ.get("FFPROBE_BINARY", "ffprobe")
 SERMON_TRANSCRIPTION_CHUNK_SECONDS = int(
     os.environ.get("SERMON_TRANSCRIPTION_CHUNK_SECONDS", "600")
 )

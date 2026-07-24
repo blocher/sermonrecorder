@@ -33,6 +33,7 @@ import {
   serverSermonDuration,
   serverSermonTitle,
   deleteSermon,
+  regenerateSermon,
   retrySermonProcessing,
   updateStudyArtifact,
   updateSermonContext,
@@ -104,6 +105,23 @@ describe('server Sermon detail', () => {
     await expect(retrySermonProcessing('failed-sermon')).resolves.toEqual(retried)
     expect(mocks.fetch).toHaveBeenCalledWith(
       'http://api.example.test/api/sermons/failed-sermon/retry/',
+      { method: 'POST', headers: { Authorization: 'Bearer access-token' } },
+    )
+  })
+
+  it('regenerates a Ready Sermon with a POST', async () => {
+    const queued = {
+      ...detail,
+      processing_status: 'uploaded' as const,
+      processing_message: 'Safely uploaded and waiting to process.',
+    }
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify(queued), { status: 200 }),
+    )
+
+    await expect(regenerateSermon('ready-sermon')).resolves.toEqual(queued)
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/sermons/ready-sermon/regenerate/',
       { method: 'POST', headers: { Authorization: 'Bearer access-token' } },
     )
   })
