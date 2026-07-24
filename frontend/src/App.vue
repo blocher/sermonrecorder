@@ -116,7 +116,9 @@ onMounted(() => {
     >
       <RouterView />
     </div>
-    <RecordSeal :state="state" :elapsed-seconds="elapsedSeconds" @toggle="toggle" />
+    <Teleport to="body">
+      <RecordSeal :state="state" :elapsed-seconds="elapsedSeconds" @toggle="toggle" />
+    </Teleport>
     <DraftWizard
       v-if="wizardDraftId"
       :draft-id="wizardDraftId"

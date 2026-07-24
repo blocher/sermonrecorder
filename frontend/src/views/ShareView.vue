@@ -44,6 +44,8 @@ const activeSection = ref<SermonSection>('study')
 let robotsMeta: HTMLMetaElement | null = null
 let previousRobotsContent: string | null = null
 
+const transcriptView = ref<'timeline' | 'reading'>('timeline')
+
 const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
 )
@@ -51,6 +53,30 @@ const progressPercent = computed(() => `${Math.round(progress.value * 100)}%`)
 const hymn = computed(() => parseHymn(artifact('hymn')))
 const hymnTunes = computed(() => parseTuneSuggestions(artifact('hymn_tune_suggestions')))
 const quiz = computed(() => parseQuiz(artifact('quiz')))
+const readingTranscriptParagraphs = computed(() => {
+  const segments = sermon.value?.transcript?.segments ?? []
+  if (!segments.length) {
+    const text = sermon.value?.transcript?.text.trim()
+    return text ? paragraphs(text) : []
+  }
+
+  const grouped: string[] = []
+  let paragraph = ''
+  let wordCount = 0
+  for (const segment of segments) {
+    const text = segment.text.trim()
+    if (!text) continue
+    paragraph = `${paragraph} ${text}`.trim()
+    wordCount += text.split(/\s+/).length
+    if (wordCount >= 100) {
+      grouped.push(paragraph)
+      paragraph = ''
+      wordCount = 0
+    }
+  }
+  if (paragraph) grouped.push(paragraph)
+  return grouped
+})
 const capturedDate = computed(() =>
   sermon.value
     ? new Intl.DateTimeFormat(undefined, {
@@ -424,23 +450,53 @@ onBeforeUnmount(() => {
 
         <template v-else-if="activeSection === 'transcript'">
           <section class="share-section share-transcript page-gather">
-        <p class="rubric-label">Cleaned transcript</p>
-        <h2>Follow the sermon</h2>
-        <div class="share-transcript__segments">
-          <div
-            v-for="segment in sermon.transcript?.segments ?? []"
-            :key="`${segment.start_seconds}-${segment.text}`"
-          >
-            <button
-              type="button"
-              :aria-label="`Play from ${timestamp(segment.start_seconds)}`"
-              @click="seekTo(segment.start_seconds)"
-            >
-              {{ timestamp(segment.start_seconds) }}
-            </button>
-            <p>{{ segment.text }}</p>
-          </div>
-        </div>
+            <p class="rubric-label">Cleaned transcript</p>
+            <h2>Follow the sermon</h2>
+            <div class="share-transcript-toggle" role="group" aria-label="Transcript view">
+              <button
+                type="button"
+                :class="{ active: transcriptView === 'timeline' }"
+                :aria-pressed="transcriptView === 'timeline'"
+                @click="transcriptView = 'timeline'"
+              >
+                Timeline
+              </button>
+              <button
+                type="button"
+                :class="{ active: transcriptView === 'reading' }"
+                :aria-pressed="transcriptView === 'reading'"
+                @click="transcriptView = 'reading'"
+              >
+                Reading
+              </button>
+            </div>
+            <p class="share-transcript__note">
+              {{
+                transcriptView === 'timeline'
+                  ? 'Jump to any moment in the cleaned Transcript.'
+                  : 'The cleaned Transcript is gathered into longer paragraphs for uninterrupted reading.'
+              }}
+            </p>
+            <div v-if="transcriptView === 'timeline'" class="share-transcript__segments">
+              <div
+                v-for="segment in sermon.transcript?.segments ?? []"
+                :key="`${segment.start_seconds}-${segment.text}`"
+              >
+                <button
+                  type="button"
+                  :aria-label="`Play from ${timestamp(segment.start_seconds)}`"
+                  @click="seekTo(segment.start_seconds)"
+                >
+                  {{ timestamp(segment.start_seconds) }}
+                </button>
+                <p>{{ segment.text }}</p>
+              </div>
+            </div>
+            <div v-else class="share-transcript__reading">
+              <p v-for="(paragraph, index) in readingTranscriptParagraphs" :key="index">
+                {{ paragraph }}
+              </p>
+            </div>
           </section>
         </template>
       </div>
@@ -451,7 +507,9 @@ onBeforeUnmount(() => {
       <p>This unlisted link was shared by a Pewcorder Congregant.</p>
       <RouterLink to="/">Open Pewcorder</RouterLink>
     </footer>
+  </main>
 
+  <Teleport to="body">
     <section v-if="sermon" class="share-player" aria-label="Shared sermon audio">
       <audio
         ref="audio"
@@ -504,7 +562,7 @@ onBeforeUnmount(() => {
         <span :style="{ width: progressPercent }"></span>
       </div>
     </section>
-  </main>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -1014,6 +1072,50 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
+.share-transcript-toggle {
+  border: 1px solid var(--color-margin);
+  display: inline-flex;
+  margin-top: 1.25rem;
+  padding: 0.2rem;
+}
+
+.share-transcript-toggle button {
+  background: transparent;
+  border: 0;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.75rem;
+  font-weight: 700;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.8rem;
+}
+
+.share-transcript-toggle button.active {
+  background: var(--color-lapis);
+  color: var(--color-vellum-light);
+}
+
+.share-transcript__note {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 1rem 0 2rem;
+}
+
+.share-transcript__reading {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.share-transcript__reading p {
+  font-family: var(--font-reading);
+  font-size: 1.06rem;
+  line-height: 1.72;
+  margin: 0;
+}
+
 .share-footer {
   align-items: center;
   display: flex;
@@ -1048,12 +1150,12 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 1rem;
   grid-template-columns: auto minmax(8rem, auto) minmax(5rem, 20rem);
-  left: 50%;
+  /* Avoid transform-based centering: iOS Chrome overscroll pulls transformed fixed bars. */
+  inset-inline: max(1rem, calc((100% - 42rem) / 2));
   max-width: 42rem;
   padding: 0.85rem 1rem calc(0.85rem + env(safe-area-inset-bottom));
   position: fixed;
-  transform: translateX(-50%);
-  width: calc(100% - 2rem);
+  width: auto;
   z-index: 20;
 }
 
@@ -1138,6 +1240,8 @@ onBeforeUnmount(() => {
 
   .share-player {
     grid-template-columns: auto 1fr;
+    inset-inline: 0;
+    max-width: none;
     width: 100%;
   }
 
