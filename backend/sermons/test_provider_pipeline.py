@@ -134,14 +134,16 @@ class ProviderPipelineTests(TestCase):
             RawTranscriptSegment("A", 24, 50, "Receive this good news."),
             RawTranscriptSegment("C", 50, 70, "Let us pray together."),
         )
+        captured: dict[str, object] = {}
 
-        cleaned = intentional_service_segments(
-            raw,
-            runner=lambda *args, **kwargs: TranscriptCleanupOutput(
-                incidental_segment_indexes=[1]
-            ),
-        )
+        def runner(*args, **kwargs):
+            captured.update(kwargs)
+            return TranscriptCleanupOutput(incidental_segment_indexes=[1])
 
+        cleaned = intentional_service_segments(raw, runner=runner)
+
+        self.assertEqual(captured.get("output_format"), TranscriptCleanupOutput)
+        self.assertNotIn("response_model", captured)
         self.assertEqual(
             [segment.text for segment in cleaned],
             [

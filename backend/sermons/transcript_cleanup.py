@@ -57,7 +57,7 @@ Segments:
     try:
         result = runner(
             prompt,
-            response_model=TranscriptCleanupOutput,
+            output_format=TranscriptCleanupOutput,
             model=None,
         )
     except (SettingsError, ModelResolutionError) as error:
