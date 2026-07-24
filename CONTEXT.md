@@ -49,7 +49,7 @@ A structured biblical citation tied to a Sermon (e.g. Luke 15:11–32), usually 
 _Avoid_: Bible link (UI only), reading (liturgical role, not the citation entity), pericope (too narrow/jargon)
 
 **Tag**:
-A label in the Congregant's personal tag book used to file and filter Sermons. AI may suggest Tags (including from inferred themes); the Congregant confirms, edits, or ignores. There is no separate "themes" entity.
+A label in the Congregant's personal tag book used to file and filter Sermons. AI may suggest at most five Tags (including from inferred themes); the Congregant confirms, edits, or ignores. There is no separate "themes" entity.
 _Avoid_: Theme (as a stored entity), category, keyword
 
 **Reflection**:

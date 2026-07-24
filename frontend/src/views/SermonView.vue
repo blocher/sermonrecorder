@@ -1056,6 +1056,71 @@ onBeforeUnmount(clearProcessingPoll)
           <span>Ready</span>
         </div>
         <h1>{{ serverSermonTitle(sermon) }}</h1>
+        <div class="sermon-header__tags" aria-label="Tags">
+          <div v-if="editingTags" class="tag-editor tag-editor--header">
+            <div class="tag-editor__list">
+              <span v-for="(tag, index) in tagEdits" :key="`${tag}-${index}`" class="tag-chip">
+                {{ tag }}
+                <button
+                  type="button"
+                  :aria-label="`Remove ${tag}`"
+                  @click="removeTagEdit(index)"
+                >
+                  <X :size="13" aria-hidden="true" />
+                </button>
+              </span>
+            </div>
+            <div class="tag-editor__add">
+              <input
+                v-model="newTag"
+                maxlength="80"
+                placeholder="Add a Tag"
+                aria-label="New Tag"
+                @keydown.enter.prevent="addTagEdit"
+              />
+              <button
+                type="button"
+                :disabled="!newTag.trim() || tagEdits.length >= 12"
+                @click="addTagEdit"
+              >
+                <Plus :size="15" aria-hidden="true" /> Add
+              </button>
+            </div>
+            <div class="artifact-editor__actions">
+              <button type="button" @click="cancelTagEdit">
+                <X :size="15" /> Cancel
+              </button>
+              <button type="button" :disabled="savingTags" @click="saveTagEdit">
+                <Check :size="15" />{{ savingTags ? 'Saving…' : 'Save Tags' }}
+              </button>
+            </div>
+          </div>
+          <template v-else>
+            <div v-if="sermon.tag_suggestions.length" class="tag-list tag-list--header">
+              <RouterLink
+                v-for="tag in sermon.tag_suggestions"
+                :key="tag"
+                class="tag-chip"
+                :to="{ path: '/', query: { tag } }"
+                :aria-label="`Show Sermons tagged ${tag}`"
+              >
+                {{ tag }}
+              </RouterLink>
+            </div>
+            <p v-else class="tag-list__empty tag-list__empty--header">No Tags yet</p>
+            <button
+              class="sermon-header__tag-edit"
+              type="button"
+              aria-label="Edit Tags"
+              @click="beginTagEdit"
+            >
+              <PencilLine :size="15" aria-hidden="true" />
+            </button>
+          </template>
+          <p v-if="tagMessage" class="artifact__message" role="status">
+            {{ tagMessage }}
+          </p>
+        </div>
         <dl class="sermon-register" aria-label="Sermon details">
           <div class="sermon-register__entry">
             <dt><MapPin :size="15" aria-hidden="true" />Church</dt>
@@ -1524,6 +1589,65 @@ onBeforeUnmount(clearProcessingPoll)
             <p v-else class="artifact__summary">{{ artifact('short_summary') }}</p>
           </section>
 
+          <section class="artifact artifact--long-summary">
+            <div class="artifact__heading artifact__heading--quiet">
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit long summary"
+                @click="beginArtifactEdit('long_summary')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <div v-if="editingKind === 'long_summary'" class="artifact-editor">
+              <textarea v-model="editContent" rows="12" aria-label="Long summary"></textarea>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <div v-else class="artifact__prose artifact__prose--compact">
+              <p v-for="paragraph in paragraphs(artifact('long_summary'))" :key="paragraph">
+                {{ paragraph }}
+              </p>
+            </div>
+          </section>
+
+          <section class="artifact">
+            <div class="artifact__heading">
+              <h2>Outline</h2>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit outline"
+                @click="beginArtifactEdit('outline')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <div v-if="editingKind === 'outline'" class="artifact-editor">
+              <textarea v-model="editContent" rows="9" aria-label="Outline"></textarea>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <ol v-else class="outline">
+              <li v-for="item in numberedItems(artifact('outline'))" :key="item">
+                <span>{{ item }}</span>
+              </li>
+            </ol>
+          </section>
+
           <section v-if="artifact('quotations')" class="artifact artifact--quotations">
             <div class="artifact__heading">
               <div>
@@ -1594,6 +1718,47 @@ onBeforeUnmount(clearProcessingPoll)
               </div>
             </div>
             <p v-else class="artifact__call">{{ artifact('call_to_action') }}</p>
+          </section>
+
+          <section v-if="artifact('sermon_feedback')" class="artifact artifact--feedback">
+            <div class="artifact__heading">
+              <div>
+                <p class="rubric-label">If this sermon were revised</p>
+                <h2>Sermon feedback</h2>
+              </div>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit Sermon feedback"
+                @click="beginArtifactEdit('sermon_feedback')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <p class="feedback-note">
+              Generated critique can miss context. Verify doctrinal judgments against Scripture
+              and the Church’s teaching.
+            </p>
+            <div v-if="editingKind === 'sermon_feedback'" class="artifact-editor">
+              <textarea
+                v-model="editContent"
+                rows="10"
+                aria-label="Sermon feedback"
+              ></textarea>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <ol v-else class="feedback-list">
+              <li v-for="item in numberedItems(artifact('sermon_feedback'))" :key="item">
+                {{ item }}
+              </li>
+            </ol>
           </section>
 
           <section class="artifact">
@@ -1710,36 +1875,6 @@ onBeforeUnmount(clearProcessingPoll)
             </p>
           </section>
 
-          <section class="artifact">
-            <div class="artifact__heading">
-              <h2>Long summary</h2>
-              <button
-                class="artifact__edit"
-                type="button"
-                aria-label="Edit long summary"
-                @click="beginArtifactEdit('long_summary')"
-              >
-                <PencilLine :size="16" />
-              </button>
-            </div>
-            <div v-if="editingKind === 'long_summary'" class="artifact-editor">
-              <textarea v-model="editContent" rows="12" aria-label="Long summary"></textarea>
-              <div class="artifact-editor__actions">
-                <button type="button" @click="cancelArtifactEdit">
-                  <X :size="15" /> Cancel
-                </button>
-                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
-                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
-                </button>
-              </div>
-            </div>
-            <div v-else class="artifact__prose">
-              <p v-for="paragraph in paragraphs(artifact('long_summary'))" :key="paragraph">
-                {{ paragraph }}
-              </p>
-            </div>
-          </section>
-
           <section v-if="artifact('practical_next_steps')" class="artifact">
             <div class="artifact__heading">
               <div>
@@ -1777,103 +1912,6 @@ onBeforeUnmount(clearProcessingPoll)
             </ol>
           </section>
 
-          <section class="artifact">
-            <div class="artifact__heading">
-              <h2>Outline</h2>
-              <button
-                class="artifact__edit"
-                type="button"
-                aria-label="Edit outline"
-                @click="beginArtifactEdit('outline')"
-              >
-                <PencilLine :size="16" />
-              </button>
-            </div>
-            <div v-if="editingKind === 'outline'" class="artifact-editor">
-              <textarea v-model="editContent" rows="9" aria-label="Outline"></textarea>
-              <div class="artifact-editor__actions">
-                <button type="button" @click="cancelArtifactEdit">
-                  <X :size="15" /> Cancel
-                </button>
-                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
-                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
-                </button>
-              </div>
-            </div>
-            <ol v-else class="outline">
-              <li v-for="item in numberedItems(artifact('outline'))" :key="item">
-                <span>{{ item }}</span>
-              </li>
-            </ol>
-          </section>
-
-          <section class="artifact">
-            <div class="artifact__heading">
-              <h2>Tags</h2>
-              <button
-                v-if="!editingTags"
-                class="artifact__edit"
-                type="button"
-                aria-label="Edit Tags"
-                @click="beginTagEdit"
-              >
-                <PencilLine :size="16" />
-              </button>
-            </div>
-            <div v-if="editingTags" class="tag-editor">
-              <div class="tag-editor__list">
-                <span v-for="(tag, index) in tagEdits" :key="`${tag}-${index}`">
-                  {{ tag }}
-                  <button
-                    type="button"
-                    :aria-label="`Remove ${tag}`"
-                    @click="removeTagEdit(index)"
-                  >
-                    <X :size="13" aria-hidden="true" />
-                  </button>
-                </span>
-              </div>
-              <div class="tag-editor__add">
-                <input
-                  v-model="newTag"
-                  maxlength="80"
-                  placeholder="Add a Tag"
-                  aria-label="New Tag"
-                  @keydown.enter.prevent="addTagEdit"
-                />
-                <button
-                  type="button"
-                  :disabled="!newTag.trim() || tagEdits.length >= 12"
-                  @click="addTagEdit"
-                >
-                  <Plus :size="15" aria-hidden="true" /> Add
-                </button>
-              </div>
-              <div class="artifact-editor__actions">
-                <button type="button" @click="cancelTagEdit">
-                  <X :size="15" /> Cancel
-                </button>
-                <button type="button" :disabled="savingTags" @click="saveTagEdit">
-                  <Check :size="15" />{{ savingTags ? 'Saving…' : 'Save Tags' }}
-                </button>
-              </div>
-            </div>
-            <div v-else-if="sermon.tag_suggestions.length" class="tag-list">
-              <RouterLink
-                v-for="tag in sermon.tag_suggestions"
-                :key="tag"
-                :to="{ path: '/', query: { tag } }"
-                :aria-label="`Show Sermons tagged ${tag}`"
-              >
-                {{ tag }}
-              </RouterLink>
-            </div>
-            <p v-else class="tag-list__empty">No Tags saved yet.</p>
-            <p v-if="tagMessage" class="artifact__message" role="status">
-              {{ tagMessage }}
-            </p>
-          </section>
-
           <section v-if="sermon.related_sermons.length" class="artifact">
             <div class="artifact__heading">
               <h2>Related Sermons</h2>
@@ -1888,47 +1926,6 @@ onBeforeUnmount(clearProcessingPoll)
                 <span>{{ related.reason }}</span>
               </RouterLink>
             </div>
-          </section>
-
-          <section v-if="artifact('sermon_feedback')" class="artifact artifact--feedback">
-            <div class="artifact__heading">
-              <div>
-                <p class="rubric-label">If this sermon were revised</p>
-                <h2>Sermon feedback</h2>
-              </div>
-              <button
-                class="artifact__edit"
-                type="button"
-                aria-label="Edit Sermon feedback"
-                @click="beginArtifactEdit('sermon_feedback')"
-              >
-                <PencilLine :size="16" />
-              </button>
-            </div>
-            <p class="feedback-note">
-              Generated critique can miss context. Verify doctrinal judgments against Scripture
-              and the Church’s teaching.
-            </p>
-            <div v-if="editingKind === 'sermon_feedback'" class="artifact-editor">
-              <textarea
-                v-model="editContent"
-                rows="10"
-                aria-label="Sermon feedback"
-              ></textarea>
-              <div class="artifact-editor__actions">
-                <button type="button" @click="cancelArtifactEdit">
-                  <X :size="15" /> Cancel
-                </button>
-                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
-                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
-                </button>
-              </div>
-            </div>
-            <ol v-else class="feedback-list">
-              <li v-for="item in numberedItems(artifact('sermon_feedback'))" :key="item">
-                {{ item }}
-              </li>
-            </ol>
           </section>
         </template>
 
@@ -2473,8 +2470,64 @@ onBeforeUnmount(clearProcessingPoll)
   font-weight: 500;
   letter-spacing: -0.06em;
   line-height: 0.92;
-  margin: 0.8rem 0 1.25rem;
+  margin: 0.8rem 0 0;
   max-width: 18ch;
+}
+
+.sermon-header__tags {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.7rem;
+  margin: 1rem 0 1.35rem;
+}
+
+.sermon-header__tag-edit {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--color-margin);
+  color: var(--color-lapis);
+  cursor: pointer;
+  display: inline-flex;
+  height: 1.85rem;
+  justify-content: center;
+  padding: 0;
+  width: 1.85rem;
+}
+
+.tag-list--header {
+  margin-top: 0;
+}
+
+.tag-list__empty--header {
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.tag-chip {
+  align-items: center;
+  background: color-mix(in srgb, var(--color-lapis) 8%, var(--color-vellum));
+  border: 1px solid color-mix(in srgb, var(--color-lapis) 28%, var(--color-margin));
+  color: var(--color-lapis);
+  display: inline-flex;
+  font-family: var(--font-utility);
+  font-size: 0.74rem;
+  font-weight: 650;
+  gap: 0.35rem;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 0.42rem 0.7rem;
+  text-decoration: none;
+}
+
+a.tag-chip:focus-visible {
+  outline: 2px solid var(--color-lapis);
+  outline-offset: 2px;
+}
+
+.tag-editor--header {
+  margin-top: 0;
+  width: 100%;
 }
 
 .sermon-register {
@@ -3081,6 +3134,15 @@ onBeforeUnmount(clearProcessingPoll)
   justify-content: space-between;
 }
 
+.artifact__heading--quiet {
+  justify-content: end;
+  margin-bottom: -0.5rem;
+}
+
+.artifact--long-summary {
+  margin-top: 0.5rem;
+}
+
 .artifact h2 {
   font-family: var(--font-display);
   font-size: clamp(1.8rem, 4vw, 2.3rem);
@@ -3375,8 +3437,19 @@ onBeforeUnmount(clearProcessingPoll)
   margin-top: 1.4rem;
 }
 
+.artifact__prose--compact {
+  color: color-mix(in srgb, var(--color-ink) 88%, var(--color-ink-muted));
+  font-size: 0.92rem;
+  line-height: 1.65;
+  margin-top: 0.35rem;
+}
+
 .artifact__prose p + p {
   margin-top: 1rem;
+}
+
+.artifact__prose--compact p + p {
+  margin-top: 0.75rem;
 }
 
 .scripture-links {
@@ -3515,22 +3588,6 @@ onBeforeUnmount(clearProcessingPoll)
   margin-top: 1.25rem;
 }
 
-.tag-list a {
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid rgba(47, 75, 124, 0.35);
-  color: var(--color-lapis);
-  font-family: var(--font-utility);
-  font-size: 0.78rem;
-  padding: 0.3rem 0;
-  text-decoration: none;
-}
-
-.tag-list a:focus-visible {
-  outline: 2px solid var(--color-lapis);
-  outline-offset: 3px;
-}
-
 .tag-list__empty {
   color: var(--color-ink-muted);
   font-family: var(--font-reading);
@@ -3548,17 +3605,6 @@ onBeforeUnmount(clearProcessingPoll)
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
-}
-
-.tag-editor__list span {
-  align-items: center;
-  border: 1px solid var(--color-margin);
-  color: var(--color-lapis);
-  display: inline-flex;
-  font-family: var(--font-utility);
-  font-size: 0.78rem;
-  gap: 0.4rem;
-  padding: 0.35rem 0.45rem 0.35rem 0.65rem;
 }
 
 .tag-editor__list button {

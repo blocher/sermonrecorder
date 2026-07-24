@@ -91,7 +91,7 @@ class StudyArtifactOutput(BaseModel):
     hymn_tunes: list[str] = Field(min_length=1, max_length=3)
     quiz_questions: list[QuizQuestionOutput] = Field(min_length=2, max_length=10)
     scripture_references: list[ScriptureReferenceOutput] = Field(default_factory=list)
-    tag_suggestions: list[str] = Field(default_factory=list, max_length=12)
+    tag_suggestions: list[str] = Field(default_factory=list, max_length=5)
 
 
 @dataclass(frozen=True)
@@ -197,7 +197,7 @@ Produce:
   claims, supporting ideas, and practical takeaways rather than trivia. Every
   answer must be supported by the Transcript;
 - structured Scripture references that the sermon explicitly cites or clearly discusses;
-- a short list of reusable thematic Tag suggestions.
+- at most five reusable thematic Tag suggestions.
 
 Cleaned Transcript:
 <transcript>
@@ -315,5 +315,5 @@ Cleaned Transcript:
                 )
                 for reference in output.scripture_references
             ),
-            tag_suggestions=tuple(output.tag_suggestions),
+            tag_suggestions=tuple(output.tag_suggestions[:5]),
         )
