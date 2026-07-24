@@ -162,10 +162,9 @@ class SermonViewSet(
         return SermonSerializer
 
     def create(self, request, *args, **kwargs):
-        source_draft_id = (
-            request.data.get("source_draft_id")
-            or request.query_params.get("source_draft_id")
-        )
+        source_draft_id = request.data.get(
+            "source_draft_id"
+        ) or request.query_params.get("source_draft_id")
         if source_draft_id:
             existing = (
                 self.get_queryset().filter(source_draft_id=source_draft_id).first()
@@ -175,7 +174,9 @@ class SermonViewSet(
                     self.get_serializer(existing).data, status=status.HTTP_200_OK
                 )
 
-        data = request.data.copy()
+        # QueryDict.copy() deep-copies values, but disk-backed uploaded files
+        # contain open handles that cannot be copied.
+        data = {key: request.data.get(key) for key in request.data}
 
         # Handle audio field file key aliases ('file' or 'media' -> 'audio')
         if not data.get("audio"):
@@ -195,6 +196,7 @@ class SermonViewSet(
         serializer = self.get_serializer(data=data)
         if not serializer.is_valid():
             import logging
+
             logging.error(
                 f"[UPLOAD_VALIDATION_ERROR] {serializer.errors} | "
                 f"data_keys: {list(data.keys())} | "

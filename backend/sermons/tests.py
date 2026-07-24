@@ -60,6 +60,15 @@ class SermonApiTests(APITestCase):
         self.assertEqual(sermon.audio_mime_type, "audio/mp4")
         self.assertEqual(sermon.audio_size_bytes, len(b"captured sermon"))
 
+    @override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=1)
+    def test_upload_accepts_audio_spooled_to_a_temporary_file(self):
+        response = self.upload("disk-backed-draft")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        sermon = Sermon.objects.get()
+        self.assertEqual(sermon.source_draft_id, "disk-backed-draft")
+        self.assertEqual(sermon.audio_size_bytes, len(b"captured sermon"))
+
     def test_new_upload_is_enqueued_after_the_database_commit(self):
         with patch("sermons.views.enqueue_sermon_processing") as enqueue:
             with self.captureOnCommitCallbacks(execute=True):
@@ -219,7 +228,9 @@ class SermonApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotIn("processing_error", response.data["results"][0])
-        self.assertNotIn("OPENAI_API_KEY", response.data["results"][0]["processing_message"])
+        self.assertNotIn(
+            "OPENAI_API_KEY", response.data["results"][0]["processing_message"]
+        )
         self.assertEqual(
             response.data["results"][0]["processing_message"],
             "Transcription isn't configured yet. Add an OpenAI API key on the server, "
@@ -386,4 +397,3 @@ class SermonApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertTrue(Sermon.objects.filter(id=sermon.id).exists())
-
