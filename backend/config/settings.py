@@ -310,7 +310,7 @@ OPENAI_TRANSCRIPTION_REQUEST_RETRIES = int(
 # Pew-friendly server VAD: lower threshold catches quieter preaching that
 # chunking_strategy="auto" can treat as non-speech.
 OPENAI_TRANSCRIPTION_VAD_THRESHOLD = float(
-    os.environ.get("OPENAI_TRANSCRIPTION_VAD_THRESHOLD", "0.3")
+    os.environ.get("OPENAI_TRANSCRIPTION_VAD_THRESHOLD", "0.1")
 )
 OPENAI_TRANSCRIPTION_VAD_PREFIX_PADDING_MS = int(
     os.environ.get("OPENAI_TRANSCRIPTION_VAD_PREFIX_PADDING_MS", "400")

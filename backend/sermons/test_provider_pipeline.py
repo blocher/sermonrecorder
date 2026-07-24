@@ -1,3 +1,4 @@
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -108,6 +109,16 @@ class ProviderPipelineTests(TestCase):
             audio_mime_type="audio/mp4",
             audio_size_bytes=10,
         )
+
+    @staticmethod
+    def fake_ffmpeg(command, **kwargs):
+        output = str(command[-1])
+        if "%03d" in output:
+            for index in range(2):
+                Path(output.replace("%03d", f"{index:03d}")).write_bytes(b"prepared")
+        else:
+            Path(output).write_bytes(b"prepared")
+        return SimpleNamespace(returncode=0)
 
     def test_raw_diarized_segments_preserve_every_speaker(self):
         segments = [
@@ -239,7 +250,11 @@ class ProviderPipelineTests(TestCase):
             ),
         )
 
-        result = transcriber.transcribe(sermon)
+        with patch(
+            "sermons.audio_chunks.subprocess.run",
+            side_effect=self.fake_ffmpeg,
+        ):
+            result = transcriber.transcribe(sermon)
 
         self.assertEqual(
             result.text,
@@ -277,8 +292,31 @@ class ProviderPipelineTests(TestCase):
                 self.assertTrue(all(chunk.path.exists() for chunk in chunks))
 
         command = run.call_args.args[0]
-        self.assertIn("32k", command)
+        self.assertIn("64k", command)
+        self.assertIn("loudnorm=I=-16:TP=-1.5:LRA=11", command)
         self.assertIn("3300", command)
+
+    @override_settings(FFMPEG_BINARY="ffmpeg-test")
+    def test_short_recordings_are_loudness_normalized_before_transcription(self):
+        sermon = self.sermon()
+
+        def create_normalized(command, **kwargs):
+            Path(command[-1]).write_bytes(b"normalized audio")
+            return SimpleNamespace(returncode=0)
+
+        with patch(
+            "sermons.audio_chunks.subprocess.run",
+            side_effect=create_normalized,
+        ) as run:
+            with prepared_audio_chunks(sermon) as chunks:
+                self.assertEqual(len(chunks), 1)
+                self.assertEqual(chunks[0].start_seconds, 0)
+                self.assertTrue(chunks[0].path.exists())
+                self.assertNotEqual(chunks[0].path, Path(sermon.audio.path))
+
+        command = run.call_args.args[0]
+        self.assertIn("loudnorm=I=-16:TP=-1.5:LRA=11", command)
+        self.assertIn("64k", command)
 
     @override_settings(
         OPENAI_TRANSCRIPTION_MODEL="gpt-4o-transcribe-diarize",
@@ -302,7 +340,11 @@ class ProviderPipelineTests(TestCase):
             ),
         )
 
-        result = transcriber.transcribe(self.sermon())
+        with patch(
+            "sermons.audio_chunks.subprocess.run",
+            side_effect=self.fake_ffmpeg,
+        ):
+            result = transcriber.transcribe(self.sermon())
 
         self.assertEqual(
             result.text,
@@ -349,8 +391,12 @@ class ProviderPipelineTests(TestCase):
         )
         transcriber = OpenAIDiarizedTranscriber(client=client)
 
-        with self.assertRaises(RetryableProcessingError):
-            transcriber.transcribe(self.sermon())
+        with patch(
+            "sermons.audio_chunks.subprocess.run",
+            side_effect=self.fake_ffmpeg,
+        ):
+            with self.assertRaises(RetryableProcessingError):
+                transcriber.transcribe(self.sermon())
 
     @override_settings(OPENAI_API_KEY="")
     def test_missing_transcription_key_fails_before_provider_work(self):
