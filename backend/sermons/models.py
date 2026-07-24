@@ -154,6 +154,17 @@ class Sermon(models.Model):
     processing_claim_id = models.CharField(max_length=255, blank=True)
     processing_started_at = models.DateTimeField(null=True, blank=True)
     processing_finished_at = models.DateTimeField(null=True, blank=True)
+    # Optional regenerate window: full audio is kept; only this span feeds Transcript/Study.
+    consider_start_seconds = models.FloatField(
+        null=True,
+        blank=True,
+        validators=(MinValueValidator(0),),
+    )
+    consider_end_seconds = models.FloatField(
+        null=True,
+        blank=True,
+        validators=(MinValueValidator(0),),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

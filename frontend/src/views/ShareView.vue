@@ -12,6 +12,7 @@ import {
 } from '@lucide/vue'
 import BrandMark from '../components/BrandMark.vue'
 import SermonSectionTabs from '../components/SermonSectionTabs.vue'
+import { seekRatioFromClientX } from '../playback/seekTrack'
 import {
   numberedItems,
   paragraphs,
@@ -38,6 +39,7 @@ const audio = ref<HTMLAudioElement>()
 const playing = ref(false)
 const currentSeconds = ref(0)
 const playbackError = ref(false)
+const scrubbing = ref(false)
 const activeSection = ref<SermonSection>('study')
 let robotsMeta: HTMLMetaElement | null = null
 let previousRobotsContent: string | null = null
@@ -45,7 +47,7 @@ let previousRobotsContent: string | null = null
 const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
 )
-const progressLabel = computed(() => `${Math.round(progress.value * 100)}%`)
+const progressPercent = computed(() => `${Math.round(progress.value * 100)}%`)
 const hymn = computed(() => parseHymn(artifact('hymn')))
 const hymnTunes = computed(() => parseTuneSuggestions(artifact('hymn_tune_suggestions')))
 const quiz = computed(() => parseQuiz(artifact('quiz')))
@@ -113,6 +115,47 @@ async function seekTo(seconds: number): Promise<void> {
   audio.value.currentTime = seconds
   currentSeconds.value = seconds
   playbackError.value = false
+  try {
+    await audio.value.play()
+  } catch {
+    playbackError.value = true
+  }
+}
+
+function seekFromPointerEvent(event: PointerEvent): void {
+  if (!audio.value || !sermon.value) return
+  const track = event.currentTarget
+  if (!(track instanceof HTMLElement)) return
+  const seconds =
+    seekRatioFromClientX(track, event.clientX) * sermon.value.duration_seconds
+  audio.value.currentTime = seconds
+  currentSeconds.value = seconds
+}
+
+function beginTrackScrub(event: PointerEvent): void {
+  if (!audio.value || !sermon.value) return
+  const track = event.currentTarget
+  if (!(track instanceof HTMLElement)) return
+  scrubbing.value = true
+  playbackError.value = false
+  track.setPointerCapture(event.pointerId)
+  seekFromPointerEvent(event)
+}
+
+function moveTrackScrub(event: PointerEvent): void {
+  if (!scrubbing.value) return
+  seekFromPointerEvent(event)
+}
+
+async function endTrackScrub(event: PointerEvent): Promise<void> {
+  if (!scrubbing.value) return
+  scrubbing.value = false
+  const track = event.currentTarget
+  if (track instanceof HTMLElement && track.hasPointerCapture(event.pointerId)) {
+    track.releasePointerCapture(event.pointerId)
+  }
+  seekFromPointerEvent(event)
+  if (!audio.value) return
   try {
     await audio.value.play()
   } catch {
@@ -419,7 +462,7 @@ onBeforeUnmount(() => {
         @play="playing = true"
         @pause="playing = false"
         @ended="playing = false"
-        @timeupdate="currentSeconds = audio?.currentTime ?? 0"
+        @timeupdate="currentSeconds = scrubbing ? currentSeconds : (audio?.currentTime ?? 0)"
         @error="playbackError = true"
       ></audio>
       <button
@@ -436,19 +479,31 @@ onBeforeUnmount(() => {
           {{
             playbackError
               ? 'Audio unavailable'
-              : `${playing ? 'Playing' : 'Listen'} · ${serverSermonDuration(sermon.duration_seconds)}`
+              : `${playing ? 'Playing' : 'Listen'} · ${timestamp(currentSeconds)} / ${serverSermonDuration(sermon.duration_seconds)}`
           }}
         </span>
       </div>
       <div
         class="share-player__line"
-        role="progressbar"
-        aria-label="Shared Sermon playback progress"
+        role="slider"
+        tabindex="0"
+        aria-label="Shared Sermon playback position"
         aria-valuemin="0"
-        aria-valuemax="100"
-        :aria-valuenow="Math.round(progress * 100)"
+        :aria-valuemax="sermon.duration_seconds"
+        :aria-valuenow="Math.round(currentSeconds)"
+        :aria-valuetext="timestamp(currentSeconds)"
+        @pointerdown.prevent="beginTrackScrub"
+        @pointermove="moveTrackScrub"
+        @pointerup="endTrackScrub"
+        @pointercancel="endTrackScrub"
+        @keydown.home.prevent="seekTo(0)"
+        @keydown.end.prevent="seekTo(sermon.duration_seconds)"
+        @keydown.arrow-left.prevent="seekTo(Math.max(0, currentSeconds - 5))"
+        @keydown.arrow-right.prevent="
+          seekTo(Math.min(sermon.duration_seconds, currentSeconds + 5))
+        "
       >
-        <span :style="{ width: progressLabel }"></span>
+        <span :style="{ width: progressPercent }"></span>
       </div>
     </section>
   </main>
@@ -1004,13 +1059,18 @@ onBeforeUnmount(() => {
 
 .share-player__line {
   background: rgba(241, 238, 228, 0.2);
-  height: 2px;
+  cursor: pointer;
+  height: 12px;
+  padding: 5px 0;
+  touch-action: none;
 }
 
 .share-player__line span {
   background: var(--color-rule-gold);
-  height: 100%;
+  display: block;
+  height: 2px;
   margin: 0;
+  position: relative;
   width: 18%;
 }
 

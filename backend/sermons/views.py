@@ -2,13 +2,14 @@ from django.db import transaction
 from django.db.models import Q
 from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
 from .models import Sermon
 from .pagination import LibraryPagination
 from .serializers import (
     LibrarySearchQuerySerializer,
+    RegenerateSerializer,
     SermonDetailSerializer,
     SermonSerializer,
 )
@@ -30,7 +31,7 @@ class SermonViewSet(
     viewsets.GenericViewSet,
 ):
     permission_classes = (permissions.IsAuthenticated,)
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (JSONParser, MultiPartParser, FormParser)
     serializer_class = SermonSerializer
     pagination_class = LibraryPagination
 
@@ -112,6 +113,17 @@ class SermonViewSet(
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            serializer = RegenerateSerializer(
+                data=request.data,
+                context={"sermon": sermon},
+            )
+            serializer.is_valid(raise_exception=True)
+            sermon.consider_start_seconds = serializer.validated_data.get(
+                "consider_start_seconds"
+            )
+            sermon.consider_end_seconds = serializer.validated_data.get(
+                "consider_end_seconds"
+            )
             self._queue_reprocessing(sermon)
 
         transaction.on_commit(lambda: enqueue_sermon_processing(str(sermon.id)))
@@ -132,6 +144,8 @@ class SermonViewSet(
                 "processing_claim_id",
                 "processing_started_at",
                 "processing_finished_at",
+                "consider_start_seconds",
+                "consider_end_seconds",
                 "updated_at",
             )
         )

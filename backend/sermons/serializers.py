@@ -207,6 +207,8 @@ class SermonSerializer(serializers.ModelSerializer):
             "processing_message",
             "short_summary",
             "tag_suggestions",
+            "consider_start_seconds",
+            "consider_end_seconds",
             "created_at",
             "updated_at",
         )
@@ -224,6 +226,8 @@ class SermonSerializer(serializers.ModelSerializer):
             "processing_message",
             "short_summary",
             "tag_suggestions",
+            "consider_start_seconds",
+            "consider_end_seconds",
             "created_at",
             "updated_at",
         )
@@ -292,6 +296,54 @@ class TranscriptSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transcript
         fields = ("text", "segments", "updated_at")
+
+
+class OwnerTranscriptSerializer(TranscriptSerializer):
+    class Meta(TranscriptSerializer.Meta):
+        fields = ("text", "segments", "raw_segments", "updated_at")
+
+
+class RegenerateSerializer(serializers.Serializer):
+    consider_start_seconds = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+    )
+    consider_end_seconds = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+    )
+
+    def validate(self, attrs):
+        start = attrs.get("consider_start_seconds")
+        end = attrs.get("consider_end_seconds")
+        duration = float(self.context["sermon"].duration_seconds)
+        if start is not None and start >= duration:
+            raise serializers.ValidationError(
+                {
+                    "consider_start_seconds": (
+                        "Start time must be before the end of the recording."
+                    )
+                }
+            )
+        if end is not None and end > duration:
+            raise serializers.ValidationError(
+                {
+                    "consider_end_seconds": (
+                        "End time cannot be after the end of the recording."
+                    )
+                }
+            )
+        if start is not None and end is not None and end <= start:
+            raise serializers.ValidationError(
+                {
+                    "consider_end_seconds": (
+                        "End time must be after the start time."
+                    )
+                }
+            )
+        return attrs
 
 
 class TranscriptSegmentEditSerializer(serializers.Serializer):
@@ -489,7 +541,7 @@ class RelatedSermonSerializer(serializers.ModelSerializer):
 
 
 class SermonDetailSerializer(SermonSerializer):
-    transcript = TranscriptSerializer(read_only=True, allow_null=True)
+    transcript = OwnerTranscriptSerializer(read_only=True, allow_null=True)
     study_artifacts = StudyArtifactSerializer(many=True, read_only=True)
     scripture_references = ScriptureReferenceSerializer(many=True, read_only=True)
     related_sermons = RelatedSermonSerializer(many=True, read_only=True)

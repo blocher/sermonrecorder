@@ -59,6 +59,26 @@ class SermonEditingApiTests(APITestCase):
                 {"start_seconds": 0, "end_seconds": 5, "text": "First segment."},
                 {"start_seconds": 5, "end_seconds": 10, "text": "Second segment."},
             ],
+            raw_segments=[
+                {
+                    "speaker": "A",
+                    "start_seconds": 0,
+                    "end_seconds": 5,
+                    "text": "First segment.",
+                },
+                {
+                    "speaker": "B",
+                    "start_seconds": 5,
+                    "end_seconds": 7,
+                    "text": "Pass me that.",
+                },
+                {
+                    "speaker": "A",
+                    "start_seconds": 7,
+                    "end_seconds": 10,
+                    "text": "Second segment.",
+                },
+            ],
         )
         TagSuggestion.objects.create(
             sermon=self.sermon,
@@ -143,6 +163,11 @@ class SermonEditingApiTests(APITestCase):
         self.assertEqual(
             detail.data["reflections"][0]["content"],
             "I will make room before I feel ready.",
+        )
+        self.assertEqual(len(detail.data["transcript"]["raw_segments"]), 3)
+        self.assertEqual(
+            detail.data["transcript"]["raw_segments"][1]["text"],
+            "Pass me that.",
         )
 
         self.client.force_authenticate(user=self.other_user)

@@ -356,13 +356,44 @@ class SermonApiTests(APITestCase):
 
         with patch("sermons.views.enqueue_sermon_processing") as enqueue:
             with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.post(f"/api/sermons/{sermon.id}/regenerate/")
+                response = self.client.post(
+                    f"/api/sermons/{sermon.id}/regenerate/",
+                    {
+                        "consider_start_seconds": 90,
+                        "consider_end_seconds": 600,
+                    },
+                    format="json",
+                )
 
         sermon.refresh_from_db()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["processing_status"], "uploaded")
+        self.assertEqual(response.data["consider_start_seconds"], 90)
+        self.assertEqual(response.data["consider_end_seconds"], 600)
         self.assertEqual(sermon.processing_status, Sermon.ProcessingStatus.UPLOADED)
+        self.assertEqual(sermon.consider_start_seconds, 90)
+        self.assertEqual(sermon.consider_end_seconds, 600)
         enqueue.assert_called_once_with(str(sermon.id))
+
+    def test_regenerate_rejects_an_invalid_consider_window(self):
+        uploaded = self.upload("regenerate-window")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        sermon.processing_status = Sermon.ProcessingStatus.READY
+        sermon.save(update_fields=("processing_status", "updated_at"))
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            f"/api/sermons/{sermon.id}/regenerate/",
+            {
+                "consider_start_seconds": 400,
+                "consider_end_seconds": 120,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        sermon.refresh_from_db()
+        self.assertEqual(sermon.processing_status, Sermon.ProcessingStatus.READY)
 
     def test_regenerate_rejects_sermons_still_processing(self):
         uploaded = self.upload("regenerate-processing")

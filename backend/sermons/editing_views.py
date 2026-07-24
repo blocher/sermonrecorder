@@ -17,13 +17,13 @@ from .models import (
     Transcript,
 )
 from .serializers import (
+    OwnerTranscriptSerializer,
     ReflectionSerializer,
     ScriptureReferenceSerializer,
     ScriptureReferencesEditSerializer,
     StudyArtifactEditSerializer,
     TagsEditSerializer,
     TranscriptEditSerializer,
-    TranscriptSerializer,
 )
 
 
@@ -70,7 +70,7 @@ class TranscriptDetailView(APIView):
         transcript.segments = serializer.validated_data["segments"]
         transcript.text = " ".join(segment["text"] for segment in transcript.segments)
         transcript.save(update_fields=("segments", "text", "updated_at"))
-        return Response(TranscriptSerializer(transcript).data)
+        return Response(OwnerTranscriptSerializer(transcript).data)
 
 
 class TagsDetailView(APIView):

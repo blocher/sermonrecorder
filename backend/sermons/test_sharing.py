@@ -193,6 +193,7 @@ class SermonSharingTests(APITestCase):
             response.data["transcript"]["text"],
             "The cleaned public Transcript.",
         )
+        self.assertNotIn("raw_segments", response.data["transcript"])
         artifact_contents = {
             artifact["kind"]: artifact["content"]
             for artifact in response.data["study_artifacts"]

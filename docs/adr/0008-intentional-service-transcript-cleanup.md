@@ -11,8 +11,12 @@ Accepted
   high-confidence incidental pew conversation.
 - Speaker labels alone never decide retention. A preacher mislabeled as multiple
   speakers, readers, and secondary service voices stay in the cleaned Transcript.
+- Long segments and drop ratios above a small share of speech time fail open.
 - If cleanup would discard every segment, the raw segments are kept unchanged.
-- Raw segments are stored so cleanup can be regenerated without retranscribing.
+- Raw segments are stored so cleanup can be regenerated without retranscribing,
+  and so the Congregant can review the unredacted diarization privately.
+- Regenerating may set an optional consider window: the full audio file is kept,
+  but only overlapping speech feeds the cleaned Transcript and Study artifacts.
 
 ## Consequences
 

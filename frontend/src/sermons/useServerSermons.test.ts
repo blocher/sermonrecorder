@@ -21,6 +21,7 @@ import { useServerSermons } from './useServerSermons'
 const uploadedSermon = {
   id: 'server-sermon',
   source_draft_id: 'local-draft',
+  title: '',
   captured_at: '2026-07-20T15:30:00Z',
   duration_seconds: 2700,
   audio_url: 'http://api.example.test/api/sermons/server-sermon/audio/?token=signed',
@@ -34,6 +35,8 @@ const uploadedSermon = {
   processing_message: 'Safely uploaded and waiting to process.',
   short_summary: '',
   tag_suggestions: [] as string[],
+  consider_start_seconds: null,
+  consider_end_seconds: null,
   created_at: '2026-07-20T15:31:00Z',
   updated_at: '2026-07-20T15:31:00Z',
 }

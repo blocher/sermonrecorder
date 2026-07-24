@@ -16,6 +16,7 @@ from openai.types.audio.transcription_diarized_segment import (
 )
 
 from .audio_chunks import prepared_audio_chunks
+from .consider_window import filter_segments_to_consider_window
 from .models import Sermon
 from .processing import (
     PermanentProcessingError,
@@ -104,15 +105,26 @@ class OpenAIDiarizedTranscriber:
         if not raw_segments:
             raise PermanentProcessingError("No speech was found in the Sermon audio.")
 
+        considered = filter_segments_to_consider_window(
+            raw_segments,
+            start_seconds=sermon.consider_start_seconds,
+            end_seconds=sermon.consider_end_seconds,
+        )
+        if not considered:
+            raise PermanentProcessingError(
+                "No speech was found in the selected regenerate time window."
+            )
+
         cleanup_kwargs = {}
         if self.cleanup_runner is not None:
             cleanup_kwargs["runner"] = self.cleanup_runner
         cleaned_segments = intentional_service_segments(
-            raw_segments,
+            considered,
             **cleanup_kwargs,
         )
         return CleanedTranscript(
             text=" ".join(segment.text for segment in cleaned_segments),
             segments=cleaned_segments,
+            # Full diarization (including outside the consider window) for owner review.
             raw_segments=tuple(raw_segments),
         )

@@ -59,12 +59,22 @@ const detail: ServerSermonDetail = {
   processing_message: 'Ready to revisit.',
   short_summary: 'Grace meets us here.',
   tag_suggestions: ['Grace'],
+  consider_start_seconds: null,
+  consider_end_seconds: null,
   created_at: '2026-07-20T15:31:00Z',
   updated_at: '2026-07-20T15:35:00Z',
   audio_url: 'http://api.example.test/api/sermons/ready-sermon/audio/?token=signed',
   transcript: {
     text: 'Grace meets us here.',
     segments: [{ start_seconds: 0, end_seconds: 3, text: 'Grace meets us here.' }],
+    raw_segments: [
+      {
+        speaker: 'A',
+        start_seconds: 0,
+        end_seconds: 3,
+        text: 'Grace meets us here.',
+      },
+    ],
     updated_at: '2026-07-20T15:35:00Z',
   },
   study_artifacts: [],
@@ -114,15 +124,32 @@ describe('server Sermon detail', () => {
       ...detail,
       processing_status: 'uploaded' as const,
       processing_message: 'Safely uploaded and waiting to process.',
+      consider_start_seconds: 90,
+      consider_end_seconds: 2400,
     }
     mocks.fetch.mockResolvedValueOnce(
       new Response(JSON.stringify(queued), { status: 200 }),
     )
 
-    await expect(regenerateSermon('ready-sermon')).resolves.toEqual(queued)
+    await expect(
+      regenerateSermon('ready-sermon', {
+        consider_start_seconds: 90,
+        consider_end_seconds: 2400,
+      }),
+    ).resolves.toEqual(queued)
     expect(mocks.fetch).toHaveBeenCalledWith(
       'http://api.example.test/api/sermons/ready-sermon/regenerate/',
-      { method: 'POST', headers: { Authorization: 'Bearer access-token' } },
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer access-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          consider_start_seconds: 90,
+          consider_end_seconds: 2400,
+        }),
+      },
     )
   })
 

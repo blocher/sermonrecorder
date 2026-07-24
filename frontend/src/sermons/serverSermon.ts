@@ -50,6 +50,8 @@ export interface ServerSermon {
   processing_message: string
   short_summary: string
   tag_suggestions: string[]
+  consider_start_seconds: number | null
+  consider_end_seconds: number | null
   created_at: string
   updated_at: string
 }
@@ -60,9 +62,17 @@ export interface ServerTranscriptSegment {
   text: string
 }
 
+export interface ServerRawTranscriptSegment {
+  speaker: string
+  start_seconds: number
+  end_seconds: number
+  text: string
+}
+
 export interface ServerTranscript {
   text: string
   segments: ServerTranscriptSegment[]
+  raw_segments?: ServerRawTranscriptSegment[]
   updated_at: string
 }
 
@@ -239,10 +249,23 @@ export async function retrySermonProcessing(id: string): Promise<ServerSermon> {
   )
 }
 
-export async function regenerateSermon(id: string): Promise<ServerSermon> {
+export async function regenerateSermon(
+  id: string,
+  window: {
+    consider_start_seconds?: number | null
+    consider_end_seconds?: number | null
+  } = {},
+): Promise<ServerSermon> {
   return authorizedJson<ServerSermon>(
     `/api/sermons/${encodeURIComponent(id)}/regenerate/`,
-    { method: 'POST' },
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        consider_start_seconds: window.consider_start_seconds ?? null,
+        consider_end_seconds: window.consider_end_seconds ?? null,
+      }),
+    },
     'This Sermon could not be regenerated.',
   )
 }

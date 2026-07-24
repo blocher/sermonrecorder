@@ -25,6 +25,7 @@ import ReflectionEditor from '../components/ReflectionEditor.vue'
 import SermonSectionTabs from '../components/SermonSectionTabs.vue'
 import { useAuth } from '../auth/useAuth'
 import { findNearbyChurches } from '../location/findNearbyChurches'
+import { formatClock, parseClock, seekRatioFromClientX } from '../playback/seekTrack'
 import {
   numberedItems,
   paragraphs,
@@ -65,7 +66,7 @@ import {
   type StudyArtifactKind,
 } from '../sermons/serverSermon'
 
-type TranscriptView = 'timeline' | 'reading'
+type TranscriptView = 'timeline' | 'reading' | 'full'
 type ScriptureReferenceDraft = Omit<
   ServerScriptureReference,
   'display' | 'chapter_start' | 'verse_start' | 'chapter_end' | 'verse_end'
@@ -125,6 +126,9 @@ const deleteMessage = ref('')
 const confirmingRegenerate = ref(false)
 const regenerating = ref(false)
 const regenerateMessage = ref('')
+const regenerateStartClock = ref('00:00')
+const regenerateEndClock = ref('00:00')
+const scrubbing = ref(false)
 const contextPanelOpen = ref(false)
 const contextLoading = ref(false)
 const contextSaving = ref(false)
@@ -148,10 +152,13 @@ let processingPollTimer: ReturnType<typeof setTimeout> | undefined
 const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
 )
-const progressLabel = computed(() => `${Math.round(progress.value * 100)}%`)
+const progressPercent = computed(() => `${Math.round(progress.value * 100)}%`)
 const hymn = computed(() => parseHymn(artifact('hymn')))
 const hymnTunes = computed(() => parseTuneSuggestions(artifact('hymn_tune_suggestions')))
 const quiz = computed(() => parseQuiz(artifact('quiz')))
+const rawTranscriptSegments = computed(
+  () => sermon.value?.transcript?.raw_segments ?? [],
+)
 const readingTranscriptParagraphs = computed(() => {
   const segments = sermon.value?.transcript?.segments ?? []
   if (!segments.length) {
@@ -480,6 +487,114 @@ async function seekTo(seconds: number): Promise<void> {
   }
 }
 
+function seekFromPointerEvent(event: PointerEvent): void {
+  if (!audio.value || !sermon.value) return
+  const track = event.currentTarget
+  if (!(track instanceof HTMLElement)) return
+  const seconds =
+    seekRatioFromClientX(track, event.clientX) * sermon.value.duration_seconds
+  audio.value.currentTime = seconds
+  currentSeconds.value = seconds
+}
+
+function beginTrackScrub(event: PointerEvent): void {
+  if (!audio.value || !sermon.value) return
+  const track = event.currentTarget
+  if (!(track instanceof HTMLElement)) return
+  scrubbing.value = true
+  playbackError.value = false
+  track.setPointerCapture(event.pointerId)
+  seekFromPointerEvent(event)
+}
+
+function moveTrackScrub(event: PointerEvent): void {
+  if (!scrubbing.value) return
+  seekFromPointerEvent(event)
+}
+
+async function endTrackScrub(event: PointerEvent): Promise<void> {
+  if (!scrubbing.value) return
+  scrubbing.value = false
+  const track = event.currentTarget
+  if (track instanceof HTMLElement && track.hasPointerCapture(event.pointerId)) {
+    track.releasePointerCapture(event.pointerId)
+  }
+  seekFromPointerEvent(event)
+  if (!audio.value) return
+  try {
+    await audio.value.play()
+  } catch {
+    playbackError.value = true
+  }
+}
+
+function beginRegenerateConfirmation(): void {
+  sharePanelOpen.value = false
+  confirmingDelete.value = false
+  regenerateMessage.value = ''
+  const current = sermon.value
+  regenerateStartClock.value = formatClock(current?.consider_start_seconds ?? 0)
+  regenerateEndClock.value = formatClock(
+    current?.consider_end_seconds ?? current?.duration_seconds ?? 0,
+  )
+  confirmingRegenerate.value = true
+}
+
+function resolveRegenerateWindow():
+  | { consider_start_seconds: number | null; consider_end_seconds: number | null }
+  | null {
+  if (!sermon.value) return null
+  const duration = sermon.value.duration_seconds
+  const start = parseClock(regenerateStartClock.value)
+  const end = parseClock(regenerateEndClock.value)
+  if (start === null || end === null) {
+    regenerateMessage.value = 'Use mm:ss (or h:mm:ss) for the start and end times.'
+    return null
+  }
+  if (start >= duration) {
+    regenerateMessage.value = 'Start time must be before the end of the recording.'
+    return null
+  }
+  if (end <= start) {
+    regenerateMessage.value = 'End time must be after the start time.'
+    return null
+  }
+  if (end > duration) {
+    regenerateMessage.value = 'End time cannot be after the end of the recording.'
+    return null
+  }
+  return {
+    consider_start_seconds: start <= 0 ? null : start,
+    consider_end_seconds: end >= duration ? null : end,
+  }
+}
+
+async function regenerateCurrentSermon(): Promise<void> {
+  if (!sermon.value || regenerating.value) return
+  const window = resolveRegenerateWindow()
+  if (!window) return
+  regenerating.value = true
+  regenerateMessage.value = ''
+  try {
+    audio.value?.pause()
+    const current = sermon.value
+    const queued = await regenerateSermon(current.id, window)
+    confirmingRegenerate.value = false
+    applyLoadedSermon(
+      {
+        ...current,
+        ...queued,
+      },
+      queued.id,
+    )
+  } catch (error) {
+    regenerateMessage.value =
+      error instanceof Error ? error.message : 'This Sermon could not be regenerated.'
+  } finally {
+    regenerating.value = false
+  }
+}
+
 async function toggleSharePanel(): Promise<void> {
   if (!sharePanelOpen.value && contextPanelOpen.value) {
     contextMessage.value = 'Save or close the Sermon details before opening sharing.'
@@ -593,37 +708,6 @@ function beginDeleteConfirmation(): void {
   sharePanelOpen.value = false
   confirmingRegenerate.value = false
   confirmingDelete.value = true
-}
-
-function beginRegenerateConfirmation(): void {
-  sharePanelOpen.value = false
-  confirmingDelete.value = false
-  regenerateMessage.value = ''
-  confirmingRegenerate.value = true
-}
-
-async function regenerateCurrentSermon(): Promise<void> {
-  if (!sermon.value || regenerating.value) return
-  regenerating.value = true
-  regenerateMessage.value = ''
-  try {
-    audio.value?.pause()
-    const current = sermon.value
-    const queued = await regenerateSermon(current.id)
-    confirmingRegenerate.value = false
-    applyLoadedSermon(
-      {
-        ...current,
-        ...queued,
-      },
-      queued.id,
-    )
-  } catch (error) {
-    regenerateMessage.value =
-      error instanceof Error ? error.message : 'This Sermon could not be regenerated.'
-  } finally {
-    regenerating.value = false
-  }
 }
 
 async function saveNewChurch(): Promise<void> {
@@ -1068,8 +1152,41 @@ onBeforeUnmount(clearProcessingPoll)
             other AI-generated notes will be permanently replaced.
           </p>
           <p>
-            Reflections and Share links are kept. The audio itself is never deleted.
+            Reflections and Share links are kept. The audio itself is never deleted or trimmed.
           </p>
+          <div class="sermon-regenerate-window">
+            <p class="rubric-label">Audio window to consider</p>
+            <p>
+              Optionally skip prelude or trailing silence. Only speech inside this window feeds
+              the new Transcript and Study notes.
+            </p>
+            <div class="sermon-regenerate-window__fields">
+              <label>
+                Start
+                <input
+                  v-model="regenerateStartClock"
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  :disabled="regenerating"
+                  aria-label="Regenerate start time"
+                  placeholder="00:00"
+                />
+              </label>
+              <label>
+                End
+                <input
+                  v-model="regenerateEndClock"
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  :disabled="regenerating"
+                  aria-label="Regenerate end time"
+                  :placeholder="formatClock(sermon.duration_seconds)"
+                />
+              </label>
+            </div>
+          </div>
           <p v-if="regenerateMessage" class="sermon-delete-confirm__error" role="alert">
             {{ regenerateMessage }}
           </p>
@@ -1317,7 +1434,7 @@ onBeforeUnmount(clearProcessingPoll)
           @play="playing = true"
           @pause="playing = false"
           @ended="playing = false"
-          @timeupdate="currentSeconds = audio?.currentTime ?? 0"
+          @timeupdate="currentSeconds = scrubbing ? currentSeconds : (audio?.currentTime ?? 0)"
           @error="playbackError = true"
         ></audio>
         <button
@@ -1332,17 +1449,32 @@ onBeforeUnmount(clearProcessingPoll)
         <div class="audio-player__body">
           <div class="audio-player__labels">
             <span>{{ playing ? 'Playing sermon' : 'Sermon audio' }}</span>
-            <span>{{ progressLabel }} · {{ serverSermonDuration(sermon.duration_seconds) }}</span>
+            <span>
+              {{ timestamp(currentSeconds) }} ·
+              {{ serverSermonDuration(sermon.duration_seconds) }}
+            </span>
           </div>
           <div
             class="audio-player__track"
-            role="progressbar"
-            aria-label="Sermon playback progress"
+            role="slider"
+            tabindex="0"
+            aria-label="Sermon playback position"
             aria-valuemin="0"
-            aria-valuemax="100"
-            :aria-valuenow="Math.round(progress * 100)"
+            :aria-valuemax="sermon.duration_seconds"
+            :aria-valuenow="Math.round(currentSeconds)"
+            :aria-valuetext="timestamp(currentSeconds)"
+            @pointerdown.prevent="beginTrackScrub"
+            @pointermove="moveTrackScrub"
+            @pointerup="endTrackScrub"
+            @pointercancel="endTrackScrub"
+            @keydown.home.prevent="seekTo(0)"
+            @keydown.end.prevent="seekTo(sermon.duration_seconds)"
+            @keydown.arrow-left.prevent="seekTo(Math.max(0, currentSeconds - 5))"
+            @keydown.arrow-right.prevent="
+              seekTo(Math.min(sermon.duration_seconds, currentSeconds + 5))
+            "
           >
-            <span :style="{ width: progressLabel }"></span>
+            <span :style="{ width: progressPercent }"></span>
           </div>
           <small v-if="playbackError" class="audio-player__error">
             Audio could not be played. Reopen this Sermon to refresh its private link.
@@ -1899,11 +2031,13 @@ onBeforeUnmount(clearProcessingPoll)
           <section class="artifact transcript">
             <div class="artifact__heading">
               <div>
-                <p class="rubric-label">Cleaned transcript</p>
+                <p class="rubric-label">
+                  {{ transcriptView === 'full' ? 'Full diarization' : 'Cleaned transcript' }}
+                </p>
                 <h2>Follow the sermon</h2>
               </div>
               <button
-                v-if="sermon.transcript?.segments.length"
+                v-if="sermon.transcript?.segments.length && transcriptView !== 'full'"
                 class="artifact__edit"
                 type="button"
                 aria-label="Edit Transcript"
@@ -1929,12 +2063,24 @@ onBeforeUnmount(clearProcessingPoll)
               >
                 Reading
               </button>
+              <button
+                type="button"
+                :class="{ active: transcriptView === 'full' }"
+                :aria-pressed="transcriptView === 'full'"
+                @click="transcriptView = 'full'"
+              >
+                Full tape
+              </button>
             </div>
             <p class="transcript__note">
               {{
                 transcriptView === 'timeline'
                   ? 'Side conversations have been removed. Tap a timestamp to listen from that moment.'
-                  : 'The cleaned Transcript is gathered into longer paragraphs for uninterrupted reading.'
+                  : transcriptView === 'reading'
+                    ? 'The cleaned Transcript is gathered into longer paragraphs for uninterrupted reading.'
+                    : rawTranscriptSegments.length
+                      ? 'Every diarized segment, including pew side talk. Speaker labels come from the transcription model.'
+                      : 'Full diarization is available after the next regenerate on the current cleanup pipeline.'
               }}
             </p>
             <div v-if="editingTranscript" class="transcript-editor">
@@ -1973,6 +2119,29 @@ onBeforeUnmount(clearProcessingPoll)
                 </button>
                 <p>{{ segment.text }}</p>
               </div>
+            </div>
+            <div v-else-if="transcriptView === 'full'" class="transcript__segments">
+              <div
+                v-for="segment in rawTranscriptSegments"
+                :key="`${segment.speaker}-${segment.start_seconds}-${segment.text}`"
+                class="transcript__segment transcript__segment--raw"
+              >
+                <button
+                  type="button"
+                  :aria-label="`Play from ${timestamp(segment.start_seconds)}`"
+                  @click="seekTo(segment.start_seconds)"
+                >
+                  {{ timestamp(segment.start_seconds) }}
+                </button>
+                <div>
+                  <span class="transcript__speaker">{{ segment.speaker }}</span>
+                  <p>{{ segment.text }}</p>
+                </div>
+              </div>
+              <p v-if="!rawTranscriptSegments.length" class="transcript__empty">
+                No unredacted segments are stored for this Sermon yet. Regenerate to capture the
+                full diarization.
+              </p>
             </div>
             <div v-else class="transcript__reading">
               <p v-for="(paragraph, index) in readingTranscriptParagraphs" :key="index">
@@ -2406,6 +2575,45 @@ onBeforeUnmount(clearProcessingPoll)
   border-color: color-mix(in srgb, var(--color-lapis) 40%, var(--color-margin));
 }
 
+.sermon-regenerate-window {
+  margin-top: 1.1rem;
+}
+
+.sermon-regenerate-window > p {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  margin: 0.35rem 0 0.85rem;
+}
+
+.sermon-regenerate-window__fields {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sermon-regenerate-window__fields label {
+  color: var(--color-ink-muted);
+  display: grid;
+  font-family: var(--font-utility);
+  font-size: 0.72rem;
+  gap: 0.35rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sermon-regenerate-window__fields input {
+  background: var(--color-vellum);
+  border: 1px solid var(--color-margin);
+  color: var(--color-ink);
+  font-family: var(--font-utility);
+  font-size: 1rem;
+  letter-spacing: 0;
+  padding: 0.65rem 0.75rem;
+  text-transform: none;
+}
+
 .sermon-header__actions button:disabled {
   cursor: wait;
   opacity: 0.6;
@@ -2789,13 +2997,16 @@ onBeforeUnmount(clearProcessingPoll)
 
 .audio-player__track {
   background: rgba(241, 238, 228, 0.17);
-  height: 2px;
+  cursor: pointer;
+  height: 10px;
+  padding: 4px 0;
+  touch-action: none;
 }
 
 .audio-player__track span {
   background: var(--color-rule-gold);
   display: block;
-  height: 100%;
+  height: 2px;
   position: relative;
 }
 
@@ -2803,12 +3014,34 @@ onBeforeUnmount(clearProcessingPoll)
   background: var(--color-vellum);
   border-radius: 50%;
   content: '';
-  height: 0.55rem;
+  height: 0.7rem;
   position: absolute;
   right: 0;
   top: 50%;
   transform: translate(50%, -50%);
-  width: 0.55rem;
+  width: 0.7rem;
+}
+
+.transcript__segment--raw {
+  align-items: start;
+}
+
+.transcript__speaker {
+  color: var(--color-lapis);
+  display: inline-block;
+  font-family: var(--font-utility);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.2rem;
+  text-transform: uppercase;
+}
+
+.transcript__empty {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.9rem;
+  margin: 0.5rem 0 0;
 }
 
 .audio-player__error {

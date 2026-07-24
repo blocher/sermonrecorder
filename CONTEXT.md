@@ -57,7 +57,7 @@ A Congregant's personal journal response tied to a Sermon — freeform or starte
 _Avoid_: Journal entry (as the only name), diary, answer (too tied to quiz-style questions)
 
 **Transcript**:
-The cleaned, timestamped text of a Sermon's pew recording meant for reading and skip-to playback. Built from diarized speech by keeping intentional service speech (preaching, liturgy, reading, responses, and any speaker who appears part of the service) and dropping only clearly incidental pew conversation; the Congregant edits this text. Raw diarized segments are retained so cleanup can be regenerated without retranscribing when possible.
+The cleaned, timestamped text of a Sermon's pew recording meant for reading and skip-to playback. Built from diarized speech by keeping intentional service speech (preaching, liturgy, reading, responses, and any speaker who appears part of the service) and dropping only clearly incidental pew conversation; the Congregant edits this text. Raw diarized segments are retained privately so the Congregant can review the unredacted tape and so cleanup can be regenerated without retranscribing when possible. Regenerating may optionally consider only a start–end window of the recording; the original audio file is never trimmed.
 _Avoid_: Predominant speaker filter (too lossy), full tape as the edited reading text, captions
 
 **Related Sermon**:

@@ -168,6 +168,84 @@ class ProviderPipelineTests(TestCase):
 
         self.assertEqual(len(cleaned), 2)
 
+    def test_intentional_cleanup_keeps_long_segments_even_if_marked_incidental(self):
+        raw = (
+            RawTranscriptSegment(
+                "A",
+                0,
+                25,
+                "In the name of the Father and of the Son and of the Holy Spirit.",
+            ),
+            RawTranscriptSegment("B", 25, 28, "Pass the hymnal."),
+        )
+
+        cleaned = intentional_service_segments(
+            raw,
+            runner=lambda *args, **kwargs: TranscriptCleanupOutput(
+                incidental_segment_indexes=[0, 1]
+            ),
+        )
+
+        self.assertEqual(
+            [segment.text for segment in cleaned],
+            [
+                "In the name of the Father and of the Son and of the Holy Spirit.",
+            ],
+        )
+
+    def test_intentional_cleanup_keeps_everything_when_drop_ratio_is_high(self):
+        raw = (
+            RawTranscriptSegment("A", 0, 10, "Grace meets us here."),
+            RawTranscriptSegment("B", 10, 14, "Can you scoot over?"),
+            RawTranscriptSegment("C", 14, 18, "Where is the bulletin?"),
+        )
+
+        cleaned = intentional_service_segments(
+            raw,
+            runner=lambda *args, **kwargs: TranscriptCleanupOutput(
+                incidental_segment_indexes=[1, 2]
+            ),
+        )
+
+        self.assertEqual(len(cleaned), 3)
+
+    def test_transcriber_applies_consider_window_before_cleanup(self):
+        sermon = self.sermon("windowed-source")
+        sermon.consider_start_seconds = 30
+        sermon.consider_end_seconds = 90
+        sermon.save(
+            update_fields=(
+                "consider_start_seconds",
+                "consider_end_seconds",
+                "updated_at",
+            )
+        )
+        client = Mock()
+        client.audio.transcriptions.create.return_value = SimpleNamespace(
+            segments=[
+                diarized_segment("A", 0, 25, "Prelude chatter."),
+                diarized_segment("A", 30, 60, "Blessed are the merciful."),
+                diarized_segment("B", 60, 63, "Can you move over?"),
+                diarized_segment("A", 63, 90, "Mercy remakes us."),
+                diarized_segment("A", 95, 120, "Coffee after the service."),
+            ]
+        )
+        transcriber = OpenAIDiarizedTranscriber(
+            client=client,
+            cleanup_runner=lambda *args, **kwargs: TranscriptCleanupOutput(
+                incidental_segment_indexes=[1]
+            ),
+        )
+
+        result = transcriber.transcribe(sermon)
+
+        self.assertEqual(
+            result.text,
+            "Blessed are the merciful. Mercy remakes us.",
+        )
+        self.assertEqual(len(result.raw_segments), 5)
+        self.assertEqual(result.raw_segments[0].text, "Prelude chatter.")
+
     @override_settings(
         FFMPEG_BINARY="ffmpeg-test",
         SERMON_TRANSCRIPTION_CHUNK_SECONDS=3300,
