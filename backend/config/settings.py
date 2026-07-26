@@ -359,14 +359,14 @@ OPENAI_TRANSCRIPTION_VAD_SILENCE_DURATION_MS = int(
 SERMON_ARTIFACT_MODEL = os.environ.get("SERMON_ARTIFACT_MODEL", "openai")
 SERMON_ARTIFACT_REASONING_LEVEL = os.environ.get(
     "SERMON_ARTIFACT_REASONING_LEVEL",
-    "medium",
+    "high",
 )
 SIMPLEAI = {
     "defaults": ["openai"],
     "providers": {
         "openai": {
             "api_key": OPENAI_API_KEY,
-            "default_model": os.environ.get("SIMPLEAI_OPENAI_MODEL", "gpt-5.5"),
+            "default_model": os.environ.get("SIMPLEAI_OPENAI_MODEL", "gpt-5.6-sol"),
         },
     },
     "logging": {
