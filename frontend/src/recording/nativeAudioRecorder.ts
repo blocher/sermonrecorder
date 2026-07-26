@@ -33,7 +33,9 @@ export class NativeAudioRecorder implements AudioRecorder {
 
     try {
       await CapacitorAudioRecorder.startRecording({
-        audioSessionMode: AudioSessionMode.Measurement,
+        // Default restores system AGC. Measurement disables it and yields
+        // near-silent pew recordings that play back too quietly.
+        audioSessionMode: AudioSessionMode.Default,
         bitRate: 128_000,
         sampleRate: 44_100,
       })

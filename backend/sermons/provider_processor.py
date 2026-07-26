@@ -3,6 +3,7 @@ from typing import Protocol
 from .audio_duration import probe_audio_duration_seconds
 from .models import Sermon
 from .openai_transcriber import CleanedTranscript, OpenAIDiarizedTranscriber
+from .playback_audio import normalize_sermon_playback_audio
 from .processing import PermanentProcessingError, ProcessedSermon, RelatedSermonResult
 from .simpleai_artifacts import GeneratedArtifacts, SimpleAIArtifactGenerator
 
@@ -65,6 +66,7 @@ class ProviderSermonProcessor:
         self.artifact_generator = artifact_generator or SimpleAIArtifactGenerator()
 
     def process(self, sermon: Sermon) -> ProcessedSermon:
+        normalize_sermon_playback_audio(sermon)
         _sync_duration_from_audio(sermon)
         transcript = self.transcriber.transcribe(sermon)
         artifacts = self.artifact_generator.generate(transcript)

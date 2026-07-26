@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@capgo/capacitor-audio-recorder', () => ({
-  AudioSessionMode: { Measurement: 'MEASUREMENT' },
+  AudioSessionMode: { Default: 'DEFAULT', Measurement: 'MEASUREMENT' },
   CapacitorAudioRecorder: {
     cancelRecording: mocks.cancelRecording,
     checkPermissions: mocks.checkPermissions,
@@ -60,7 +60,7 @@ describe('native audio recorder', () => {
 
     expect(mocks.guardStart).toHaveBeenCalledOnce()
     expect(mocks.startRecording).toHaveBeenCalledWith({
-      audioSessionMode: 'MEASUREMENT',
+      audioSessionMode: 'DEFAULT',
       bitRate: 128_000,
       sampleRate: 44_100,
     })

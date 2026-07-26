@@ -698,7 +698,11 @@ class ProviderPipelineTests(TestCase):
         artifact_generator.generate.return_value = generated_artifacts()
         processor = ProviderSermonProcessor(transcriber, artifact_generator)
 
-        result = processor.process(sermon)
+        with patch(
+            "sermons.provider_processor.normalize_sermon_playback_audio",
+            return_value=False,
+        ):
+            result = processor.process(sermon)
 
         self.assertEqual(result.title, "Grace Welcomes Us Home")
         self.assertEqual(

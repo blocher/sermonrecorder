@@ -124,6 +124,8 @@ class Sermon(models.Model):
     audio = models.FileField(upload_to=sermon_audio_path, max_length=500)
     audio_mime_type = models.CharField(max_length=120)
     audio_size_bytes = models.PositiveBigIntegerField()
+    # Set when playback audio has been loudness-normalized in place.
+    audio_normalized_at = models.DateTimeField(null=True, blank=True)
     church = models.ForeignKey(
         Church,
         on_delete=models.PROTECT,
