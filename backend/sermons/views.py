@@ -127,6 +127,10 @@ class SermonViewSet(
             sermon.consider_end_seconds = serializer.validated_data.get(
                 "consider_end_seconds"
             )
+            if "transcription_audio_source" in serializer.validated_data:
+                sermon.transcription_audio_source = serializer.validated_data[
+                    "transcription_audio_source"
+                ]
             self._queue_reprocessing(sermon)
 
         transaction.on_commit(lambda: enqueue_sermon_processing(str(sermon.id)))
@@ -149,6 +153,7 @@ class SermonViewSet(
                 "processing_finished_at",
                 "consider_start_seconds",
                 "consider_end_seconds",
+                "transcription_audio_source",
                 "updated_at",
             )
         )

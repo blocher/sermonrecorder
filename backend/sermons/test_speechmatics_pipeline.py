@@ -176,6 +176,133 @@ class SpeechmaticsTranscriberTests(TestCase):
             ],
         )
 
+    def test_transcribe_uses_playback_audio_when_present(self):
+        sermon = self.sermon()
+        sermon.playback_audio = SimpleUploadedFile(
+            "playback.m4a",
+            b"processed-audio-bytes",
+            content_type="audio/mp4",
+        )
+        sermon.playback_audio_mime_type = "audio/mp4"
+        sermon.playback_audio_size_bytes = 21
+        sermon.save(
+            update_fields=(
+                "playback_audio",
+                "playback_audio_mime_type",
+                "playback_audio_size_bytes",
+                "updated_at",
+            )
+        )
+        uploaded_names: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST" and request.url.path == "/v2/jobs":
+                uploaded_names.append(
+                    Path(sermon.transcription_audio_path()).name
+                )
+                return httpx.Response(201, json={"id": "job-playback"})
+            if request.method == "GET" and request.url.path == "/v2/jobs/job-playback":
+                return httpx.Response(
+                    200, json={"job": {"id": "job-playback", "status": "done"}}
+                )
+            if (
+                request.method == "GET"
+                and request.url.path == "/v2/jobs/job-playback/transcript"
+            ):
+                return httpx.Response(
+                    200,
+                    json={
+                        "results": [
+                            {
+                                "type": "word",
+                                "start_time": 0.0,
+                                "end_time": 0.4,
+                                "alternatives": [
+                                    {
+                                        "content": "Grace",
+                                        "speaker": "S1",
+                                        "confidence": 0.9,
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                )
+            return httpx.Response(404, json={"error": "unexpected"})
+
+        client = httpx.Client(
+            transport=httpx.MockTransport(handler),
+            base_url="https://asr.example.test",
+            headers={"Authorization": "Bearer test"},
+        )
+        transcriber = SpeechmaticsDiarizedTranscriber(
+            client=client,
+            cleanup_runner=lambda *args, **kwargs: TranscriptCleanupOutput(
+                incidental_segment_indexes=[]
+            ),
+        )
+        result = transcriber.transcribe(sermon)
+
+        self.assertEqual(result.text, "Grace")
+        self.assertEqual(uploaded_names, [Path(sermon.playback_audio.path).name])
+
+        sermon.transcription_audio_source = Sermon.TranscriptionAudioSource.ORIGINAL
+        sermon.save(update_fields=("transcription_audio_source", "updated_at"))
+        uploaded_names.clear()
+
+        def original_handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST" and request.url.path == "/v2/jobs":
+                uploaded_names.append(
+                    Path(sermon.transcription_audio_path()).name
+                )
+                return httpx.Response(201, json={"id": "job-original"})
+            if request.method == "GET" and request.url.path == "/v2/jobs/job-original":
+                return httpx.Response(
+                    200, json={"job": {"id": "job-original", "status": "done"}}
+                )
+            if (
+                request.method == "GET"
+                and request.url.path == "/v2/jobs/job-original/transcript"
+            ):
+                return httpx.Response(
+                    200,
+                    json={
+                        "results": [
+                            {
+                                "type": "word",
+                                "start_time": 0.0,
+                                "end_time": 0.4,
+                                "alternatives": [
+                                    {
+                                        "content": "Mercy",
+                                        "speaker": "S1",
+                                        "confidence": 0.9,
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                )
+            return httpx.Response(404, json={"error": "unexpected"})
+
+        original_client = httpx.Client(
+            transport=httpx.MockTransport(original_handler),
+            base_url="https://asr.example.test",
+            headers={"Authorization": "Bearer test"},
+        )
+        original_transcriber = SpeechmaticsDiarizedTranscriber(
+            client=original_client,
+            cleanup_runner=lambda *args, **kwargs: TranscriptCleanupOutput(
+                incidental_segment_indexes=[]
+            ),
+        )
+        original_result = original_transcriber.transcribe(sermon)
+        self.assertEqual(original_result.text, "Mercy")
+        self.assertEqual(uploaded_names, [Path(sermon.audio.path).name])
+        self.assertNotEqual(
+            Path(sermon.audio.path).name,
+            Path(sermon.playback_audio.path).name,
+        )
     def test_unauthorized_is_permanent(self):
         sermon = self.sermon()
 

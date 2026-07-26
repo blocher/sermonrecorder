@@ -113,6 +113,10 @@ class Sermon(models.Model):
         MIDWEEK = "midweek", "Midweek"
         OTHER = "other", "Other"
 
+    class TranscriptionAudioSource(models.TextChoices):
+        PLAYBACK = "playback", "Processed playback"
+        ORIGINAL = "original", "Original upload"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -182,6 +186,12 @@ class Sermon(models.Model):
         blank=True,
         validators=(MinValueValidator(0),),
     )
+    # Which stored audio file feeds ASR. Prefer processed playback by default.
+    transcription_audio_source = models.CharField(
+        max_length=20,
+        choices=TranscriptionAudioSource,
+        default=TranscriptionAudioSource.PLAYBACK,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -219,6 +229,27 @@ class Sermon(models.Model):
 
     def original_audio_path(self) -> Path:
         return Path(self.audio.path)
+
+    def transcription_audio_path(self) -> Path:
+        """Local path for ASR: processed playback by default, else original."""
+        if (
+            self.transcription_audio_source
+            == self.TranscriptionAudioSource.ORIGINAL
+        ):
+            return self.original_audio_path()
+        if self.playback_audio:
+            return Path(self.playback_audio.path)
+        return self.original_audio_path()
+
+    def transcription_audio_size_bytes(self) -> int:
+        if (
+            self.transcription_audio_source
+            != self.TranscriptionAudioSource.ORIGINAL
+            and self.playback_audio
+            and self.playback_audio_size_bytes is not None
+        ):
+            return self.playback_audio_size_bytes
+        return self.audio_size_bytes
 
 
 class Transcript(models.Model):

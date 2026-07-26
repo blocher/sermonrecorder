@@ -375,6 +375,62 @@ class SermonApiTests(APITestCase):
         self.assertEqual(sermon.consider_end_seconds, 600)
         enqueue.assert_called_once_with(str(sermon.id))
 
+    def test_owner_can_regenerate_from_original_when_playback_exists(self):
+        uploaded = self.upload("regenerate-original-source")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        sermon.processing_status = Sermon.ProcessingStatus.READY
+        sermon.playback_audio = SimpleUploadedFile(
+            "playback.m4a",
+            b"processed-audio",
+            content_type="audio/mp4",
+        )
+        sermon.playback_audio_mime_type = "audio/mp4"
+        sermon.playback_audio_size_bytes = 15
+        sermon.save(
+            update_fields=(
+                "processing_status",
+                "playback_audio",
+                "playback_audio_mime_type",
+                "playback_audio_size_bytes",
+                "updated_at",
+            )
+        )
+        self.client.force_authenticate(user=self.user)
+
+        with patch("sermons.views.enqueue_sermon_processing") as enqueue:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    f"/api/sermons/{sermon.id}/regenerate/",
+                    {"transcription_audio_source": "original"},
+                    format="json",
+                )
+
+        sermon.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["transcription_audio_source"], "original")
+        self.assertEqual(
+            sermon.transcription_audio_source,
+            Sermon.TranscriptionAudioSource.ORIGINAL,
+        )
+        enqueue.assert_called_once_with(str(sermon.id))
+
+    def test_regenerate_rejects_playback_source_without_playback_audio(self):
+        uploaded = self.upload("regenerate-missing-playback")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        sermon.processing_status = Sermon.ProcessingStatus.READY
+        sermon.save(update_fields=("processing_status", "updated_at"))
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            f"/api/sermons/{sermon.id}/regenerate/",
+            {"transcription_audio_source": "playback"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        sermon.refresh_from_db()
+        self.assertEqual(sermon.processing_status, Sermon.ProcessingStatus.READY)
+
     def test_regenerate_rejects_an_invalid_consider_window(self):
         uploaded = self.upload("regenerate-window")
         sermon = Sermon.objects.get(id=uploaded.data["id"])

@@ -39,17 +39,18 @@ def _run_ffmpeg(command: tuple[str, ...]) -> None:
 @contextmanager
 def prepared_audio_chunks(sermon: Sermon) -> Iterator[tuple[AudioChunk, ...]]:
     try:
-        source_path = Path(sermon.audio.path)
-    except NotImplementedError as error:
+        source_path = sermon.transcription_audio_path()
+    except (NotImplementedError, ValueError) as error:
         raise PermanentProcessingError(
             "The configured audio storage cannot provide a local worker path."
         ) from error
 
     chunk_seconds = settings.SERMON_TRANSCRIPTION_CHUNK_SECONDS
+    audio_size_bytes = sermon.transcription_audio_size_bytes()
     with TemporaryDirectory(prefix=f"pewcorder-{sermon.id}-") as directory:
         directory_path = Path(directory)
         if (
-            sermon.audio_size_bytes <= MAX_TRANSCRIPTION_UPLOAD_BYTES
+            audio_size_bytes <= MAX_TRANSCRIPTION_UPLOAD_BYTES
             and sermon.duration_seconds <= chunk_seconds
         ):
             prepared = directory_path / "normalized.m4a"

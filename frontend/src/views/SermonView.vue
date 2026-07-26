@@ -130,6 +130,7 @@ const regenerating = ref(false)
 const regenerateMessage = ref('')
 const regenerateStartClock = ref('00:00')
 const regenerateEndClock = ref('00:00')
+const regenerateAudioSource = ref<'playback' | 'original'>('playback')
 const scrubbing = ref(false)
 const contextPanelOpen = ref(false)
 const contextLoading = ref(false)
@@ -569,11 +570,21 @@ function beginRegenerateConfirmation(): void {
   regenerateEndClock.value = formatClock(
     current?.consider_end_seconds ?? current?.duration_seconds ?? 0,
   )
+  regenerateAudioSource.value =
+    current?.has_playback_audio && current.transcription_audio_source === 'original'
+      ? 'original'
+      : current?.has_playback_audio
+        ? 'playback'
+        : 'original'
   confirmingRegenerate.value = true
 }
 
 function resolveRegenerateWindow():
-  | { consider_start_seconds: number | null; consider_end_seconds: number | null }
+  | {
+      consider_start_seconds: number | null
+      consider_end_seconds: number | null
+      transcription_audio_source?: 'playback' | 'original'
+    }
   | null {
   if (!sermon.value) return null
   const duration = sermon.value.duration_seconds
@@ -598,6 +609,9 @@ function resolveRegenerateWindow():
   return {
     consider_start_seconds: start <= 0 ? null : start,
     consider_end_seconds: end >= duration ? null : end,
+    ...(sermon.value.has_playback_audio
+      ? { transcription_audio_source: regenerateAudioSource.value }
+      : {}),
   }
 }
 
@@ -1245,12 +1259,42 @@ onBeforeUnmount(clearProcessingPoll)
           <h2 id="regenerate-sermon-title">Regenerate this Sermon?</h2>
           <p>
             This rewrites the Transcript, title suggestion, Study artifacts, Scripture references,
-            Tags, and Related Sermons from the original recording. Your existing summaries and
+            Tags, and Related Sermons from the selected recording. Your existing summaries and
             other AI-generated notes will be permanently replaced.
           </p>
           <p>
             Reflections and Share links are kept. The audio itself is never deleted or trimmed.
           </p>
+          <div
+            v-if="sermon.has_playback_audio"
+            class="sermon-regenerate-source"
+          >
+            <p class="rubric-label">Audio to transcribe</p>
+            <p>
+              Processed is usually clearer for pew recordings. Choose Original if isolation
+              damaged the speech.
+            </p>
+            <div class="sermon-regenerate-source__choices" role="group" aria-label="Audio to transcribe">
+              <button
+                type="button"
+                :aria-pressed="regenerateAudioSource === 'playback'"
+                :class="{ 'is-active': regenerateAudioSource === 'playback' }"
+                :disabled="regenerating"
+                @click="regenerateAudioSource = 'playback'"
+              >
+                Processed
+              </button>
+              <button
+                type="button"
+                :aria-pressed="regenerateAudioSource === 'original'"
+                :class="{ 'is-active': regenerateAudioSource === 'original' }"
+                :disabled="regenerating"
+                @click="regenerateAudioSource = 'original'"
+              >
+                Original
+              </button>
+            </div>
+          </div>
           <div class="sermon-regenerate-window">
             <p class="rubric-label">Audio window to consider</p>
             <p>
@@ -2685,16 +2729,48 @@ a.tag-chip:focus-visible {
   border-color: color-mix(in srgb, var(--color-lapis) 40%, var(--color-margin));
 }
 
+.sermon-regenerate-source,
 .sermon-regenerate-window {
   margin-top: 1.1rem;
 }
 
+.sermon-regenerate-source > p,
 .sermon-regenerate-window > p {
   color: var(--color-ink-muted);
   font-family: var(--font-utility);
   font-size: 0.86rem;
   line-height: 1.45;
   margin: 0.35rem 0 0.85rem;
+}
+
+.sermon-regenerate-source__choices {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.sermon-regenerate-source__choices button {
+  background: transparent;
+  border: 1px solid var(--color-margin);
+  color: var(--color-lapis);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  min-height: 2.1rem;
+  padding: 0.35rem 0.75rem;
+  text-transform: uppercase;
+}
+
+.sermon-regenerate-source__choices button.is-active {
+  background: var(--color-lapis);
+  border-color: var(--color-lapis);
+  color: var(--color-vellum-light);
+}
+
+.sermon-regenerate-source__choices button:disabled {
+  cursor: wait;
+  opacity: 0.58;
 }
 
 .sermon-regenerate-window__fields {

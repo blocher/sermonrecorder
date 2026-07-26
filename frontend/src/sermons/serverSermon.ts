@@ -55,6 +55,7 @@ export interface ServerSermon {
   tag_suggestions: string[]
   consider_start_seconds: number | null
   consider_end_seconds: number | null
+  transcription_audio_source: 'playback' | 'original'
   created_at: string
   updated_at: string
 }
@@ -260,6 +261,7 @@ export async function regenerateSermon(
   window: {
     consider_start_seconds?: number | null
     consider_end_seconds?: number | null
+    transcription_audio_source?: 'playback' | 'original'
   } = {},
 ): Promise<ServerSermon> {
   return authorizedJson<ServerSermon>(
@@ -270,6 +272,9 @@ export async function regenerateSermon(
       body: JSON.stringify({
         consider_start_seconds: window.consider_start_seconds ?? null,
         consider_end_seconds: window.consider_end_seconds ?? null,
+        ...(window.transcription_audio_source
+          ? { transcription_audio_source: window.transcription_audio_source }
+          : {}),
       }),
     },
     'This Sermon could not be regenerated.',

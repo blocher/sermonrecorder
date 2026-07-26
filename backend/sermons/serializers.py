@@ -217,6 +217,7 @@ class SermonSerializer(serializers.ModelSerializer):
             "tag_suggestions",
             "consider_start_seconds",
             "consider_end_seconds",
+            "transcription_audio_source",
             "created_at",
             "updated_at",
         )
@@ -239,6 +240,7 @@ class SermonSerializer(serializers.ModelSerializer):
             "tag_suggestions",
             "consider_start_seconds",
             "consider_end_seconds",
+            "transcription_audio_source",
             "created_at",
             "updated_at",
         )
@@ -340,6 +342,10 @@ class RegenerateSerializer(serializers.Serializer):
         allow_null=True,
         min_value=0,
     )
+    transcription_audio_source = serializers.ChoiceField(
+        choices=Sermon.TranscriptionAudioSource.choices,
+        required=False,
+    )
 
     def validate(self, attrs):
         start = attrs.get("consider_start_seconds")
@@ -366,6 +372,19 @@ class RegenerateSerializer(serializers.Serializer):
                 {
                     "consider_end_seconds": (
                         "End time must be after the start time."
+                    )
+                }
+            )
+        source = attrs.get("transcription_audio_source")
+        sermon = self.context["sermon"]
+        if (
+            source == Sermon.TranscriptionAudioSource.PLAYBACK
+            and not sermon.playback_audio
+        ):
+            raise serializers.ValidationError(
+                {
+                    "transcription_audio_source": (
+                        "Processed playback audio is not available for this Sermon."
                     )
                 }
             )
