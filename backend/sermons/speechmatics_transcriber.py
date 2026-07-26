@@ -23,9 +23,19 @@ from .transcript_cleanup import intentional_service_segments
 
 logger = logging.getLogger(__name__)
 
+# Keep single-speaker preaching navigable without waiting for a speaker change.
+PAUSE_GAP_SECONDS = 1.2
+SENTENCE_MIN_SECONDS = 15.0
+MAX_SEGMENT_SECONDS = 50.0
+TERMINAL_PUNCTUATION = {".", "!", "?"}
+
 
 def speechmatics_raw_segments(payload: dict[str, Any]) -> tuple[RawTranscriptSegment, ...]:
-    """Collapse Speechmatics word/punctuation results into speaker segments."""
+    """Collapse Speechmatics words into timed speaker segments.
+
+    Breaks on speaker changes, pause gaps, long sentence endings, and a max
+    duration so a continuous preacher still yields clickable timestamps.
+    """
     results = payload.get("results") or []
     segments: list[RawTranscriptSegment] = []
     current_speaker = ""
@@ -50,6 +60,13 @@ def speechmatics_raw_segments(payload: dict[str, Any]) -> tuple[RawTranscriptSeg
         current_start = 0.0
         current_end = 0.0
         current_parts = []
+
+    def begin(speaker: str, start: float, end: float, content: str) -> None:
+        nonlocal current_speaker, current_start, current_end, current_parts
+        current_speaker = speaker
+        current_start = start
+        current_end = end
+        current_parts = [content]
 
     for item in results:
         item_type = item.get("type")
@@ -80,18 +97,17 @@ def speechmatics_raw_segments(payload: dict[str, Any]) -> tuple[RawTranscriptSeg
         }
 
         if not current_speaker:
-            current_speaker = speaker
-            current_start = start
-            current_end = end
-            current_parts = [content]
+            begin(speaker, start, end, content)
             continue
 
         if speaker != current_speaker:
             flush()
-            current_speaker = speaker
-            current_start = start
-            current_end = end
-            current_parts = [content]
+            begin(speaker, start, end, content)
+            continue
+
+        if start - current_end >= PAUSE_GAP_SECONDS:
+            flush()
+            begin(speaker, start, end, content)
             continue
 
         current_end = max(current_end, end)
@@ -99,6 +115,17 @@ def speechmatics_raw_segments(payload: dict[str, Any]) -> tuple[RawTranscriptSeg
             current_parts[-1] = f"{current_parts[-1]}{content}"
         else:
             current_parts.append(content)
+
+        duration = current_end - current_start
+        if (
+            item_type == "punctuation"
+            and content in TERMINAL_PUNCTUATION
+            and duration >= SENTENCE_MIN_SECONDS
+        ):
+            flush()
+            continue
+        if duration >= MAX_SEGMENT_SECONDS:
+            flush()
 
     flush()
     return tuple(segments)

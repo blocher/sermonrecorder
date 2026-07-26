@@ -68,6 +68,110 @@ class SpeechmaticsMappingTests(SimpleTestCase):
         self.assertEqual(segments[1].speaker, "S2")
         self.assertEqual(segments[1].text, "Amen")
 
+    def test_splits_same_speaker_on_pause_gaps(self):
+        payload = {
+            "results": [
+                {
+                    "type": "word",
+                    "start_time": 0.0,
+                    "end_time": 0.4,
+                    "alternatives": [{"content": "Beloved", "speaker": "S1"}],
+                },
+                {
+                    "type": "word",
+                    "start_time": 0.5,
+                    "end_time": 0.9,
+                    "alternatives": [{"content": "friends", "speaker": "S1"}],
+                },
+                {
+                    "type": "punctuation",
+                    "start_time": 0.9,
+                    "end_time": 0.9,
+                    "alternatives": [{"content": ".", "speaker": "S1"}],
+                },
+                {
+                    "type": "word",
+                    "start_time": 3.0,
+                    "end_time": 3.4,
+                    "alternatives": [{"content": "Grace", "speaker": "S1"}],
+                },
+                {
+                    "type": "word",
+                    "start_time": 3.5,
+                    "end_time": 3.9,
+                    "alternatives": [{"content": "abounds", "speaker": "S1"}],
+                },
+            ]
+        }
+
+        segments = speechmatics_raw_segments(payload)
+
+        self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[0].text, "Beloved friends.")
+        self.assertEqual(segments[0].start_seconds, 0.0)
+        self.assertEqual(segments[0].end_seconds, 0.9)
+        self.assertEqual(segments[1].text, "Grace abounds")
+        self.assertEqual(segments[1].start_seconds, 3.0)
+
+    def test_splits_same_speaker_after_long_sentence(self):
+        words = []
+        cursor = 0.0
+        for index in range(20):
+            words.append(
+                {
+                    "type": "word",
+                    "start_time": cursor,
+                    "end_time": cursor + 0.8,
+                    "alternatives": [{"content": f"word{index}", "speaker": "S1"}],
+                }
+            )
+            cursor += 0.9
+        words.append(
+            {
+                "type": "punctuation",
+                "start_time": cursor,
+                "end_time": cursor,
+                "alternatives": [{"content": ".", "speaker": "S1"}],
+            }
+        )
+        words.append(
+            {
+                "type": "word",
+                "start_time": cursor + 0.3,
+                "end_time": cursor + 0.8,
+                "alternatives": [{"content": "Next", "speaker": "S1"}],
+            }
+        )
+
+        segments = speechmatics_raw_segments({"results": words})
+
+        self.assertEqual(len(segments), 2)
+        self.assertTrue(segments[0].text.endswith("."))
+        self.assertEqual(segments[1].text, "Next")
+        self.assertGreaterEqual(segments[0].end_seconds - segments[0].start_seconds, 15.0)
+
+    def test_caps_same_speaker_segment_length(self):
+        words = []
+        cursor = 0.0
+        # Continuous speech with tiny gaps so only the max-length cap splits.
+        for index in range(80):
+            words.append(
+                {
+                    "type": "word",
+                    "start_time": cursor,
+                    "end_time": cursor + 0.6,
+                    "alternatives": [{"content": f"w{index}", "speaker": "S1"}],
+                }
+            )
+            cursor += 0.7
+
+        segments = speechmatics_raw_segments({"results": words})
+
+        self.assertGreater(len(segments), 1)
+        for segment in segments:
+            self.assertLessEqual(segment.end_seconds - segment.start_seconds, 55.0)
+            self.assertEqual(segment.speaker, "S1")
+
 
 class SpeechmaticsTranscriberTests(TestCase):
     def setUp(self):

@@ -56,6 +56,8 @@ Optional: `ELEVENLABS_API_BASE_URL`, `SPEECHMATICS_API_BASE_URL`, `SERMON_VOICE_
 1. ElevenLabs isolate → write derived `playback_audio` (`audio_isolated_at`)
 2. ffmpeg loudnorm → audible `playback_audio` (`audio_normalized_at`)
 3. Speechmatics enhanced + speaker diarization on `playback_audio` by default
-   (`transcription_audio_source`; regenerate can choose `original`)
+   (`transcription_audio_source`; regenerate can choose `original`).
+   Word stream is chunked for navigation: speaker change, ~1.2s pause gaps,
+   sentence endings after ~15s, and a ~50s max segment length.
 4. Existing intentional-service cleanup (OpenAI/simpleai)
 5. Study artifacts (OpenAI/simpleai)
