@@ -25,6 +25,10 @@ const uploadedSermon = {
   captured_at: '2026-07-20T15:30:00Z',
   duration_seconds: 2700,
   audio_url: 'http://api.example.test/api/sermons/server-sermon/audio/?token=signed',
+  has_playback_audio: false,
+  original_audio_url:
+    'http://api.example.test/api/sermons/server-sermon/audio/?token=signed&variant=original',
+  playback_audio_url: '',
   audio_mime_type: 'audio/mp4',
   audio_size_bytes: 1024,
   church: null,

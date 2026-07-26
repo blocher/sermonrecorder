@@ -18,7 +18,12 @@ AUDIO_TOKEN_SALT = "pewcorder.private-sermon-audio"
 RANGE_PATTERN = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
-def private_audio_url(request: HttpRequest, sermon: Sermon) -> str:
+def private_audio_url(
+    request: HttpRequest,
+    sermon: Sermon,
+    *,
+    variant: str | None = None,
+) -> str:
     token = signing.dumps(
         {
             "sermon_id": str(sermon.id),
@@ -28,7 +33,34 @@ def private_audio_url(request: HttpRequest, sermon: Sermon) -> str:
         compress=True,
     )
     path = reverse("sermon-private-audio", kwargs={"sermon_id": sermon.id})
-    return request.build_absolute_uri(f"{path}?{urlencode({'token': token})}")
+    params: dict[str, str] = {"token": token}
+    if variant:
+        params["variant"] = variant
+    return request.build_absolute_uri(f"{path}?{urlencode(params)}")
+
+
+def _audio_variant(request: HttpRequest) -> str:
+    return (request.GET.get("variant") or "").strip().lower()
+
+
+def _resolve_sermon_audio(sermon: Sermon, variant: str):
+    if variant == "original":
+        return sermon.audio, sermon.audio_mime_type, sermon.audio_size_bytes
+    if variant == "playback":
+        if not sermon.playback_audio:
+            return None
+        return (
+            sermon.playback_audio,
+            sermon.playback_audio_mime_type or "audio/mp4",
+            sermon.playback_audio_size_bytes
+            if sermon.playback_audio_size_bytes is not None
+            else sermon.playback_audio.size,
+        )
+    return (
+        sermon.listening_audio_file(),
+        sermon.listening_audio_mime_type(),
+        sermon.listening_audio_size_bytes(),
+    )
 
 
 def _range_bounds(header: str, size: int) -> tuple[int, int] | None:
@@ -67,11 +99,13 @@ def _file_range(file, start: int, length: int) -> Iterator[bytes]:
 
 
 def sermon_audio_response(request: HttpRequest, sermon: Sermon) -> HttpResponse:
-    audio_file = sermon.listening_audio_file()
+    resolved = _resolve_sermon_audio(sermon, _audio_variant(request))
+    if resolved is None:
+        return HttpResponse(status=404)
+
+    audio_file, content_type, size = resolved
     audio = audio_file.open("rb")
-    size = sermon.listening_audio_size_bytes()
     filename = Path(audio_file.name).name
-    content_type = sermon.listening_audio_mime_type()
     range_header = request.headers.get("Range")
 
     if not range_header:

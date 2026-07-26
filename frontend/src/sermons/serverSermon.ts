@@ -40,6 +40,9 @@ export interface ServerSermon {
   captured_at: string
   duration_seconds: number
   audio_url: string
+  has_playback_audio: boolean
+  original_audio_url: string
+  playback_audio_url: string
   audio_mime_type: string
   audio_size_bytes: number
   church: ServerChurch | null
@@ -145,6 +148,9 @@ export interface SharedSermonDetail {
   occasion_kind: OccasionKind | ''
   liturgical_day: string
   audio_url: string
+  has_playback_audio: boolean
+  original_audio_url: string
+  playback_audio_url: string
   transcript: ServerTranscript | null
   study_artifacts: ServerStudyArtifact[]
   scripture_references: ServerScriptureReference[]

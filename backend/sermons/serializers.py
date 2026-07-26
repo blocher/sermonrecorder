@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 from rest_framework import serializers
 from django.urls import reverse
 
@@ -181,6 +183,9 @@ class LibrarySearchQuerySerializer(serializers.Serializer):
 class SermonSerializer(serializers.ModelSerializer):
     audio = serializers.FileField(write_only=True)
     audio_url = serializers.SerializerMethodField()
+    has_playback_audio = serializers.SerializerMethodField()
+    original_audio_url = serializers.SerializerMethodField()
+    playback_audio_url = serializers.SerializerMethodField()
     processing_message = serializers.SerializerMethodField()
     short_summary = serializers.SerializerMethodField()
     tag_suggestions = serializers.SerializerMethodField()
@@ -197,6 +202,9 @@ class SermonSerializer(serializers.ModelSerializer):
             "duration_seconds",
             "audio",
             "audio_url",
+            "has_playback_audio",
+            "original_audio_url",
+            "playback_audio_url",
             "audio_mime_type",
             "audio_size_bytes",
             "church",
@@ -216,6 +224,9 @@ class SermonSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "audio_url",
+            "has_playback_audio",
+            "original_audio_url",
+            "playback_audio_url",
             "audio_mime_type",
             "audio_size_bytes",
             "church",
@@ -266,6 +277,21 @@ class SermonSerializer(serializers.ModelSerializer):
     def get_audio_url(self, sermon: Sermon) -> str:
         request = self.context.get("request")
         return private_audio_url(request, sermon) if request else ""
+
+    def get_has_playback_audio(self, sermon: Sermon) -> bool:
+        return bool(sermon.playback_audio)
+
+    def get_original_audio_url(self, sermon: Sermon) -> str:
+        request = self.context.get("request")
+        return (
+            private_audio_url(request, sermon, variant="original") if request else ""
+        )
+
+    def get_playback_audio_url(self, sermon: Sermon) -> str:
+        request = self.context.get("request")
+        if not request or not sermon.playback_audio:
+            return ""
+        return private_audio_url(request, sermon, variant="playback")
 
     def get_processing_message(self, sermon: Sermon) -> str:
         return owner_facing_processing_message(
@@ -566,6 +592,9 @@ class SermonDetailSerializer(SermonSerializer):
 
 class PublicSharedSermonSerializer(serializers.ModelSerializer):
     audio_url = serializers.SerializerMethodField()
+    has_playback_audio = serializers.SerializerMethodField()
+    original_audio_url = serializers.SerializerMethodField()
+    playback_audio_url = serializers.SerializerMethodField()
     church = ChurchSerializer(read_only=True)
     preacher = PreacherSerializer(read_only=True)
     transcript = TranscriptSerializer(read_only=True, allow_null=True)
@@ -584,6 +613,9 @@ class PublicSharedSermonSerializer(serializers.ModelSerializer):
             "occasion_kind",
             "liturgical_day",
             "audio_url",
+            "has_playback_audio",
+            "original_audio_url",
+            "playback_audio_url",
             "transcript",
             "study_artifacts",
             "scripture_references",
@@ -591,13 +623,31 @@ class PublicSharedSermonSerializer(serializers.ModelSerializer):
             "updated_at",
         )
 
-    def get_audio_url(self, sermon: Sermon) -> str:
+    def _shared_audio_url(self, *, variant: str | None = None) -> str:
         request = self.context.get("request")
         token = self.context.get("share_token")
         if not request or not token:
             return ""
         path = reverse("shared-sermon-audio", kwargs={"token": token})
+        if variant:
+            return request.build_absolute_uri(
+                f"{path}?{urlencode({'variant': variant})}"
+            )
         return request.build_absolute_uri(path)
+
+    def get_audio_url(self, sermon: Sermon) -> str:
+        return self._shared_audio_url()
+
+    def get_has_playback_audio(self, sermon: Sermon) -> bool:
+        return bool(sermon.playback_audio)
+
+    def get_original_audio_url(self, sermon: Sermon) -> str:
+        return self._shared_audio_url(variant="original")
+
+    def get_playback_audio_url(self, sermon: Sermon) -> str:
+        if not sermon.playback_audio:
+            return ""
+        return self._shared_audio_url(variant="playback")
 
     def get_tag_suggestions(self, sermon: Sermon) -> list[str]:
         return [suggestion.name for suggestion in sermon.tag_suggestions.all()]

@@ -94,6 +94,8 @@ const audio = ref<HTMLAudioElement>()
 const playing = ref(false)
 const currentSeconds = ref(0)
 const playbackError = ref(false)
+type AudioVariant = 'processed' | 'original'
+const audioVariant = ref<AudioVariant>('processed')
 const editingKind = ref<StudyArtifactKind>()
 const editContent = ref('')
 const savingEdit = ref(false)
@@ -153,6 +155,13 @@ const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
 )
 const progressPercent = computed(() => `${Math.round(progress.value * 100)}%`)
+const activeAudioUrl = computed(() => {
+  const current = sermon.value
+  if (!current) return ''
+  if (!current.has_playback_audio) return current.audio_url
+  if (audioVariant.value === 'original') return current.original_audio_url
+  return current.playback_audio_url || current.audio_url
+})
 const hymn = computed(() => parseHymn(artifact('hymn')))
 const hymnTunes = computed(() => parseTuneSuggestions(artifact('hymn_tune_suggestions')))
 const quiz = computed(() => parseQuiz(artifact('quiz')))
@@ -470,6 +479,29 @@ async function togglePlayback(): Promise<void> {
   }
   try {
     await audio.value.play()
+  } catch {
+    playbackError.value = true
+  }
+}
+
+async function setAudioVariant(variant: AudioVariant): Promise<void> {
+  if (audioVariant.value === variant) return
+  const element = audio.value
+  const wasPlaying = playing.value
+  const position = element?.currentTime ?? currentSeconds.value
+  audioVariant.value = variant
+  playbackError.value = false
+  await nextTick()
+  if (!element) return
+  const restorePosition = () => {
+    element.currentTime = position
+    currentSeconds.value = position
+  }
+  element.addEventListener('loadedmetadata', restorePosition, { once: true })
+  element.load()
+  if (!wasPlaying) return
+  try {
+    await element.play()
   } catch {
     playbackError.value = true
   }
@@ -1494,7 +1526,7 @@ onBeforeUnmount(clearProcessingPoll)
       <section class="audio-player" aria-label="Sermon audio player">
         <audio
           ref="audio"
-          :src="sermon.audio_url"
+          :src="activeAudioUrl"
           preload="metadata"
           @play="playing = true"
           @pause="playing = false"
@@ -1518,6 +1550,29 @@ onBeforeUnmount(clearProcessingPoll)
               {{ timestamp(currentSeconds) }} ·
               {{ serverSermonDuration(sermon.duration_seconds) }}
             </span>
+          </div>
+          <div
+            v-if="sermon.has_playback_audio"
+            class="audio-player__variants"
+            role="group"
+            aria-label="Audio version"
+          >
+            <button
+              type="button"
+              :aria-pressed="audioVariant === 'processed'"
+              :class="{ 'is-active': audioVariant === 'processed' }"
+              @click="setAudioVariant('processed')"
+            >
+              Processed
+            </button>
+            <button
+              type="button"
+              :aria-pressed="audioVariant === 'original'"
+              :class="{ 'is-active': audioVariant === 'original' }"
+              @click="setAudioVariant('original')"
+            >
+              Original
+            </button>
           </div>
           <div
             class="audio-player__track"
@@ -3048,6 +3103,32 @@ a.tag-chip:focus-visible {
 .audio-player__labels span:first-child {
   color: var(--color-vellum);
   font-weight: 650;
+}
+
+.audio-player__variants {
+  display: inline-flex;
+  gap: 0.2rem;
+  margin: 0 0 0.65rem;
+}
+
+.audio-player__variants button {
+  background: transparent;
+  border: 1px solid rgba(241, 238, 228, 0.28);
+  color: rgba(241, 238, 228, 0.78);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  min-height: 1.85rem;
+  padding: 0.2rem 0.65rem;
+  text-transform: uppercase;
+}
+
+.audio-player__variants button.is-active {
+  background: var(--color-vellum);
+  border-color: var(--color-vellum);
+  color: var(--color-ink);
 }
 
 .audio-player__track {

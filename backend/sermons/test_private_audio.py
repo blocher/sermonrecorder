@@ -105,3 +105,67 @@ class PrivateSermonAudioTests(APITestCase):
 
         self.assertEqual(invalid.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(mismatched.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_variant_urls_stream_original_and_playback_audio(self):
+        playback = b"playback-audio-bytes!!"
+        self.sermon.playback_audio = SimpleUploadedFile(
+            "playback.m4a",
+            playback,
+            content_type="audio/mp4",
+        )
+        self.sermon.playback_audio_mime_type = "audio/mp4"
+        self.sermon.playback_audio_size_bytes = len(playback)
+        self.sermon.save(
+            update_fields=(
+                "playback_audio",
+                "playback_audio_mime_type",
+                "playback_audio_size_bytes",
+                "updated_at",
+            )
+        )
+
+        self.client.force_authenticate(user=self.user)
+        detail = self.client.get(f"/api/sermons/{self.sermon.id}/")
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertTrue(detail.data["has_playback_audio"])
+        self.assertIn("variant=original", detail.data["original_audio_url"])
+        self.assertIn("variant=playback", detail.data["playback_audio_url"])
+
+        self.client.force_authenticate(user=None)
+        original = urlsplit(detail.data["original_audio_url"])
+        processed = urlsplit(detail.data["playback_audio_url"])
+        default = urlsplit(detail.data["audio_url"])
+
+        original_response = self.client.get(f"{original.path}?{original.query}")
+        playback_response = self.client.get(f"{processed.path}?{processed.query}")
+        default_response = self.client.get(f"{default.path}?{default.query}")
+
+        self.assertEqual(original_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(b"".join(original_response.streaming_content), self.audio)
+        self.assertEqual(playback_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(b"".join(playback_response.streaming_content), playback)
+        self.assertEqual(default_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(b"".join(default_response.streaming_content), playback)
+
+        self.sermon.playback_audio.delete(save=False)
+        self.sermon.playback_audio = None
+        self.sermon.playback_audio_mime_type = ""
+        self.sermon.playback_audio_size_bytes = None
+        self.sermon.save(
+            update_fields=(
+                "playback_audio",
+                "playback_audio_mime_type",
+                "playback_audio_size_bytes",
+                "updated_at",
+            )
+        )
+        self.client.force_authenticate(user=self.user)
+        detail_without = self.client.get(f"/api/sermons/{self.sermon.id}/")
+        original_without = urlsplit(detail_without.data["original_audio_url"])
+        self.client.force_authenticate(user=None)
+        gone = self.client.get(
+            f"{original_without.path}?"
+            f"{original_without.query.replace('variant=original', 'variant=playback')}"
+        )
+        self.assertEqual(gone.status_code, status.HTTP_404_NOT_FOUND)
+

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   CircleAlert,
   CloudUpload,
@@ -27,6 +27,14 @@ const playbackUrl = ref(props.sermon.audio_url)
 const playing = ref(false)
 const playbackError = ref(false)
 const confirmingDelete = ref(false)
+type AudioVariant = 'processed' | 'original'
+const audioVariant = ref<AudioVariant>('processed')
+
+function activeUrlFor(sermon: typeof props.sermon, variant: AudioVariant): string {
+  if (!sermon.has_playback_audio) return sermon.audio_url
+  if (variant === 'original') return sermon.original_audio_url
+  return sermon.playback_audio_url || sermon.audio_url
+}
 
 const title = computed(() => {
   const captured = new Date(props.sermon.captured_at)
@@ -60,6 +68,32 @@ function syncPlaybackUrl(url: string): void {
   if (playbackUrl.value === url) return
   playbackUrl.value = url
   playbackError.value = false
+}
+
+async function setAudioVariant(variant: AudioVariant): Promise<void> {
+  if (audioVariant.value === variant) return
+  const element = audio.value
+  const wasPlaying = playing.value
+  const position = element?.currentTime ?? 0
+  audioVariant.value = variant
+  playbackUrl.value = activeUrlFor(props.sermon, variant)
+  playbackError.value = false
+  await nextTick()
+  if (!element) return
+  const restorePosition = () => {
+    element.currentTime = position
+  }
+  element.addEventListener('loadedmetadata', restorePosition, { once: true })
+  element.load()
+  if (!wasPlaying) return
+  try {
+    await waitForCanPlay(element)
+    await element.play()
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return
+    playing.value = false
+    playbackError.value = true
+  }
 }
 
 async function waitForCanPlay(element: HTMLAudioElement): Promise<void> {
@@ -115,13 +149,18 @@ function confirmDelete(): void {
 }
 
 watch(
-  () => props.sermon.audio_url,
-  (url) => syncPlaybackUrl(url),
+  () => [
+    props.sermon.audio_url,
+    props.sermon.original_audio_url,
+    props.sermon.playback_audio_url,
+    props.sermon.has_playback_audio,
+  ],
+  () => syncPlaybackUrl(activeUrlFor(props.sermon, audioVariant.value)),
   { immediate: true },
 )
 
 watch(playing, (isPlaying) => {
-  if (!isPlaying) syncPlaybackUrl(props.sermon.audio_url)
+  if (!isPlaying) syncPlaybackUrl(activeUrlFor(props.sermon, audioVariant.value))
 })
 
 onBeforeUnmount(() => {
@@ -160,6 +199,31 @@ onBeforeUnmount(() => {
             : sermon.processing_message
         }}
       </p>
+      <div
+        v-if="sermon.has_playback_audio"
+        class="server-sermon__variants"
+        role="group"
+        aria-label="Audio version"
+      >
+        <button
+          type="button"
+          :aria-pressed="audioVariant === 'processed'"
+          :class="{ 'is-active': audioVariant === 'processed' }"
+          :disabled="busy"
+          @click="setAudioVariant('processed')"
+        >
+          Processed
+        </button>
+        <button
+          type="button"
+          :aria-pressed="audioVariant === 'original'"
+          :class="{ 'is-active': audioVariant === 'original' }"
+          :disabled="busy"
+          @click="setAudioVariant('original')"
+        >
+          Original
+        </button>
+      </div>
       <div v-if="!confirmingDelete" class="server-sermon__actions">
         <button
           v-if="sermon.processing_status === 'failed'"
@@ -310,6 +374,37 @@ onBeforeUnmount(() => {
 
 .server-sermon__error {
   color: var(--color-rubric);
+}
+
+.server-sermon__variants {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.server-sermon__variants button {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-lapis) 35%, transparent);
+  color: var(--color-lapis);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  min-height: 1.7rem;
+  padding: 0.15rem 0.5rem;
+  text-transform: uppercase;
+}
+
+.server-sermon__variants button.is-active {
+  background: var(--color-lapis);
+  border-color: var(--color-lapis);
+  color: var(--color-vellum-light);
+}
+
+.server-sermon__variants button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .server-sermon__actions,
