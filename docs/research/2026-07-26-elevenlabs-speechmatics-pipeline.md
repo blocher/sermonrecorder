@@ -26,10 +26,10 @@ Optional: `ELEVENLABS_API_BASE_URL`, `SPEECHMATICS_API_BASE_URL`, `SERMON_VOICE_
 
 ## Speechmatics batch
 
-- Submit: `POST https://asr.api.speechmatics.com/v2/jobs` with multipart `config` JSON + `data_file`
+- Submit: `POST https://us1.asr.api.speechmatics.com/v2/jobs` with multipart `config` JSON + `data_file`
+  (also `eu1` / `au1`; bare `asr.api.speechmatics.com` often returns 401)
 - Auth: `Authorization: Bearer <SPEECHMATICS_API_KEY>`
-- Poll: `GET /v2/jobs/{id}` until `job.status` is `done` / `rejected`
-- Transcript: `GET /v2/jobs/{id}/transcript` (JSON default)
+- Env: `SPEECHMATICS_API_BASE_URL` default `https://us1.asr.api.speechmatics.com`
 - Diarization config (official example):
 
 ```json

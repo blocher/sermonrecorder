@@ -288,7 +288,9 @@ class SpeechmaticsDiarizedTranscriber:
             )
         if response.status_code == 401:
             raise PermanentProcessingError(
-                "Speechmatics rejected SPEECHMATICS_API_KEY (unauthorized)."
+                "Speechmatics returned 401 Unauthorized. Check SPEECHMATICS_API_KEY "
+                "and SPEECHMATICS_API_BASE_URL (use a regional host such as "
+                "https://us1.asr.api.speechmatics.com or https://eu1.asr.api.speechmatics.com)."
             )
         if response.status_code >= 400:
             detail = response.text.strip()[:500]

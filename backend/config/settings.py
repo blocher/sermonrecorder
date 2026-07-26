@@ -315,9 +315,11 @@ SERMON_VOICE_ISOLATION_ENABLED = (
 )
 
 SPEECHMATICS_API_KEY = os.environ.get("SPEECHMATICS_API_KEY", "")
+# Batch STT requires a regional hostname (us1 / eu1 / au1), not the bare
+# asr.api.speechmatics.com host — that commonly returns HTTP 401.
 SPEECHMATICS_API_BASE_URL = os.environ.get(
     "SPEECHMATICS_API_BASE_URL",
-    "https://asr.api.speechmatics.com",
+    "https://us1.asr.api.speechmatics.com",
 )
 SPEECHMATICS_LANGUAGE = os.environ.get("SPEECHMATICS_LANGUAGE", "en")
 SPEECHMATICS_MODEL = os.environ.get("SPEECHMATICS_MODEL", "enhanced")
