@@ -698,9 +698,15 @@ class ProviderPipelineTests(TestCase):
         artifact_generator.generate.return_value = generated_artifacts()
         processor = ProviderSermonProcessor(transcriber, artifact_generator)
 
-        with patch(
-            "sermons.provider_processor.normalize_sermon_playback_audio",
-            return_value=False,
+        with (
+            patch(
+                "sermons.provider_processor.isolate_sermon_voice",
+                return_value=False,
+            ),
+            patch(
+                "sermons.provider_processor.normalize_sermon_playback_audio",
+                return_value=False,
+            ),
         ):
             result = processor.process(sermon)
 

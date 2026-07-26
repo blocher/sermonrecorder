@@ -229,6 +229,10 @@ SERMON_PROCESSOR = os.environ.get(
     "SERMON_PROCESSOR",
     "sermons.provider_processor.ProviderSermonProcessor",
 )
+SERMON_TRANSCRIBER = os.environ.get(
+    "SERMON_TRANSCRIBER",
+    "sermons.speechmatics_transcriber.SpeechmaticsDiarizedTranscriber",
+)
 SERMON_PROCESSING_RETRY_DELAYS = (60, 5 * 60, 15 * 60)
 PUSH_ALERT_SENDER = os.environ.get(
     "PUSH_ALERT_SENDER",
@@ -297,6 +301,39 @@ SERMON_TRANSCRIPTION_CHUNK_SECONDS = int(
     os.environ.get("SERMON_TRANSCRIPTION_CHUNK_SECONDS", "600")
 )
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+# Still required for Study artifacts and intentional-service transcript cleanup.
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+ELEVENLABS_API_BASE_URL = os.environ.get(
+    "ELEVENLABS_API_BASE_URL",
+    "https://api.elevenlabs.io",
+)
+ELEVENLABS_ISOLATION_TIMEOUT_SECONDS = float(
+    os.environ.get("ELEVENLABS_ISOLATION_TIMEOUT_SECONDS", "1800")
+)
+SERMON_VOICE_ISOLATION_ENABLED = (
+    os.environ.get("SERMON_VOICE_ISOLATION_ENABLED", "1") == "1"
+)
+
+SPEECHMATICS_API_KEY = os.environ.get("SPEECHMATICS_API_KEY", "")
+SPEECHMATICS_API_BASE_URL = os.environ.get(
+    "SPEECHMATICS_API_BASE_URL",
+    "https://asr.api.speechmatics.com",
+)
+SPEECHMATICS_LANGUAGE = os.environ.get("SPEECHMATICS_LANGUAGE", "en")
+SPEECHMATICS_MODEL = os.environ.get("SPEECHMATICS_MODEL", "enhanced")
+SPEECHMATICS_SPEAKER_SENSITIVITY = float(
+    os.environ.get("SPEECHMATICS_SPEAKER_SENSITIVITY", "0.6")
+)
+SPEECHMATICS_REQUEST_TIMEOUT_SECONDS = float(
+    os.environ.get("SPEECHMATICS_REQUEST_TIMEOUT_SECONDS", "120")
+)
+SPEECHMATICS_JOB_TIMEOUT_SECONDS = float(
+    os.environ.get("SPEECHMATICS_JOB_TIMEOUT_SECONDS", "3600")
+)
+SPEECHMATICS_POLL_INTERVAL_SECONDS = float(
+    os.environ.get("SPEECHMATICS_POLL_INTERVAL_SECONDS", "5")
+)
+
 OPENAI_TRANSCRIPTION_MODEL = os.environ.get(
     "OPENAI_TRANSCRIPTION_MODEL",
     "gpt-4o-transcribe-diarize",

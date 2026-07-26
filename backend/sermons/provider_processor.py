@@ -1,11 +1,15 @@
 from typing import Protocol
 
+from django.conf import settings
+from django.utils.module_loading import import_string
+
 from .audio_duration import probe_audio_duration_seconds
 from .models import Sermon
-from .openai_transcriber import CleanedTranscript, OpenAIDiarizedTranscriber
+from .openai_transcriber import CleanedTranscript
 from .playback_audio import normalize_sermon_playback_audio
 from .processing import PermanentProcessingError, ProcessedSermon, RelatedSermonResult
 from .simpleai_artifacts import GeneratedArtifacts, SimpleAIArtifactGenerator
+from .voice_isolation import isolate_sermon_voice
 
 
 class Transcriber(Protocol):
@@ -14,6 +18,11 @@ class Transcriber(Protocol):
 
 class ArtifactGenerator(Protocol):
     def generate(self, transcript: CleanedTranscript) -> GeneratedArtifacts: ...
+
+
+def get_sermon_transcriber() -> Transcriber:
+    transcriber_class = import_string(settings.SERMON_TRANSCRIBER)
+    return transcriber_class()
 
 
 def _related_sermons(
@@ -62,10 +71,11 @@ class ProviderSermonProcessor:
         transcriber: Transcriber | None = None,
         artifact_generator: ArtifactGenerator | None = None,
     ):
-        self.transcriber = transcriber or OpenAIDiarizedTranscriber()
+        self.transcriber = transcriber or get_sermon_transcriber()
         self.artifact_generator = artifact_generator or SimpleAIArtifactGenerator()
 
     def process(self, sermon: Sermon) -> ProcessedSermon:
+        isolate_sermon_voice(sermon)
         normalize_sermon_playback_audio(sermon)
         _sync_duration_from_audio(sermon)
         transcript = self.transcriber.transcribe(sermon)

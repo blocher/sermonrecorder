@@ -126,6 +126,8 @@ class Sermon(models.Model):
     audio_size_bytes = models.PositiveBigIntegerField()
     # Set when playback audio has been loudness-normalized in place.
     audio_normalized_at = models.DateTimeField(null=True, blank=True)
+    # Set when playback audio has been voice-isolated (ElevenLabs) in place.
+    audio_isolated_at = models.DateTimeField(null=True, blank=True)
     church = models.ForeignKey(
         Church,
         on_delete=models.PROTECT,
