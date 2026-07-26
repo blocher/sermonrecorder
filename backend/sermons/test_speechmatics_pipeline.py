@@ -228,32 +228,9 @@ class VoiceIsolationTests(TestCase):
     def test_isolate_rewrites_file_and_clears_normalized_flag(self):
         sermon = self.sermon()
 
-        def handler(request: httpx.Request) -> httpx.Response:
-            self.assertEqual(request.url.path, "/v1/audio-isolation")
-            self.assertEqual(request.headers["xi-api-key"], "test-eleven-key")
-            return httpx.Response(200, content=b"isolated-raw-audio")
-
         def fake_encode(source_path: Path, destination_path: Path) -> None:
+            self.assertEqual(source_path.read_bytes(), b"isolated-raw-audio")
             destination_path.write_bytes(b"isolated-encoded-m4a")
-
-        with (
-            patch("sermons.voice_isolation.httpx.Client") as client_cls,
-            patch(
-                "sermons.voice_isolation._encode_playback_m4a",
-                side_effect=fake_encode,
-            ),
-            patch(
-                "sermons.voice_isolation.probe_audio_duration_seconds",
-                return_value=119,
-            ),
-        ):
-            client_cls.return_value.__enter__.return_value.post.side_effect = (
-                lambda *args, **kwargs: handler(
-                    httpx.Request("POST", "https://api.eleven.example.test/v1/audio-isolation")
-                )
-            )
-            # Simpler: patch _call_elevenlabs_isolation instead
-            pass
 
         with (
             patch(
@@ -264,10 +241,6 @@ class VoiceIsolationTests(TestCase):
                 "sermons.voice_isolation._encode_playback_m4a",
                 side_effect=fake_encode,
             ),
-            patch(
-                "sermons.voice_isolation.probe_audio_duration_seconds",
-                return_value=119,
-            ),
         ):
             changed = isolate_sermon_voice(sermon)
 
@@ -275,8 +248,13 @@ class VoiceIsolationTests(TestCase):
         self.assertTrue(changed)
         self.assertIsNotNone(sermon.audio_isolated_at)
         self.assertIsNone(sermon.audio_normalized_at)
-        self.assertEqual(sermon.audio_size_bytes, 20)
-        self.assertEqual(Path(sermon.audio.path).read_bytes(), b"isolated-encoded-m4a")
+        self.assertEqual(Path(sermon.audio.path).read_bytes(), b"quiet-audio")
+        self.assertTrue(bool(sermon.playback_audio))
+        self.assertEqual(sermon.playback_audio_size_bytes, 20)
+        self.assertEqual(
+            Path(sermon.playback_audio.path).read_bytes(),
+            b"isolated-encoded-m4a",
+        )
 
     def test_isolate_skips_when_already_isolated(self):
         sermon = self.sermon()

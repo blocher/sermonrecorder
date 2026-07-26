@@ -133,7 +133,7 @@ class SpeechmaticsDiarizedTranscriber:
 
     def transcribe(self, sermon: Sermon) -> CleanedTranscript:
         try:
-            source_path = Path(sermon.audio.path)
+            source_path = sermon.original_audio_path()
         except (NotImplementedError, ValueError) as error:
             raise PermanentProcessingError(
                 "The configured audio storage cannot provide a local worker path."

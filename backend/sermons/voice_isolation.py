@@ -1,4 +1,4 @@
-"""ElevenLabs Voice Isolator for cleaner pew-recording playback."""
+"""ElevenLabs Voice Isolator for a derived pew-recording playback copy."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import httpx
 from django.conf import settings
 from django.utils import timezone
 
-from .audio_duration import probe_audio_duration_seconds
+from .audio_files import save_playback_m4a
 from .models import Sermon
 from .processing import PermanentProcessingError, RetryableProcessingError
 
@@ -23,11 +23,12 @@ ELEVENLABS_MAX_ISOLATION_BYTES = 500 * 1024 * 1024
 
 
 def isolate_sermon_voice(sermon: Sermon, *, force: bool = False) -> bool:
-    """Replace stored audio with an ElevenLabs voice-isolated copy.
+    """Write an ElevenLabs-isolated copy to ``playback_audio``.
 
-    Returns True when the file was rewritten. Skips when already isolated
-    unless ``force`` is set. Clears ``audio_normalized_at`` so loudnorm can
-    run on the cleaned speech. Skips (without failing) when the recording
+    The original upload in ``audio`` is never modified. Returns True when a
+    new playback file was written. Skips when already isolated unless
+    ``force`` is set. Clears ``audio_normalized_at`` so loudnorm can run on
+    the new playback copy. Skips (without failing) when the recording
     exceeds ElevenLabs' 1-hour / 500 MB isolation limits.
     """
     if not settings.SERMON_VOICE_ISOLATION_ENABLED:
@@ -40,7 +41,7 @@ def isolate_sermon_voice(sermon: Sermon, *, force: bool = False) -> bool:
         )
 
     try:
-        source_path = Path(sermon.audio.path)
+        source_path = sermon.original_audio_path()
     except (NotImplementedError, ValueError) as error:
         raise PermanentProcessingError(
             "The configured audio storage cannot provide a local worker path."
@@ -71,33 +72,17 @@ def isolate_sermon_voice(sermon: Sermon, *, force: bool = False) -> bool:
         if m4a_temp.stat().st_size <= 0:
             raise PermanentProcessingError("Isolated Sermon audio was empty.")
 
-        final_path = source_path.with_suffix(".m4a")
-        m4a_temp.replace(final_path)
-        if final_path != source_path and source_path.exists():
-            source_path.unlink()
-
-        relative_name = Path(sermon.audio.name).with_suffix(".m4a").as_posix()
-        sermon.audio.name = relative_name
-        sermon.audio_mime_type = "audio/mp4"
-        sermon.audio_size_bytes = final_path.stat().st_size
+        save_playback_m4a(sermon, m4a_temp)
         sermon.audio_isolated_at = timezone.now()
-        # Isolation changes levels; require a fresh loudnorm pass.
+        # Isolation changes levels; require a fresh loudnorm pass on playback.
         sermon.audio_normalized_at = None
-        try:
-            sermon.duration_seconds = probe_audio_duration_seconds(final_path)
-        except PermanentProcessingError:
-            logger.warning(
-                "Isolated sermon %s but could not re-probe duration.",
-                sermon.id,
-            )
         sermon.save(
             update_fields=(
-                "audio",
-                "audio_mime_type",
-                "audio_size_bytes",
+                "playback_audio",
+                "playback_audio_mime_type",
+                "playback_audio_size_bytes",
                 "audio_isolated_at",
                 "audio_normalized_at",
-                "duration_seconds",
                 "updated_at",
             )
         )

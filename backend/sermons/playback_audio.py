@@ -1,4 +1,4 @@
-"""Loudness-normalize stored Sermon playback audio in place."""
+"""Loudness-normalize derived Sermon playback audio."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from .audio_duration import probe_audio_duration_seconds
+from .audio_files import save_playback_m4a
 from .models import Sermon
 from .processing import PermanentProcessingError
 
@@ -39,17 +40,23 @@ def normalize_sermon_playback_audio(
     *,
     force: bool = False,
 ) -> bool:
-    """Replace the stored audio with a loudness-normalized AAC copy.
+    """Write a loudness-normalized AAC copy to ``playback_audio``.
 
-    Returns True when the file was rewritten. Skips when already normalized
-    unless ``force`` is set. Updates size, mime, duration, and
-    ``audio_normalized_at``.
+    Uses existing playback audio as the source when present (e.g. after
+    isolation); otherwise loudnorms the original upload into a new playback
+    file. Never modifies the original ``audio`` upload.
+
+    Returns True when the playback file was rewritten. Skips when already
+    normalized unless ``force`` is set.
     """
     if sermon.audio_normalized_at is not None and not force:
         return False
 
     try:
-        source_path = Path(sermon.audio.path)
+        if sermon.playback_audio:
+            source_path = Path(sermon.playback_audio.path)
+        else:
+            source_path = sermon.original_audio_path()
     except (NotImplementedError, ValueError) as error:
         raise PermanentProcessingError(
             "The configured audio storage cannot provide a local worker path."
@@ -88,19 +95,10 @@ def normalize_sermon_playback_audio(
                 "Normalized Sermon playback audio was empty."
             )
 
-        # Prefer a stable .m4a name for the playback asset.
-        final_path = source_path.with_suffix(".m4a")
-        temp_path.replace(final_path)
-        if final_path != source_path and source_path.exists():
-            source_path.unlink()
-
-        relative_name = Path(sermon.audio.name).with_suffix(".m4a").as_posix()
-        sermon.audio.name = relative_name
-        sermon.audio_mime_type = "audio/mp4"
-        sermon.audio_size_bytes = final_path.stat().st_size
+        save_playback_m4a(sermon, temp_path)
         sermon.audio_normalized_at = timezone.now()
         try:
-            sermon.duration_seconds = probe_audio_duration_seconds(final_path)
+            sermon.duration_seconds = probe_audio_duration_seconds(temp_path)
         except PermanentProcessingError:
             logger.warning(
                 "Normalized sermon %s but could not re-probe duration.",
@@ -108,9 +106,9 @@ def normalize_sermon_playback_audio(
             )
         sermon.save(
             update_fields=(
-                "audio",
-                "audio_mime_type",
-                "audio_size_bytes",
+                "playback_audio",
+                "playback_audio_mime_type",
+                "playback_audio_size_bytes",
                 "audio_normalized_at",
                 "duration_seconds",
                 "updated_at",

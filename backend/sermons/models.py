@@ -11,6 +11,11 @@ def sermon_audio_path(sermon: "Sermon", filename: str) -> str:
     return f"sermons/{sermon.owner_id}/{sermon.id}/original{suffix}"
 
 
+def sermon_playback_audio_path(sermon: "Sermon", filename: str) -> str:
+    # Derived listen/isolate/loudnorm copy — never overwrite the upload.
+    return f"sermons/{sermon.owner_id}/{sermon.id}/playback.m4a"
+
+
 def normalize_personal_book_value(value: str) -> str:
     return " ".join(value.split()).casefold()
 
@@ -124,9 +129,17 @@ class Sermon(models.Model):
     audio = models.FileField(upload_to=sermon_audio_path, max_length=500)
     audio_mime_type = models.CharField(max_length=120)
     audio_size_bytes = models.PositiveBigIntegerField()
-    # Set when playback audio has been loudness-normalized in place.
+    # Optional derived listen copy (isolation / loudnorm). Original `audio` stays intact.
+    playback_audio = models.FileField(
+        upload_to=sermon_playback_audio_path,
+        max_length=500,
+        blank=True,
+    )
+    playback_audio_mime_type = models.CharField(max_length=120, blank=True)
+    playback_audio_size_bytes = models.PositiveBigIntegerField(null=True, blank=True)
+    # Set when playback audio has been loudness-normalized.
     audio_normalized_at = models.DateTimeField(null=True, blank=True)
-    # Set when playback audio has been voice-isolated (ElevenLabs) in place.
+    # Set when playback audio has been voice-isolated (ElevenLabs).
     audio_isolated_at = models.DateTimeField(null=True, blank=True)
     church = models.ForeignKey(
         Church,
@@ -187,6 +200,25 @@ class Sermon(models.Model):
 
     def __str__(self) -> str:
         return f"{self.owner} · {self.captured_at:%Y-%m-%d %H:%M}"
+
+    def listening_audio_file(self):
+        """Prefer the derived playback copy when present; else the original upload."""
+        if self.playback_audio:
+            return self.playback_audio
+        return self.audio
+
+    def listening_audio_mime_type(self) -> str:
+        if self.playback_audio:
+            return self.playback_audio_mime_type or "audio/mp4"
+        return self.audio_mime_type
+
+    def listening_audio_size_bytes(self) -> int:
+        if self.playback_audio and self.playback_audio_size_bytes is not None:
+            return self.playback_audio_size_bytes
+        return self.audio_size_bytes
+
+    def original_audio_path(self) -> Path:
+        return Path(self.audio.path)
 
 
 class Transcript(models.Model):

@@ -63,10 +63,13 @@ class SermonViewSet(
     def destroy(self, request, *args, **kwargs):
         sermon = self.get_object()
         audio_name = sermon.audio.name
+        playback_name = sermon.playback_audio.name if sermon.playback_audio else ""
         storage = sermon.audio.storage
         sermon.delete()
         if audio_name:
             storage.delete(audio_name)
+        if playback_name:
+            storage.delete(playback_name)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["post"], url_path="retry")

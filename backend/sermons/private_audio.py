@@ -67,13 +67,15 @@ def _file_range(file, start: int, length: int) -> Iterator[bytes]:
 
 
 def sermon_audio_response(request: HttpRequest, sermon: Sermon) -> HttpResponse:
-    audio = sermon.audio.open("rb")
-    size = sermon.audio_size_bytes
-    filename = Path(sermon.audio.name).name
+    audio_file = sermon.listening_audio_file()
+    audio = audio_file.open("rb")
+    size = sermon.listening_audio_size_bytes()
+    filename = Path(audio_file.name).name
+    content_type = sermon.listening_audio_mime_type()
     range_header = request.headers.get("Range")
 
     if not range_header:
-        response = FileResponse(audio, content_type=sermon.audio_mime_type)
+        response = FileResponse(audio, content_type=content_type)
         response["Content-Length"] = size
     else:
         bounds = _range_bounds(range_header, size)
@@ -88,7 +90,7 @@ def sermon_audio_response(request: HttpRequest, sermon: Sermon) -> HttpResponse:
         response = StreamingHttpResponse(
             _file_range(audio, start, length),
             status=206,
-            content_type=sermon.audio_mime_type,
+            content_type=content_type,
         )
         response["Content-Length"] = length
         response["Content-Range"] = f"bytes {start}-{end}/{size}"

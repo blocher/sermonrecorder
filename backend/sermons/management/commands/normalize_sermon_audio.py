@@ -76,11 +76,16 @@ class Command(BaseCommand):
             if changed:
                 rewritten += 1
                 sermon.refresh_from_db(
-                    fields=("audio_size_bytes", "audio_normalized_at", "duration_seconds")
+                    fields=(
+                        "playback_audio_size_bytes",
+                        "audio_normalized_at",
+                        "duration_seconds",
+                    )
                 )
                 self.stdout.write(
                     self.style.SUCCESS(
-                        f"Normalized {sermon.id} → {sermon.audio_size_bytes} bytes"
+                        f"Normalized {sermon.id} → "
+                        f"{sermon.playback_audio_size_bytes} bytes"
                     )
                 )
             else:

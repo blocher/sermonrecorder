@@ -60,11 +60,14 @@ class PlaybackAudioTests(TestCase):
         sermon.refresh_from_db()
         self.assertTrue(changed)
         self.assertIsNotNone(sermon.audio_normalized_at)
-        self.assertEqual(sermon.audio_size_bytes, 23)
         self.assertEqual(sermon.duration_seconds, 121)
-        self.assertEqual(sermon.audio_mime_type, "audio/mp4")
-        self.assertTrue(source.is_file())
-        self.assertEqual(source.read_bytes(), b"louder-normalized-audio")
+        self.assertEqual(sermon.playback_audio_mime_type, "audio/mp4")
+        self.assertEqual(sermon.playback_audio_size_bytes, 23)
+        self.assertEqual(source.read_bytes(), b"quiet-audio")
+        self.assertEqual(
+            Path(sermon.playback_audio.path).read_bytes(),
+            b"louder-normalized-audio",
+        )
 
     def test_normalize_is_idempotent_without_force(self):
         sermon = self.sermon()
@@ -107,7 +110,7 @@ class PlaybackAudioTests(TestCase):
 
         sermon.refresh_from_db()
         self.assertIsNotNone(sermon.audio_normalized_at)
-        self.assertEqual(sermon.audio_size_bytes, 22)
+        self.assertEqual(sermon.playback_audio_size_bytes, 22)
         self.assertIn("rewritten=1", stdout.getvalue())
 
     def test_normalize_requires_existing_file(self):
