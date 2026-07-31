@@ -363,6 +363,15 @@ SERMON_ARTIFACT_REASONING_LEVEL = os.environ.get(
     "SERMON_ARTIFACT_REASONING_LEVEL",
     "high",
 )
+MAGISTERIUM_API_KEY = os.environ.get("MAGISTERIUM_API_KEY", "")
+MAGISTERIUM_TIER = os.environ.get("MAGISTERIUM_TIER", "")
+MAGISTERIUM_BASE_URL = os.environ.get(
+    "MAGISTERIUM_BASE_URL",
+    "https://www.magisterium.com/api/v1",
+)
+MAGISTERIUM_TIMEOUT_SECONDS = float(
+    os.environ.get("MAGISTERIUM_TIMEOUT_SECONDS", "90")
+)
 SIMPLEAI = {
     "defaults": ["openai"],
     "providers": {

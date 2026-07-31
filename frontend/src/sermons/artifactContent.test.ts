@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { parseHymn, parseQuiz, parseTuneSuggestions } from './artifactContent'
+import {
+  parseDoctrinalReview,
+  parseHymn,
+  parseQuiz,
+  parseRelatedSources,
+  parseTuneSuggestions,
+} from './artifactContent'
 import { ownerSermonSections, sharedSermonSections } from './sections'
 
 describe('generated artifact content', () => {
@@ -62,5 +68,69 @@ As Christ has taught us to`)
   it('keeps public tabs aligned with the owner view except for Reflection', () => {
     expect(ownerSermonSections.slice(0, -1)).toEqual(sharedSermonSections)
     expect(ownerSermonSections.at(-1)).toEqual(['reflection', 'Reflect'])
+  })
+
+  it('includes a Feedback tab after Study', () => {
+    expect(sharedSermonSections[0]).toEqual(['study', 'Study'])
+    expect(sharedSermonSections[1]).toEqual(['feedback', 'Feedback'])
+  })
+
+  it('parses related sources JSON', () => {
+    expect(
+      parseRelatedSources(
+        JSON.stringify({
+          sources: [
+            {
+              title: 'Deus Caritas Est',
+              author: 'Benedict XVI',
+              year: '2005',
+              excerpt: 'God is love.',
+              source_url: 'https://example.com/dce',
+              category: 'magisterial',
+              query: 'Catholic teaching on love',
+            },
+          ],
+        }),
+      ),
+    ).toEqual([
+      {
+        title: 'Deus Caritas Est',
+        author: 'Benedict XVI',
+        year: '2005',
+        excerpt: 'God is love.',
+        source_url: 'https://example.com/dce',
+        category: 'magisterial',
+        query: 'Catholic teaching on love',
+      },
+    ])
+  })
+
+  it('parses doctrinal review findings', () => {
+    const review = parseDoctrinalReview(
+      JSON.stringify({
+        findings: [
+          {
+            assertion: 'Faith alone saves without charity.',
+            severity: 'borderline',
+            explanation: 'Catholic teaching holds faith working through love.',
+            citations: [
+              {
+                document_title: 'Catechism of the Catholic Church',
+                document_author: '',
+                document_year: '',
+                document_reference: '1815',
+                cited_text: 'The gift of faith remains...',
+                source_url: '',
+              },
+            ],
+          },
+        ],
+        summary: '',
+        citations: [],
+      }),
+    )
+    expect(review.findings).toHaveLength(1)
+    expect(review.findings[0]?.severity).toBe('borderline')
+    expect(review.findings[0]?.citations[0]?.document_reference).toBe('1815')
   })
 })

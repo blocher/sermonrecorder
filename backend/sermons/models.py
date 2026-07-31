@@ -283,6 +283,8 @@ class StudyArtifact(models.Model):
             "Kids discussion questions",
         )
         SERMON_FEEDBACK = "sermon_feedback", "Sermon feedback"
+        RELATED_SOURCES = "related_sources", "Related sources"
+        DOCTRINAL_REVIEW = "doctrinal_review", "Doctrinal review"
         HYMN = "hymn", "Hymn"
         HYMN_TUNE_SUGGESTIONS = (
             "hymn_tune_suggestions",

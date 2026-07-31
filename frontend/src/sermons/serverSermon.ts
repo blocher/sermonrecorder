@@ -90,6 +90,8 @@ export type StudyArtifactKind =
   | 'adult_discussion_questions'
   | 'kids_discussion_questions'
   | 'sermon_feedback'
+  | 'related_sources'
+  | 'doctrinal_review'
   | 'hymn'
   | 'hymn_tune_suggestions'
   | 'quiz'
@@ -233,11 +235,28 @@ async function authorizedJson<T>(
   if (response.status === 401) {
     response = await request(await refreshAuthorizedAccessToken())
   }
-  const data = response.status === 204 ? undefined : ((await response.json()) as unknown)
+  const data =
+    response.status === 204 ? undefined : await readResponseJson(response, fallback)
   if (!response.ok) {
     throw new Error(responseError(data, fallback))
   }
   return data as T
+}
+
+async function readResponseJson(response: Response, fallback: string): Promise<unknown> {
+  const contentType = response.headers.get('content-type') ?? ''
+  const body = await response.text()
+  if (!body) return undefined
+  try {
+    return JSON.parse(body) as unknown
+  } catch {
+    if (contentType.includes('text/html') || body.startsWith('<!DOCTYPE') || body.startsWith('<!doctype')) {
+      throw new Error(
+        'The API returned a web page instead of JSON. Check that the backend is running on the configured API URL and that you are signed in.',
+      )
+    }
+    throw new Error(fallback)
+  }
 }
 
 export async function loadServerSermon(id: string): Promise<ServerSermonDetail> {
@@ -428,7 +447,10 @@ export async function revokeShareLink(sermonId: string): Promise<void> {
 
 export async function loadSharedSermon(token: string): Promise<SharedSermonDetail> {
   const response = await fetch(`${API_BASE_URL}/api/shares/${encodeURIComponent(token)}/`)
-  const data = (await response.json()) as unknown
+  const data = await readResponseJson(
+    response,
+    'This shared Sermon is unavailable.',
+  )
   if (!response.ok) {
     throw new Error(
       response.status === 404

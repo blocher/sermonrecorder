@@ -91,6 +91,26 @@ function networkErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback
 }
 
+async function readResponseJson(response: Response): Promise<unknown> {
+  const contentType = response.headers.get('content-type') ?? ''
+  const body = await response.text()
+  if (!body) return undefined
+  try {
+    return JSON.parse(body) as unknown
+  } catch {
+    if (
+      contentType.includes('text/html') ||
+      body.startsWith('<!DOCTYPE') ||
+      body.startsWith('<!doctype')
+    ) {
+      throw new Error(
+        'The API returned a web page instead of JSON. Check that the backend is running and VITE_API_URL points at it.',
+      )
+    }
+    throw new Error('The request could not be completed.')
+  }
+}
+
 async function postJson<T>(path: string, body: object): Promise<T> {
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -98,7 +118,7 @@ async function postJson<T>(path: string, body: object): Promise<T> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
-    const data = (await response.json()) as unknown
+    const data = await readResponseJson(response)
     if (!response.ok) throw new Error(responseError(data))
     return data as T
   } catch (error) {
@@ -152,7 +172,7 @@ async function loadCurrentUser(): Promise<Congregant> {
     const response = await fetch(`${API_BASE_URL}/api/auth/me/`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-    const data = (await response.json()) as unknown
+    const data = await readResponseJson(response)
     if (!response.ok) throw new Error(responseError(data))
     return data as Congregant
   } catch (error) {

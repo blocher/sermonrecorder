@@ -1,7 +1,14 @@
-export type SermonSection = 'study' | 'hymn' | 'discuss' | 'transcript' | 'reflection'
+export type SermonSection =
+  | 'study'
+  | 'feedback'
+  | 'hymn'
+  | 'discuss'
+  | 'transcript'
+  | 'reflection'
 
 export const sharedSermonSections: readonly [SermonSection, string][] = [
   ['study', 'Study'],
+  ['feedback', 'Feedback'],
   ['hymn', 'Hymn'],
   ['discuss', 'Discuss'],
   ['transcript', 'Transcript'],

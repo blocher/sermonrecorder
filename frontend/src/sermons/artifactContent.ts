@@ -14,6 +14,38 @@ export interface QuizItem {
   answer: string
 }
 
+export interface RelatedSource {
+  title: string
+  author: string
+  year: string
+  excerpt: string
+  source_url: string
+  category: string
+  query: string
+}
+
+export interface DoctrinalCitation {
+  document_title: string
+  document_author: string
+  document_year: string
+  document_reference: string
+  cited_text: string
+  source_url: string
+}
+
+export interface DoctrinalFinding {
+  assertion: string
+  severity: 'heretical' | 'borderline' | string
+  explanation: string
+  citations: DoctrinalCitation[]
+}
+
+export interface DoctrinalReview {
+  findings: DoctrinalFinding[]
+  summary: string
+  citations: DoctrinalCitation[]
+}
+
 export function numberedItems(content: string): string[] {
   return content
     .split(/\n+/)
@@ -86,4 +118,94 @@ export function parseQuiz(content: string): QuizItem[] {
       return { question, answer }
     })
     .filter((item) => item.question && item.answer)
+}
+
+function readJsonObject(content: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(content)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null
+  } catch {
+    return null
+  }
+}
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function parseCitation(value: unknown): DoctrinalCitation | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const item = value as Record<string, unknown>
+  const citation: DoctrinalCitation = {
+    document_title: asString(item.document_title),
+    document_author: asString(item.document_author),
+    document_year: asString(item.document_year),
+    document_reference: asString(item.document_reference),
+    cited_text: asString(item.cited_text),
+    source_url: asString(item.source_url),
+  }
+  return citation.document_title || citation.cited_text || citation.source_url
+    ? citation
+    : null
+}
+
+export function parseRelatedSources(content: string): RelatedSource[] {
+  const payload = readJsonObject(content)
+  const sources = payload?.sources
+  if (!Array.isArray(sources)) return []
+  return sources
+    .map((value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+      const item = value as Record<string, unknown>
+      const source: RelatedSource = {
+        title: asString(item.title) || 'Untitled source',
+        author: asString(item.author),
+        year: asString(item.year),
+        excerpt: asString(item.excerpt),
+        source_url: asString(item.source_url),
+        category: asString(item.category),
+        query: asString(item.query),
+      }
+      return source
+    })
+    .filter((source): source is RelatedSource => Boolean(source))
+}
+
+export function parseDoctrinalReview(content: string): DoctrinalReview {
+  const payload = readJsonObject(content)
+  if (!payload) {
+    return { findings: [], summary: content.trim(), citations: [] }
+  }
+  const findings = Array.isArray(payload.findings)
+    ? payload.findings
+        .map((value) => {
+          if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+          const item = value as Record<string, unknown>
+          const citations = Array.isArray(item.citations)
+            ? item.citations
+                .map(parseCitation)
+                .filter((citation): citation is DoctrinalCitation => Boolean(citation))
+            : []
+          const finding: DoctrinalFinding = {
+            assertion: asString(item.assertion),
+            severity: asString(item.severity) || 'borderline',
+            explanation: asString(item.explanation),
+            citations,
+          }
+          return finding.assertion || finding.explanation ? finding : null
+        })
+        .filter((finding): finding is DoctrinalFinding => Boolean(finding))
+    : []
+  const citations = Array.isArray(payload.citations)
+    ? payload.citations
+        .map(parseCitation)
+        .filter((citation): citation is DoctrinalCitation => Boolean(citation))
+    : []
+  return {
+    findings,
+    summary: asString(payload.summary),
+    citations,
+  }
 }

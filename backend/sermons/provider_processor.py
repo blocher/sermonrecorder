@@ -4,6 +4,11 @@ from django.conf import settings
 from django.utils.module_loading import import_string
 
 from .audio_duration import probe_audio_duration_seconds
+from .magisterium_enrichment import (
+    MagisteriumArtifacts,
+    MagisteriumEnricher,
+    without_magisterium_artifacts,
+)
 from .models import Sermon
 from .openai_transcriber import CleanedTranscript
 from .playback_audio import normalize_sermon_playback_audio
@@ -18,6 +23,10 @@ class Transcriber(Protocol):
 
 class ArtifactGenerator(Protocol):
     def generate(self, transcript: CleanedTranscript) -> GeneratedArtifacts: ...
+
+
+class MagisteriumArtifactEnricher(Protocol):
+    def enrich(self, transcript: CleanedTranscript) -> MagisteriumArtifacts: ...
 
 
 def get_sermon_transcriber() -> Transcriber:
@@ -70,9 +79,11 @@ class ProviderSermonProcessor:
         self,
         transcriber: Transcriber | None = None,
         artifact_generator: ArtifactGenerator | None = None,
+        magisterium_enricher: MagisteriumArtifactEnricher | None = None,
     ):
         self.transcriber = transcriber or get_sermon_transcriber()
         self.artifact_generator = artifact_generator or SimpleAIArtifactGenerator()
+        self.magisterium_enricher = magisterium_enricher or MagisteriumEnricher()
 
     def process(self, sermon: Sermon) -> ProcessedSermon:
         isolate_sermon_voice(sermon)
@@ -80,11 +91,16 @@ class ProviderSermonProcessor:
         _sync_duration_from_audio(sermon)
         transcript = self.transcriber.transcribe(sermon)
         artifacts = self.artifact_generator.generate(transcript)
+        magisterium = self.magisterium_enricher.enrich(transcript)
+        study_artifacts = (
+            without_magisterium_artifacts(artifacts.study_artifacts)
+            + magisterium.study_artifacts
+        )
         return ProcessedSermon(
             title=artifacts.title,
             transcript_text=transcript.text,
             transcript_segments=transcript.segments,
-            study_artifacts=artifacts.study_artifacts,
+            study_artifacts=study_artifacts,
             scripture_references=artifacts.scripture_references,
             tag_suggestions=artifacts.tag_suggestions,
             related_sermons=_related_sermons(sermon, artifacts.tag_suggestions),

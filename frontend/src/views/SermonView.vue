@@ -29,8 +29,10 @@ import { formatClock, parseClock, seekRatioFromClientX } from '../playback/seekT
 import {
   numberedItems,
   paragraphs,
+  parseDoctrinalReview,
   parseHymn,
   parseQuiz,
+  parseRelatedSources,
   parseTuneSuggestions,
   quotationItems,
 } from '../sermons/artifactContent'
@@ -166,6 +168,8 @@ const activeAudioUrl = computed(() => {
 const hymn = computed(() => parseHymn(artifact('hymn')))
 const hymnTunes = computed(() => parseTuneSuggestions(artifact('hymn_tune_suggestions')))
 const quiz = computed(() => parseQuiz(artifact('quiz')))
+const relatedSources = computed(() => parseRelatedSources(artifact('related_sources')))
+const doctrinalReview = computed(() => parseDoctrinalReview(artifact('doctrinal_review')))
 const rawTranscriptSegments = computed(
   () => sermon.value?.transcript?.raw_segments ?? [],
 )
@@ -1988,30 +1992,95 @@ onBeforeUnmount(clearProcessingPoll)
             </div>
           </section>
 
-          <section v-if="artifact('sermon_feedback')" class="artifact artifact--feedback">
+          <section
+            v-if="artifact('related_sources')"
+            class="artifact artifact--related-sources"
+          >
             <div class="artifact__heading">
               <div>
-                <p class="rubric-label">If this sermon were revised</p>
-                <h2>Sermon feedback</h2>
+                <p class="rubric-label">For further study</p>
+                <h2>Related sources</h2>
               </div>
               <button
                 class="artifact__edit"
                 type="button"
-                aria-label="Edit Sermon feedback"
+                aria-label="Edit Related sources"
+                @click="beginArtifactEdit('related_sources')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <p class="feedback-note">
+              Sources suggested via Magisterium AI Search. Confirm relevance before relying on them.
+            </p>
+            <div v-if="editingKind === 'related_sources'" class="artifact-editor">
+              <textarea
+                v-model="editContent"
+                rows="12"
+                aria-label="Related sources"
+              ></textarea>
+              <p class="artifact-editor__hint">
+                Keep valid JSON with a top-level <code>sources</code> array.
+              </p>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <div v-else-if="relatedSources.length" class="source-list">
+              <article v-for="source in relatedSources" :key="`${source.title}-${source.year}`">
+                <h3>
+                  <a
+                    v-if="source.source_url"
+                    :href="source.source_url"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {{ source.title }}
+                  </a>
+                  <template v-else>{{ source.title }}</template>
+                </h3>
+                <p v-if="source.author || source.year" class="source-list__meta">
+                  <span v-if="source.author">{{ source.author }}</span>
+                  <span v-if="source.author && source.year"> · </span>
+                  <span v-if="source.year">{{ source.year }}</span>
+                </p>
+                <p v-if="source.excerpt">{{ source.excerpt }}</p>
+              </article>
+            </div>
+            <p v-else class="scripture-links__empty">No related sources were suggested.</p>
+          </section>
+        </template>
+
+        <template v-else-if="activeSection === 'feedback'">
+          <section v-if="artifact('sermon_feedback')" class="artifact artifact--feedback">
+            <div class="artifact__heading">
+              <div>
+                <p class="rubric-label">If this sermon were revised</p>
+                <h2>Craft feedback</h2>
+              </div>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit craft feedback"
                 @click="beginArtifactEdit('sermon_feedback')"
               >
                 <PencilLine :size="16" />
               </button>
             </div>
             <p class="feedback-note">
-              Generated critique can miss context. Verify doctrinal judgments against Scripture
-              and the Church’s teaching.
+              Suggestions for conveying the message more clearly — structure, missing points,
+              tangents, and application. Not a doctrinal audit.
             </p>
             <div v-if="editingKind === 'sermon_feedback'" class="artifact-editor">
               <textarea
                 v-model="editContent"
                 rows="10"
-                aria-label="Sermon feedback"
+                aria-label="Craft feedback"
               ></textarea>
               <div class="artifact-editor__actions">
                 <button type="button" @click="cancelArtifactEdit">
@@ -2028,6 +2097,102 @@ onBeforeUnmount(clearProcessingPoll)
               </li>
             </ol>
           </section>
+
+          <section
+            v-if="artifact('doctrinal_review')"
+            class="artifact artifact--doctrinal"
+          >
+            <div class="artifact__heading">
+              <div>
+                <p class="rubric-label">Catholic teaching check</p>
+                <h2>Doctrinal review</h2>
+              </div>
+              <button
+                class="artifact__edit"
+                type="button"
+                aria-label="Edit Doctrinal review"
+                @click="beginArtifactEdit('doctrinal_review')"
+              >
+                <PencilLine :size="16" />
+              </button>
+            </div>
+            <p class="feedback-note">
+              Advisory only. Verify every judgment against Scripture and the Church’s Magisterium.
+              Generated citations can miss context.
+            </p>
+            <div v-if="editingKind === 'doctrinal_review'" class="artifact-editor">
+              <textarea
+                v-model="editContent"
+                rows="14"
+                aria-label="Doctrinal review"
+              ></textarea>
+              <p class="artifact-editor__hint">
+                Keep valid JSON with <code>findings</code> and optional <code>summary</code>.
+              </p>
+              <div class="artifact-editor__actions">
+                <button type="button" @click="cancelArtifactEdit">
+                  <X :size="15" /> Cancel
+                </button>
+                <button type="button" :disabled="savingEdit" @click="saveArtifactEdit">
+                  <Check :size="15" />{{ savingEdit ? 'Saving…' : 'Save edit' }}
+                </button>
+              </div>
+            </div>
+            <template v-else>
+              <div v-if="doctrinalReview.findings.length" class="doctrinal-list">
+                <article
+                  v-for="finding in doctrinalReview.findings"
+                  :key="finding.assertion"
+                >
+                  <p class="doctrinal-list__severity" :data-severity="finding.severity">
+                    {{ finding.severity }}
+                  </p>
+                  <h3>{{ finding.assertion }}</h3>
+                  <p>{{ finding.explanation }}</p>
+                  <ul v-if="finding.citations.length" class="citation-list">
+                    <li v-for="citation in finding.citations" :key="citation.document_title + citation.document_reference">
+                      <strong>
+                        <a
+                          v-if="citation.source_url"
+                          :href="citation.source_url"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {{ citation.document_title || 'Cited source' }}
+                        </a>
+                        <template v-else>
+                          {{ citation.document_title || 'Cited source' }}
+                        </template>
+                      </strong>
+                      <span v-if="citation.document_author || citation.document_reference">
+                        —
+                        <template v-if="citation.document_author">
+                          {{ citation.document_author }}
+                        </template>
+                        <template v-if="citation.document_reference">
+                          §{{ citation.document_reference }}
+                        </template>
+                      </span>
+                      <p v-if="citation.cited_text">{{ citation.cited_text }}</p>
+                    </li>
+                  </ul>
+                </article>
+              </div>
+              <p v-else class="scripture-links__empty">
+                {{
+                  doctrinalReview.summary ||
+                  'No assertions were flagged as heretical or borderline relative to Catholic teaching.'
+                }}
+              </p>
+            </template>
+          </section>
+
+          <p
+            v-if="!artifact('sermon_feedback') && !artifact('doctrinal_review')"
+            class="empty-panel"
+          >
+            Feedback is not available for this sermon yet.
+          </p>
         </template>
 
         <template v-else-if="activeSection === 'hymn'">
@@ -3519,6 +3684,77 @@ a.tag-chip:focus-visible {
   padding: 0;
 }
 
+.source-list,
+.doctrinal-list {
+  display: grid;
+  gap: 1.1rem;
+  margin-top: 1rem;
+}
+
+.source-list article,
+.doctrinal-list article {
+  border-left: 2px solid var(--color-rule-gold);
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.15rem 0 0.15rem 1rem;
+}
+
+.source-list h3,
+.doctrinal-list h3 {
+  font-family: var(--font-reading);
+  font-size: 1.02rem;
+  font-weight: 650;
+  margin: 0;
+}
+
+.source-list h3 a,
+.citation-list a {
+  color: var(--color-lapis);
+  text-decoration: none;
+}
+
+.source-list h3 a:hover,
+.citation-list a:hover {
+  text-decoration: underline;
+}
+
+.source-list__meta,
+.doctrinal-list__severity {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.doctrinal-list__severity[data-severity='heretical'] {
+  color: #8a3b2d;
+}
+
+.doctrinal-list__severity[data-severity='borderline'] {
+  color: #8a6a2d;
+}
+
+.citation-list {
+  display: grid;
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0.55rem 0 0;
+  padding: 0;
+}
+
+.citation-list li {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.citation-list p {
+  margin: 0.35rem 0 0;
+}
+
 .feedback-note {
   color: var(--color-ink-muted);
   font-family: var(--font-utility);
@@ -3851,6 +4087,14 @@ a.tag-chip:focus-visible {
 .tag-editor__add button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.empty-panel {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  font-size: 0.98rem;
+  line-height: 1.55;
+  margin: 1.5rem 0 0;
 }
 
 .related-sermons {

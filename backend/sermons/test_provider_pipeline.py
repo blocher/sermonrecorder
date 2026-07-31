@@ -38,6 +38,7 @@ from .transcript_cleanup import (
     intentional_service_segments,
 )
 from .provider_processor import ProviderSermonProcessor
+from .magisterium_enrichment import MAGISTERIUM_ARTIFACT_KINDS
 from .simpleai_artifacts import (
     GeneratedArtifacts,
     HymnVerseOutput,
@@ -485,7 +486,7 @@ class ProviderPipelineTests(TestCase):
         self.assertEqual(result.title, "The Father Runs to Welcome")
         self.assertEqual(
             {artifact.kind for artifact in result.study_artifacts},
-            set(StudyArtifact.Kind.values),
+            set(StudyArtifact.Kind.values) - MAGISTERIUM_ARTIFACT_KINDS,
         )
         outline = next(
             artifact
@@ -699,6 +700,7 @@ class ProviderPipelineTests(TestCase):
         processor = ProviderSermonProcessor(transcriber, artifact_generator)
 
         with (
+            override_settings(MAGISTERIUM_API_KEY="", MAGISTERIUM_TIER=""),
             patch(
                 "sermons.provider_processor.isolate_sermon_voice",
                 return_value=False,
@@ -711,6 +713,10 @@ class ProviderPipelineTests(TestCase):
             result = processor.process(sermon)
 
         self.assertEqual(result.title, "Grace Welcomes Us Home")
+        self.assertEqual(
+            {artifact.kind for artifact in result.study_artifacts},
+            set(StudyArtifact.Kind.values),
+        )
         self.assertEqual(
             [suggestion.sermon_id for suggestion in result.related_sermons],
             [related.id],

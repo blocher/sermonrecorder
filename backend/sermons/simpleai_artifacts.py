@@ -176,13 +176,11 @@ Produce:
   do not paraphrase, add ellipses, or wrap the returned text in quotation marks;
 - thoughtful adult discussion questions;
 - clear, age-appropriate kids discussion questions;
-- two to eight concise, constructive suggestions for the preacher. Cover only
-  dimensions that would materially improve this Sermon: clarity of the central
-  claim, structure, concision, rhetorical impact, practical application, and
-  important ideas left untreated or insufficiently explained. Review
-  theological claims for consistency with Scripture and the Catholic Church's
-  Magisterium. Do not fabricate quotations or document citations; identify
-  uncertainty and denominational distinctions charitably;
+- two to eight concise, constructive suggestions for the preacher focused on
+  how to convey the message more clearly: strengthen the central claim, improve
+  structure, cut tangents, restore missing points, sharpen rhetorical impact,
+  and deepen practical application. Do not perform a doctrinal orthodoxy audit
+  here; stay on craft, clarity, and pastoral communication;
 - an original hymn inspired by the Sermon's central message. Give it two to six
   verses and choose exactly one of these meters: CM (8.6.8.6), LM (8.8.8.8),
   SM (6.6.8.6), or 8.7.8.7 D. Every verse must use the chosen meter exactly:
