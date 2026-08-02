@@ -777,7 +777,7 @@ onBeforeUnmount(() => {
             :class="{ 'is-active': audioVariant === 'processed' }"
             @click="setAudioVariant('processed')"
           >
-            Isolated
+            Isolated Speaker Voice
           </button>
         </div>
       </div>

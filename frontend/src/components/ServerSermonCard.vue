@@ -198,7 +198,7 @@ onBeforeUnmount(() => {
           :disabled="busy"
           @click="setAudioVariant('processed')"
         >
-          Isolated
+          Isolated Speaker Voice
         </button>
       </div>
       <div v-if="!confirmingDelete" class="server-sermon__actions">

@@ -70,6 +70,13 @@ body.share-lock {
   overflow: hidden;
 }
 
+/* Keep the mobile record bar above the docked sermon player. */
+@media (max-width: 640px) {
+  body.sermon-player-dock .record-control {
+    z-index: 36;
+  }
+}
+
 #app:has(.share-shell) {
   height: 100%;
   min-height: 0;

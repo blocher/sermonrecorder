@@ -1263,7 +1263,12 @@ watch(
 )
 
 function setActionsBackgroundInert(inert: boolean): void {
-  for (const selector of ['.app-header', '.app-content', '.record-control']) {
+  for (const selector of [
+    '.app-header',
+    '.app-content',
+    '.record-control',
+    '.audio-player--docked',
+  ]) {
     const element = document.querySelector<HTMLElement>(selector)
     element?.toggleAttribute('inert', inert)
     if (inert) element?.setAttribute('aria-hidden', 'true')
@@ -1291,17 +1296,26 @@ watch(actionsView, async (view) => {
   window.removeEventListener('keydown', onActionsModalKeydown)
 })
 
+watch(
+  () => Boolean(sermon.value),
+  (docked) => {
+    document.body.classList.toggle('sermon-player-dock', docked)
+  },
+  { immediate: true },
+)
+
 onBeforeUnmount(() => {
   clearProcessingPoll()
   clearMagisteriumPoll()
   window.removeEventListener('keydown', onActionsModalKeydown)
   document.body.classList.remove('sermon-actions-lock')
+  document.body.classList.remove('sermon-player-dock')
   setActionsBackgroundInert(false)
 })
 </script>
 
 <template>
-  <main class="sermon-detail page-gather">
+  <main class="sermon-detail page-gather" :class="{ 'sermon-detail--docked': sermon }">
     <button class="back-link" type="button" @click="router.push('/')">
       <ArrowLeft :size="17" :stroke-width="1.7" aria-hidden="true" />
       Library
@@ -1797,7 +1811,7 @@ onBeforeUnmount(() => {
                   <p class="rubric-label">Audio to transcribe</p>
                   <p>
                     Transcripts use the original recording by default. Isolation still runs in the
-                    background — choose Isolated only if ambient noise is drowning out the speech.
+                    background — choose Isolated Speaker Voice only if ambient noise is drowning out the speech.
                   </p>
                   <div class="sermon-regenerate-source__choices" role="group" aria-label="Audio to transcribe">
                     <button
@@ -1816,7 +1830,7 @@ onBeforeUnmount(() => {
                       :disabled="regenerating || regeneratingMagisterium"
                       @click="regenerateAudioSource = 'playback'"
                     >
-                      Isolated
+                      Isolated Speaker Voice
                     </button>
                   </div>
                 </div>
@@ -1916,99 +1930,6 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </Teleport>
-
-      <section class="audio-player" aria-label="Sermon audio player">
-        <audio
-          :key="`${activeAudioUrl}:${audioReloadToken}`"
-          ref="audio"
-          :src="activeAudioUrl"
-          preload="metadata"
-          @play="playing = true"
-          @pause="playing = false"
-          @ended="playing = false"
-          @timeupdate="currentSeconds = scrubbing ? currentSeconds : (audio?.currentTime ?? 0)"
-          @error="playbackError = true"
-        ></audio>
-        <button
-          class="audio-player__play"
-          type="button"
-          :aria-label="playing ? 'Pause sermon' : 'Play sermon'"
-          @click="togglePlayback"
-        >
-          <Pause v-if="playing" :size="21" fill="currentColor" aria-hidden="true" />
-          <Play v-else :size="21" fill="currentColor" aria-hidden="true" />
-        </button>
-        <div class="audio-player__body">
-          <div class="audio-player__labels">
-            <span>{{ playing ? 'Playing sermon' : 'Sermon audio' }}</span>
-            <span>
-              {{ timestamp(currentSeconds) }} ·
-              {{ serverSermonDuration(sermon.duration_seconds) }}
-            </span>
-          </div>
-          <div
-            v-if="sermon.has_playback_audio"
-            class="audio-player__variants"
-            role="group"
-            aria-label="Optional audio version"
-          >
-            <button
-              type="button"
-              :aria-pressed="audioVariant === 'original'"
-              :class="{ 'is-active': audioVariant === 'original' }"
-              @click="setAudioVariant('original')"
-            >
-              Original
-            </button>
-            <button
-              type="button"
-              :aria-pressed="audioVariant === 'processed'"
-              :class="{ 'is-active': audioVariant === 'processed' }"
-              @click="setAudioVariant('processed')"
-            >
-              Isolated
-            </button>
-          </div>
-          <div
-            class="audio-player__track"
-            role="slider"
-            tabindex="0"
-            aria-label="Sermon playback position"
-            aria-valuemin="0"
-            :aria-valuemax="sermon.duration_seconds"
-            :aria-valuenow="Math.round(currentSeconds)"
-            :aria-valuetext="timestamp(currentSeconds)"
-            @pointerdown.prevent="beginTrackScrub"
-            @pointermove="moveTrackScrub"
-            @pointerup="endTrackScrub"
-            @pointercancel="endTrackScrub"
-            @keydown.home.prevent="seekTo(0)"
-            @keydown.end.prevent="seekTo(sermon.duration_seconds)"
-            @keydown.arrow-left.prevent="seekTo(Math.max(0, currentSeconds - 5))"
-            @keydown.arrow-right.prevent="
-              seekTo(Math.min(sermon.duration_seconds, currentSeconds + 5))
-            "
-          >
-            <span :style="{ width: progressPercent }"></span>
-          </div>
-          <div v-if="playbackError" class="audio-player__error" role="alert">
-            <span>Audio could not be played. Refresh the private link and try again.</span>
-            <button
-              type="button"
-              class="audio-player__refresh"
-              :disabled="refreshingAudio"
-              aria-label="Refresh private audio link"
-              @click="refreshPrivateAudioLink"
-            >
-              <RefreshCw
-                :size="14"
-                :class="{ 'is-spinning': refreshingAudio }"
-                aria-hidden="true"
-              />
-            </button>
-          </div>
-        </div>
-      </section>
 
       <SermonSectionTabs
         ref="sectionTabs"
@@ -2892,6 +2813,99 @@ onBeforeUnmount(() => {
           </section>
         </template>
       </div>
+
+      <Teleport to="body">
+        <section class="audio-player audio-player--docked" aria-label="Sermon audio player">
+          <audio
+            :key="`${activeAudioUrl}:${audioReloadToken}`"
+            ref="audio"
+            :src="activeAudioUrl"
+            preload="metadata"
+            @play="playing = true"
+            @pause="playing = false"
+            @ended="playing = false"
+            @timeupdate="currentSeconds = scrubbing ? currentSeconds : (audio?.currentTime ?? 0)"
+            @error="playbackError = true"
+          ></audio>
+          <button
+            class="audio-player__play"
+            type="button"
+            :aria-label="playing ? 'Pause sermon' : 'Play sermon'"
+            @click="togglePlayback"
+          >
+            <Pause v-if="playing" :size="21" fill="currentColor" aria-hidden="true" />
+            <Play v-else :size="21" fill="currentColor" aria-hidden="true" />
+          </button>
+          <div class="audio-player__copy">
+            <strong>{{ serverSermonTitle(sermon) }}</strong>
+            <span v-if="!playbackError">
+              {{ playing ? 'Playing' : 'Listen' }} · {{ timestamp(currentSeconds) }} /
+              {{ serverSermonDuration(sermon.duration_seconds) }}
+            </span>
+            <div v-else class="audio-player__error" role="alert">
+              <span>Audio could not be played. Refresh the private link and try again.</span>
+              <button
+                type="button"
+                class="audio-player__refresh"
+                :disabled="refreshingAudio"
+                aria-label="Refresh private audio link"
+                @click="refreshPrivateAudioLink"
+              >
+                <RefreshCw
+                  :size="14"
+                  :class="{ 'is-spinning': refreshingAudio }"
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
+            <div
+              v-if="sermon.has_playback_audio"
+              class="audio-player__variants"
+              role="group"
+              aria-label="Optional audio version"
+            >
+              <button
+                type="button"
+                :aria-pressed="audioVariant === 'original'"
+                :class="{ 'is-active': audioVariant === 'original' }"
+                @click="setAudioVariant('original')"
+              >
+                Original
+              </button>
+              <button
+                type="button"
+                :aria-pressed="audioVariant === 'processed'"
+                :class="{ 'is-active': audioVariant === 'processed' }"
+                @click="setAudioVariant('processed')"
+              >
+                Isolated Speaker Voice
+              </button>
+            </div>
+          </div>
+          <div
+            class="audio-player__track"
+            role="slider"
+            tabindex="0"
+            aria-label="Sermon playback position"
+            aria-valuemin="0"
+            :aria-valuemax="sermon.duration_seconds"
+            :aria-valuenow="Math.round(currentSeconds)"
+            :aria-valuetext="timestamp(currentSeconds)"
+            @pointerdown.prevent="beginTrackScrub"
+            @pointermove="moveTrackScrub"
+            @pointerup="endTrackScrub"
+            @pointercancel="endTrackScrub"
+            @keydown.home.prevent="seekTo(0)"
+            @keydown.end.prevent="seekTo(sermon.duration_seconds)"
+            @keydown.arrow-left.prevent="seekTo(Math.max(0, currentSeconds - 5))"
+            @keydown.arrow-right.prevent="
+              seekTo(Math.min(sermon.duration_seconds, currentSeconds + 5))
+            "
+          >
+            <span :style="{ width: progressPercent }"></span>
+          </div>
+        </section>
+      </Teleport>
     </article>
   </main>
 </template>
@@ -2901,6 +2915,10 @@ onBeforeUnmount(() => {
   margin: 0 auto;
   max-width: 58rem;
   padding: 2rem clamp(1.25rem, 5vw, 3.5rem) 10rem;
+}
+
+.sermon-detail--docked {
+  padding-bottom: calc(8.5rem + env(safe-area-inset-bottom));
 }
 
 .back-link {
@@ -3809,15 +3827,26 @@ a.tag-chip:focus-visible {
   margin: 0.8rem 0 0;
 }
 
-.audio-player {
+.audio-player--docked {
   align-items: center;
-  background: var(--color-ink);
+  background: color-mix(in srgb, var(--color-ink) 96%, transparent);
+  box-shadow: 0 -10px 30px rgba(28, 36, 48, 0.17);
   color: var(--color-vellum);
   display: grid;
   gap: 1rem;
-  grid-template-columns: auto 1fr;
-  margin: 1.15rem 0 1.35rem;
-  padding: 1rem 1.15rem;
+  grid-template-columns: auto minmax(8rem, auto) minmax(5rem, 20rem);
+  justify-content: center;
+  left: 0;
+  padding: 0.85rem 1rem calc(0.85rem + env(safe-area-inset-bottom));
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  z-index: 35;
+}
+
+.audio-player--docked audio {
+  display: none;
 }
 
 .audio-player__play {
@@ -3828,30 +3857,33 @@ a.tag-chip:focus-visible {
   color: var(--color-rubric);
   cursor: pointer;
   display: flex;
-  height: 2.8rem;
+  height: 2.7rem;
   justify-content: center;
   padding-left: 0.15rem;
-  width: 2.8rem;
+  width: 2.7rem;
 }
 
-.audio-player__labels {
-  color: rgba(241, 238, 228, 0.72);
-  display: flex;
+.audio-player__copy strong,
+.audio-player__copy > span {
+  display: block;
   font-family: var(--font-utility);
-  font-size: 0.73rem;
-  justify-content: space-between;
-  margin-bottom: 0.55rem;
 }
 
-.audio-player__labels span:first-child {
-  color: var(--color-vellum);
+.audio-player__copy strong {
+  font-size: 0.78rem;
   font-weight: 650;
+}
+
+.audio-player__copy > span {
+  color: rgba(241, 238, 228, 0.65);
+  font-size: 0.7rem;
+  margin-top: 0.15rem;
 }
 
 .audio-player__variants {
   display: inline-flex;
   gap: 0.2rem;
-  margin: 0 0 0.65rem;
+  margin-top: 0.45rem;
 }
 
 .audio-player__variants button {
@@ -3860,11 +3892,11 @@ a.tag-chip:focus-visible {
   color: rgba(241, 238, 228, 0.78);
   cursor: pointer;
   font-family: var(--font-utility);
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   font-weight: 650;
   letter-spacing: 0.04em;
-  min-height: 1.85rem;
-  padding: 0.2rem 0.65rem;
+  min-height: 1.7rem;
+  padding: 0.15rem 0.55rem;
   text-transform: uppercase;
 }
 
@@ -3875,10 +3907,10 @@ a.tag-chip:focus-visible {
 }
 
 .audio-player__track {
-  background: rgba(241, 238, 228, 0.17);
+  background: rgba(241, 238, 228, 0.2);
   cursor: pointer;
-  height: 10px;
-  padding: 4px 0;
+  height: 12px;
+  padding: 5px 0;
   touch-action: none;
 }
 
@@ -3886,19 +3918,13 @@ a.tag-chip:focus-visible {
   background: var(--color-rule-gold);
   display: block;
   height: 2px;
+  margin: 0;
   position: relative;
+  width: 18%;
 }
 
 .audio-player__track span::after {
-  background: var(--color-vellum);
-  border-radius: 50%;
-  content: '';
-  height: 0.7rem;
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translate(50%, -50%);
-  width: 0.7rem;
+  display: none;
 }
 
 .transcript__segment--raw {
@@ -3925,12 +3951,12 @@ a.tag-chip:focus-visible {
 
 .audio-player__error {
   align-items: center;
-  color: color-mix(in srgb, var(--color-vellum) 72%, var(--color-rubric));
+  color: color-mix(in srgb, #f1eee4 72%, var(--color-rubric));
   display: flex;
   font-family: var(--font-utility);
   font-size: 0.7rem;
-  gap: 0.45rem;
-  margin-top: 0.65rem;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
 }
 
 .audio-player__refresh {
@@ -4881,6 +4907,23 @@ a.tag-chip:focus-visible {
 
   .sermon-register__entry:last-child {
     grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .sermon-detail--docked {
+    padding-bottom: calc(13rem + env(safe-area-inset-bottom));
+  }
+
+  .audio-player--docked {
+    bottom: calc(4.25rem + env(safe-area-inset-bottom));
+    grid-template-columns: auto 1fr;
+    justify-content: stretch;
+    padding-bottom: 0.85rem;
+  }
+
+  .audio-player__track {
+    display: none;
   }
 }
 
