@@ -58,7 +58,7 @@ const activeSection = ref<SermonSection>('study')
 let robotsMeta: HTMLMetaElement | null = null
 let previousRobotsContent: string | null = null
 
-const transcriptView = ref<'timeline' | 'reading'>('timeline')
+const transcriptView = ref<'timeline' | 'full'>('timeline')
 
 const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
@@ -76,10 +76,18 @@ const hymnTunes = computed(() => parseTuneSuggestions(artifact('hymn_tune_sugges
 const quiz = computed(() => parseQuiz(artifact('quiz')))
 const relatedSources = computed(() => parseRelatedSources(artifact('related_sources')))
 const doctrinalReview = computed(() => parseDoctrinalReview(artifact('doctrinal_review')))
+const displayTranscriptSegments = computed(() => {
+  const transcript = sermon.value?.transcript
+  if (!transcript) return []
+  return transcript.display_segments?.length
+    ? transcript.display_segments
+    : transcript.segments
+})
 const readingTranscriptParagraphs = computed(() => {
-  const segments = sermon.value?.transcript?.segments ?? []
+  const transcript = sermon.value?.transcript
+  const segments = displayTranscriptSegments.value
   if (!segments.length) {
-    const text = sermon.value?.transcript?.text.trim()
+    const text = (transcript?.display_text || transcript?.text || '').trim()
     return text ? paragraphs(text) : []
   }
 
@@ -560,7 +568,7 @@ onBeforeUnmount(() => {
 
         <template v-else-if="activeSection === 'transcript'">
           <section class="share-section share-transcript page-gather">
-            <p class="rubric-label">Cleaned transcript</p>
+            <p class="rubric-label">Polished for listening</p>
             <h2>Follow the sermon</h2>
             <div class="share-transcript-toggle" role="group" aria-label="Transcript view">
               <button
@@ -573,23 +581,23 @@ onBeforeUnmount(() => {
               </button>
               <button
                 type="button"
-                :class="{ active: transcriptView === 'reading' }"
-                :aria-pressed="transcriptView === 'reading'"
-                @click="transcriptView = 'reading'"
+                :class="{ active: transcriptView === 'full' }"
+                :aria-pressed="transcriptView === 'full'"
+                @click="transcriptView = 'full'"
               >
-                Reading
+                Full transcript
               </button>
             </div>
             <p class="share-transcript__note">
               {{
                 transcriptView === 'timeline'
-                  ? 'Jump to any moment in the cleaned Transcript.'
-                  : 'The cleaned Transcript is gathered into longer paragraphs for uninterrupted reading.'
+                  ? 'Jump to any moment in the polished Transcript.'
+                  : 'The polished Transcript is gathered into longer paragraphs for uninterrupted reading.'
               }}
             </p>
             <div v-if="transcriptView === 'timeline'" class="share-transcript__segments">
               <div
-                v-for="segment in sermon.transcript?.segments ?? []"
+                v-for="segment in displayTranscriptSegments"
                 :key="`${segment.start_seconds}-${segment.text}`"
               >
                 <button

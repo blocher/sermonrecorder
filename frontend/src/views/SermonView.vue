@@ -77,7 +77,8 @@ import {
   type StudyArtifactKind,
 } from '../sermons/serverSermon'
 
-type TranscriptView = 'timeline' | 'reading' | 'full'
+type TranscriptLayout = 'timeline' | 'reading' | 'raw'
+type TranscriptEdition = 'polished' | 'original'
 type SermonActionsView = 'details' | 'share' | 'regenerate' | 'delete'
 type ScriptureReferenceDraft = Omit<
   ServerScriptureReference,
@@ -101,7 +102,8 @@ const failedSermonId = ref('')
 const retrying = ref(false)
 const checkingProcessing = ref(false)
 const activeSection = ref<SermonSection>('study')
-const transcriptView = ref<TranscriptView>('timeline')
+const transcriptLayout = ref<TranscriptLayout>('timeline')
+const transcriptEdition = ref<TranscriptEdition>('polished')
 const audio = ref<HTMLAudioElement>()
 const playing = ref(false)
 const currentSeconds = ref(0)
@@ -213,13 +215,25 @@ const actionsModalRubric = computed(() => {
 const rawTranscriptSegments = computed(
   () => sermon.value?.transcript?.raw_segments ?? [],
 )
-const readingTranscriptParagraphs = computed(() => {
-  const segments = sermon.value?.transcript?.segments ?? []
+const displayTranscriptSegments = computed(() => {
+  const transcript = sermon.value?.transcript
+  if (!transcript) return []
+  return transcript.display_segments?.length
+    ? transcript.display_segments
+    : transcript.segments
+})
+const originalTranscriptSegments = computed(
+  () => sermon.value?.transcript?.segments ?? [],
+)
+
+function readingParagraphsFromSegments(
+  segments: { text: string }[],
+  fallbackText = '',
+): string[] {
   if (!segments.length) {
-    const text = sermon.value?.transcript?.text.trim()
+    const text = fallbackText.trim()
     return text ? paragraphs(text) : []
   }
-
   const grouped: string[] = []
   let paragraph = ''
   let wordCount = 0
@@ -236,6 +250,54 @@ const readingTranscriptParagraphs = computed(() => {
   }
   if (paragraph) grouped.push(paragraph)
   return grouped
+}
+
+const cleanedReadingParagraphs = computed(() => {
+  const transcript = sermon.value?.transcript
+  return readingParagraphsFromSegments(
+    displayTranscriptSegments.value,
+    transcript?.display_text || transcript?.text || '',
+  )
+})
+const originalReadingParagraphs = computed(() => {
+  const transcript = sermon.value?.transcript
+  return readingParagraphsFromSegments(
+    originalTranscriptSegments.value,
+    transcript?.text || '',
+  )
+})
+const usingPolishedTranscript = computed(
+  () => transcriptLayout.value !== 'raw' && transcriptEdition.value === 'polished',
+)
+const transcriptViewMeta = computed(() => {
+  if (transcriptLayout.value === 'raw') {
+    return {
+      rubric: 'Full diarization',
+      note: rawTranscriptSegments.value.length
+        ? 'Every diarized segment, including side talk.'
+        : 'Unavailable until the next regenerate on the current cleanup pipeline.',
+    }
+  }
+  if (transcriptLayout.value === 'timeline') {
+    return transcriptEdition.value === 'polished'
+      ? {
+          rubric: 'Polished for listening',
+          note: 'Tap a timestamp to listen from that moment.',
+        }
+      : {
+          rubric: 'As spoken',
+          note: 'Side talk removed; wording left as transcribed. Tap a timestamp to listen.',
+        }
+  }
+  return transcriptEdition.value === 'polished'
+    ? {
+        rubric: 'Polished for reading',
+        note: 'Gathered into longer paragraphs for easier reading.',
+      }
+    : {
+        rubric: 'As spoken',
+        note: 'As transcribed, gathered into paragraphs for reading.',
+      }
 })
 const capturedDate = computed(() =>
   sermon.value
@@ -2503,13 +2565,11 @@ onBeforeUnmount(() => {
           <section class="artifact transcript">
             <div class="artifact__heading">
               <div>
-                <p class="rubric-label">
-                  {{ transcriptView === 'full' ? 'Full diarization' : 'Cleaned transcript' }}
-                </p>
+                <p class="rubric-label">{{ transcriptViewMeta.rubric }}</p>
                 <h2>Follow the sermon</h2>
               </div>
               <button
-                v-if="sermon.transcript?.segments.length && transcriptView !== 'full'"
+                v-if="originalTranscriptSegments.length && transcriptLayout !== 'raw'"
                 class="artifact__edit"
                 type="button"
                 aria-label="Edit Transcript"
@@ -2518,43 +2578,61 @@ onBeforeUnmount(() => {
                 <PencilLine :size="16" />
               </button>
             </div>
-            <div class="transcript-view-toggle" role="group" aria-label="Transcript view">
-              <button
-                type="button"
-                :class="{ active: transcriptView === 'timeline' }"
-                :aria-pressed="transcriptView === 'timeline'"
-                @click="transcriptView = 'timeline'"
+            <div class="transcript-controls">
+              <div class="transcript-view-toggle" role="group" aria-label="Transcript layout">
+                <button
+                  type="button"
+                  :class="{ active: transcriptLayout === 'timeline' }"
+                  :aria-pressed="transcriptLayout === 'timeline'"
+                  @click="transcriptLayout = 'timeline'"
+                >
+                  Timeline
+                </button>
+                <button
+                  type="button"
+                  :class="{ active: transcriptLayout === 'reading' }"
+                  :aria-pressed="transcriptLayout === 'reading'"
+                  @click="transcriptLayout = 'reading'"
+                >
+                  Reading
+                </button>
+                <button
+                  type="button"
+                  :class="{ active: transcriptLayout === 'raw' }"
+                  :aria-pressed="transcriptLayout === 'raw'"
+                  @click="transcriptLayout = 'raw'"
+                >
+                  Full tape
+                </button>
+              </div>
+              <div
+                v-if="transcriptLayout !== 'raw'"
+                class="transcript-edition"
+                role="group"
+                aria-label="Transcript wording"
               >
-                Timeline
-              </button>
-              <button
-                type="button"
-                :class="{ active: transcriptView === 'reading' }"
-                :aria-pressed="transcriptView === 'reading'"
-                @click="transcriptView = 'reading'"
-              >
-                Reading
-              </button>
-              <button
-                type="button"
-                :class="{ active: transcriptView === 'full' }"
-                :aria-pressed="transcriptView === 'full'"
-                @click="transcriptView = 'full'"
-              >
-                Full tape
-              </button>
+                <span class="transcript-edition__label">Wording</span>
+                <div class="transcript-edition__toggle">
+                  <button
+                    type="button"
+                    :class="{ active: transcriptEdition === 'polished' }"
+                    :aria-pressed="transcriptEdition === 'polished'"
+                    @click="transcriptEdition = 'polished'"
+                  >
+                    Polished
+                  </button>
+                  <button
+                    type="button"
+                    :class="{ active: transcriptEdition === 'original' }"
+                    :aria-pressed="transcriptEdition === 'original'"
+                    @click="transcriptEdition = 'original'"
+                  >
+                    As spoken
+                  </button>
+                </div>
+              </div>
             </div>
-            <p class="transcript__note">
-              {{
-                transcriptView === 'timeline'
-                  ? 'Side conversations have been removed. Tap a timestamp to listen from that moment.'
-                  : transcriptView === 'reading'
-                    ? 'The cleaned Transcript is gathered into longer paragraphs for uninterrupted reading.'
-                    : rawTranscriptSegments.length
-                      ? 'Every diarized segment, including pew side talk. Speaker labels come from the transcription model.'
-                      : 'Full diarization is available after the next regenerate on the current cleanup pipeline.'
-              }}
-            </p>
+            <p class="transcript__note">{{ transcriptViewMeta.note }}</p>
             <div v-if="editingTranscript" class="transcript-editor">
               <label
                 v-for="(segment, index) in transcriptEdits"
@@ -2576,10 +2654,12 @@ onBeforeUnmount(() => {
                 </button>
               </div>
             </div>
-            <div v-else-if="transcriptView === 'timeline'" class="transcript__segments">
+            <div v-else-if="transcriptLayout === 'timeline'" class="transcript__segments">
               <div
-                v-for="segment in sermon.transcript?.segments ?? []"
-                :key="`${segment.start_seconds}-${segment.text}`"
+                v-for="segment in usingPolishedTranscript
+                  ? displayTranscriptSegments
+                  : originalTranscriptSegments"
+                :key="`${transcriptEdition}-${segment.start_seconds}-${segment.text}`"
                 class="transcript__segment"
               >
                 <button
@@ -2592,7 +2672,7 @@ onBeforeUnmount(() => {
                 <p>{{ segment.text }}</p>
               </div>
             </div>
-            <div v-else-if="transcriptView === 'full'" class="transcript__segments">
+            <div v-else-if="transcriptLayout === 'raw'" class="transcript__segments">
               <div
                 v-for="segment in rawTranscriptSegments"
                 :key="`${segment.speaker}-${segment.start_seconds}-${segment.text}`"
@@ -2616,7 +2696,12 @@ onBeforeUnmount(() => {
               </p>
             </div>
             <div v-else class="transcript__reading">
-              <p v-for="(paragraph, index) in readingTranscriptParagraphs" :key="index">
+              <p
+                v-for="(paragraph, index) in usingPolishedTranscript
+                  ? cleanedReadingParagraphs
+                  : originalReadingParagraphs"
+                :key="index"
+              >
                 {{ paragraph }}
               </p>
             </div>
@@ -4440,33 +4525,80 @@ a.tag-chip:focus-visible {
   font-size: 0.75rem;
 }
 
+.transcript-controls {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1.25rem;
+}
+
 .transcript-view-toggle {
   border: 1px solid var(--color-margin);
-  display: inline-flex;
-  margin-top: 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.15rem;
   padding: 0.2rem;
 }
 
-.transcript-view-toggle button {
+.transcript-view-toggle button,
+.transcript-edition__toggle button {
   background: transparent;
   border: 0;
   color: var(--color-ink-muted);
   cursor: pointer;
   font-family: var(--font-utility);
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 700;
-  min-height: 2.25rem;
-  padding: 0.4rem 0.8rem;
+  letter-spacing: 0.02em;
+  min-height: 2.35rem;
+  padding: 0.4rem 0.65rem;
 }
 
-.transcript-view-toggle button.active {
+.transcript-view-toggle button.active,
+.transcript-edition__toggle button.active {
   background: var(--color-lapis);
   color: var(--color-vellum-light);
 }
 
-.transcript-view-toggle button:focus-visible {
+.transcript-view-toggle button:focus-visible,
+.transcript-edition__toggle button:focus-visible {
   outline: 2px solid var(--color-rule-gold);
   outline-offset: 2px;
+}
+
+.transcript-edition {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 0.85rem;
+}
+
+.transcript-edition__label {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.transcript-edition__toggle {
+  border: 1px solid color-mix(in srgb, var(--color-margin) 70%, transparent);
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.1rem;
+  padding: 0.15rem;
+}
+
+.transcript-edition__toggle button {
+  font-size: 0.72rem;
+  font-weight: 600;
+  min-height: 2rem;
+  min-width: 6.5rem;
+}
+
+.transcript-edition__toggle button.active {
+  background: color-mix(in srgb, var(--color-lapis) 14%, var(--color-vellum-light));
+  color: var(--color-lapis);
 }
 
 .transcript__note {
@@ -4474,7 +4606,7 @@ a.tag-chip:focus-visible {
   font-family: var(--font-utility);
   font-size: 0.82rem;
   line-height: 1.5;
-  margin: 1rem 0 2.5rem;
+  margin: 0.85rem 0 2.25rem;
 }
 
 .transcript-editor {

@@ -73,6 +73,8 @@ const detail: ServerSermonDetail = {
   transcript: {
     text: 'Grace meets us here.',
     segments: [{ start_seconds: 0, end_seconds: 3, text: 'Grace meets us here.' }],
+    display_text: 'Grace meets us here.',
+    display_segments: [{ start_seconds: 0, end_seconds: 3, text: 'Grace meets us here.' }],
     raw_segments: [
       {
         speaker: 'A',

@@ -17,7 +17,8 @@ from .processing import PermanentProcessingError, RetryableProcessingError
 logger = logging.getLogger(__name__)
 
 ELEVENLABS_AUDIO_ISOLATION_PATH = "/v1/audio-isolation"
-# Official Voice Isolator cap: 1 hour / 500 MB.
+# Official Voice Isolator floor / cap.
+ELEVENLABS_MIN_ISOLATION_SECONDS = 4.6
 ELEVENLABS_MAX_ISOLATION_SECONDS = 60 * 60
 ELEVENLABS_MAX_ISOLATION_BYTES = 500 * 1024 * 1024
 
@@ -28,8 +29,8 @@ def isolate_sermon_voice(sermon: Sermon, *, force: bool = False) -> bool:
     The original upload in ``audio`` is never modified. Returns True when a
     new playback file was written. Skips when already isolated unless
     ``force`` is set. Clears ``audio_normalized_at`` so loudnorm can run on
-    the new playback copy. Skips (without failing) when the recording
-    exceeds ElevenLabs' 1-hour / 500 MB isolation limits.
+    the new playback copy. Skips (without failing) when the recording is
+    shorter than ElevenLabs' minimum or exceeds the 1-hour / 500 MB limits.
     """
     if not settings.SERMON_VOICE_ISOLATION_ENABLED:
         return False
@@ -49,6 +50,16 @@ def isolate_sermon_voice(sermon: Sermon, *, force: bool = False) -> bool:
     if not source_path.is_file():
         raise PermanentProcessingError("The Sermon audio file is missing on disk.")
 
+    if sermon.duration_seconds < ELEVENLABS_MIN_ISOLATION_SECONDS:
+        logger.warning(
+            "Skipping ElevenLabs isolation for sermon %s "
+            "(duration=%ss below %.1fs minimum).",
+            sermon.id,
+            sermon.duration_seconds,
+            ELEVENLABS_MIN_ISOLATION_SECONDS,
+        )
+        return False
+
     if (
         sermon.duration_seconds > ELEVENLABS_MAX_ISOLATION_SECONDS
         or sermon.audio_size_bytes > ELEVENLABS_MAX_ISOLATION_BYTES
@@ -63,7 +74,18 @@ def isolate_sermon_voice(sermon: Sermon, *, force: bool = False) -> bool:
         )
         return False
 
-    isolated_bytes = _call_elevenlabs_isolation(source_path)
+    try:
+        isolated_bytes = _call_elevenlabs_isolation(source_path)
+    except PermanentProcessingError as error:
+        # Duration metadata can lag the real file; never fail Ready for this.
+        if "audio_too_short" in str(error).casefold():
+            logger.warning(
+                "Skipping ElevenLabs isolation for sermon %s: %s",
+                sermon.id,
+                error,
+            )
+            return False
+        raise
     raw_temp = source_path.with_name(f".{source_path.name}.isolated.raw")
     m4a_temp = source_path.with_name(f".{source_path.name}.isolated.tmp.m4a")
     try:

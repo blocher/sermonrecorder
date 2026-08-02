@@ -5,6 +5,12 @@ tell application "Finder"
 	set screenHeight to item 4 of screenBounds
 end tell
 
+set projectRoot to "~/projects/sermonrecorder"
+set backendDir to projectRoot & "/backend"
+set activateVenv to "source " & backendDir & "/.venv/bin/activate"
+-- Listeners only; escalate to SIGKILL if the port is still held.
+set freeRedisPort to "pids=$(lsof -t -iTCP:6379 -sTCP:LISTEN 2>/dev/null || true); if [ -n \"$pids\" ]; then kill $pids 2>/dev/null || true; sleep 0.5; pids=$(lsof -t -iTCP:6379 -sTCP:LISTEN 2>/dev/null || true); if [ -n \"$pids\" ]; then kill -9 $pids 2>/dev/null || true; sleep 0.3; fi; fi"
+
 tell application "iTerm"
 	activate
 	
@@ -33,8 +39,9 @@ tell application "iTerm"
 	tell current session of newWindow
 		set variable named "user.PewcorderSession" to "Redis"
 		set name to "Pewcorder Redis"
-		write text "cd ~/projects/sermonrecorder"
-		write text "kill $(lsof -t -i:6379) 2>/dev/null || true"
+		write text "cd " & projectRoot
+		write text activateVenv
+		write text freeRedisPort
 		write text "redis-server"
 		set pane2 to (split horizontally with default profile)
 	end tell
@@ -43,9 +50,10 @@ tell application "iTerm"
 	tell pane2
 		set variable named "user.PewcorderSession" to "Backend"
 		set name to "Pewcorder Backend"
-		write text "cd ~/projects/sermonrecorder/backend"
-		write text "kill $(lsof -t -i:8000) 2>/dev/null || true"
-		write text "uv run python manage.py runserver"
+		write text "cd " & backendDir
+		write text activateVenv
+		write text "kill $(lsof -t -iTCP:8000 -sTCP:LISTEN 2>/dev/null) 2>/dev/null || true"
+		write text "python manage.py runserver"
 		set pane3 to (split horizontally with default profile)
 	end tell
 	
@@ -53,8 +61,9 @@ tell application "iTerm"
 	tell pane3
 		set variable named "user.PewcorderSession" to "Celery"
 		set name to "Pewcorder Celery"
-		write text "cd ~/projects/sermonrecorder/backend"
-		write text "uv run celery -A config worker --beat --loglevel=INFO"
+		write text "cd " & backendDir
+		write text activateVenv
+		write text "celery -A config worker --beat --loglevel=INFO"
 		set pane4 to (split horizontally with default profile)
 	end tell
 	
@@ -62,8 +71,9 @@ tell application "iTerm"
 	tell pane4
 		set variable named "user.PewcorderSession" to "Frontend"
 		set name to "Pewcorder Frontend"
-		write text "cd ~/projects/sermonrecorder/frontend"
-		write text "kill $(lsof -t -i:5173) 2>/dev/null || true"
+		write text "cd " & projectRoot & "/frontend"
+		write text activateVenv
+		write text "kill $(lsof -t -iTCP:5173 -sTCP:LISTEN 2>/dev/null) 2>/dev/null || true"
 		write text "npm run dev"
 		set pane5 to (split horizontally with default profile)
 	end tell
@@ -72,7 +82,8 @@ tell application "iTerm"
 	tell pane5
 		set variable named "user.PewcorderSession" to "Working"
 		set name to "Pewcorder Working Session"
-		write text "cd ~/projects/sermonrecorder"
+		write text "cd " & projectRoot
+		write text activateVenv
 		write text "git status"
 	end tell
 end tell

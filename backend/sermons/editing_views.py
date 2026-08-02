@@ -69,7 +69,18 @@ class TranscriptDetailView(APIView):
         serializer.is_valid(raise_exception=True)
         transcript.segments = serializer.validated_data["segments"]
         transcript.text = " ".join(segment["text"] for segment in transcript.segments)
-        transcript.save(update_fields=("segments", "text", "updated_at"))
+        # Manual corrections become the display copy until the next regenerate.
+        transcript.display_segments = transcript.segments
+        transcript.display_text = transcript.text
+        transcript.save(
+            update_fields=(
+                "segments",
+                "text",
+                "display_segments",
+                "display_text",
+                "updated_at",
+            )
+        )
         return Response(OwnerTranscriptSerializer(transcript).data)
 
 

@@ -76,6 +76,8 @@ export interface ServerRawTranscriptSegment {
 export interface ServerTranscript {
   text: string
   segments: ServerTranscriptSegment[]
+  display_text?: string
+  display_segments?: ServerTranscriptSegment[]
   raw_segments?: ServerRawTranscriptSegment[]
   updated_at: string
 }

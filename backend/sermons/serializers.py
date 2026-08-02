@@ -323,12 +323,25 @@ class SermonSerializer(serializers.ModelSerializer):
 class TranscriptSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transcript
-        fields = ("text", "segments", "updated_at")
+        fields = (
+            "text",
+            "segments",
+            "display_text",
+            "display_segments",
+            "updated_at",
+        )
 
 
 class OwnerTranscriptSerializer(TranscriptSerializer):
     class Meta(TranscriptSerializer.Meta):
-        fields = ("text", "segments", "raw_segments", "updated_at")
+        fields = (
+            "text",
+            "segments",
+            "display_text",
+            "display_segments",
+            "raw_segments",
+            "updated_at",
+        )
 
 
 class RegenerateSerializer(serializers.Serializer):

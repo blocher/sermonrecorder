@@ -132,6 +132,19 @@ def persist_processed_sermon(sermon: Sermon, result: ProcessedSermon) -> None:
         }
         for segment in result.transcript_segments
     ]
+    display_source = result.display_transcript_segments or result.transcript_segments
+    display_segments = [
+        {
+            "start_seconds": segment.start_seconds,
+            "end_seconds": segment.end_seconds,
+            "text": segment.text.strip(),
+        }
+        for segment in display_source
+    ]
+    display_text = (
+        result.display_transcript_text.strip()
+        or result.transcript_text.strip()
+    )
 
     with transaction.atomic():
         locked_sermon = Sermon.objects.select_for_update().get(id=sermon.id)
@@ -148,6 +161,8 @@ def persist_processed_sermon(sermon: Sermon, result: ProcessedSermon) -> None:
             defaults={
                 "text": result.transcript_text.strip(),
                 "segments": segments,
+                "display_text": display_text,
+                "display_segments": display_segments,
                 "raw_segments": list(result.raw_transcript_segments),
             },
         )

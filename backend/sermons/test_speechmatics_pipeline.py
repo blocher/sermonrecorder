@@ -520,3 +520,32 @@ class VoiceIsolationTests(TestCase):
         call.assert_not_called()
         sermon.refresh_from_db()
         self.assertIsNone(sermon.audio_isolated_at)
+
+    def test_isolate_skips_when_under_minimum_duration(self):
+        sermon = self.sermon()
+        sermon.duration_seconds = 4.08
+        sermon.save(update_fields=("duration_seconds", "updated_at"))
+
+        with patch("sermons.voice_isolation._call_elevenlabs_isolation") as call:
+            changed = isolate_sermon_voice(sermon)
+
+        self.assertFalse(changed)
+        call.assert_not_called()
+        sermon.refresh_from_db()
+        self.assertIsNone(sermon.audio_isolated_at)
+
+    def test_isolate_skips_when_api_reports_audio_too_short(self):
+        sermon = self.sermon()
+
+        with patch(
+            "sermons.voice_isolation._call_elevenlabs_isolation",
+            side_effect=PermanentProcessingError(
+                'ElevenLabs voice isolation failed (400): {"detail":{"code":"audio_too_short"}}'
+            ),
+        ) as call:
+            changed = isolate_sermon_voice(sermon)
+
+        self.assertFalse(changed)
+        call.assert_called_once()
+        sermon.refresh_from_db()
+        self.assertIsNone(sermon.audio_isolated_at)

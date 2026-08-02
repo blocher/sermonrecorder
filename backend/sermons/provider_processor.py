@@ -14,6 +14,7 @@ from .openai_transcriber import CleanedTranscript
 from .playback_audio import normalize_sermon_playback_audio
 from .processing import PermanentProcessingError, ProcessedSermon, RelatedSermonResult
 from .simpleai_artifacts import GeneratedArtifacts, SimpleAIArtifactGenerator
+from .transcript_display_cleanup import polish_display_segments
 from .voice_isolation import isolate_sermon_voice
 
 
@@ -90,8 +91,10 @@ class ProviderSermonProcessor:
         normalize_sermon_playback_audio(sermon)
         _sync_duration_from_audio(sermon)
         transcript = self.transcriber.transcribe(sermon)
+        # Study / Magisterium prompts must use the unpolished intentional-service text.
         artifacts = self.artifact_generator.generate(transcript)
         magisterium = self.magisterium_enricher.enrich(transcript)
+        display_text, display_segments = polish_display_segments(transcript.segments)
         study_artifacts = (
             without_magisterium_artifacts(artifacts.study_artifacts)
             + magisterium.study_artifacts
@@ -113,6 +116,8 @@ class ProviderSermonProcessor:
                 }
                 for segment in getattr(transcript, "raw_segments", ())
             ),
+            display_transcript_text=display_text,
+            display_transcript_segments=display_segments,
         )
 
 

@@ -67,6 +67,8 @@ class ProcessedSermon:
     tag_suggestions: tuple[str, ...] = ()
     related_sermons: tuple[RelatedSermonResult, ...] = ()
     raw_transcript_segments: tuple[dict, ...] = ()
+    display_transcript_text: str = ""
+    display_transcript_segments: tuple[TranscriptSegment, ...] = ()
 
 
 class SermonProcessor(Protocol):
