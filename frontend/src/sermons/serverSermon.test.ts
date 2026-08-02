@@ -69,9 +69,11 @@ const detail: ServerSermonDetail = {
   updated_at: '2026-07-20T15:35:00Z',
   audio_url: 'http://api.example.test/api/sermons/ready-sermon/audio/?token=signed',
   has_playback_audio: false,
+  has_isolated_audio: false,
   original_audio_url:
     'http://api.example.test/api/sermons/ready-sermon/audio/?token=signed&variant=original',
   playback_audio_url: '',
+  isolated_audio_url: '',
   transcript: {
     text: 'Grace meets us here.',
     segments: [{ start_seconds: 0, end_seconds: 3, text: 'Grace meets us here.' }],
@@ -429,9 +431,11 @@ describe('server Sermon detail', () => {
       liturgical_day: '',
       audio_url: 'http://api.example.test/api/shares/signed-token/audio/',
       has_playback_audio: false,
+      has_isolated_audio: false,
       original_audio_url:
         'http://api.example.test/api/shares/signed-token/audio/?variant=original',
       playback_audio_url: '',
+      isolated_audio_url: '',
       transcript: detail.transcript,
       study_artifacts: [],
       scripture_references: [],

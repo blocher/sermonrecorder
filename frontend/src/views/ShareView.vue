@@ -56,8 +56,8 @@ const playbackErrorDetail = ref('')
 const preparingAudioFallback = ref(false)
 const refreshingAudio = ref(false)
 const audioReloadToken = ref(0)
-type AudioVariant = 'processed' | 'original'
-const audioVariant = ref<AudioVariant>('original')
+type AudioVariant = 'playback' | 'isolated' | 'original'
+const audioVariant = ref<AudioVariant>('playback')
 const scrubbing = ref(false)
 const activeSection = ref<SermonSection>('study')
 let robotsMeta: HTMLMetaElement | null = null
@@ -79,8 +79,8 @@ const progressPercent = computed(() => `${Math.round(progress.value * 100)}%`)
 const activeAudioUrl = computed(() => {
   const current = sermon.value
   if (!current) return ''
-  if (!current.has_playback_audio) return current.audio_url
   if (audioVariant.value === 'original') return current.original_audio_url
+  if (audioVariant.value === 'isolated') return current.isolated_audio_url || current.audio_url
   return current.playback_audio_url || current.audio_url
 })
 const hymn = computed(() => parseHymn(artifact('hymn')))
@@ -428,7 +428,9 @@ async function load(token: string): Promise<void> {
   sermon.value = undefined
   activeSection.value = 'study'
   try {
-    sermon.value = await loadSharedSermon(token)
+    const loadedSermon = await loadSharedSermon(token)
+    sermon.value = loadedSermon
+    audioVariant.value = loadedSermon.has_playback_audio ? 'playback' : 'original'
   } catch (error) {
     errorMessage.value =
       error instanceof Error ? error.message : 'This shared Sermon is unavailable.'
@@ -924,11 +926,20 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div
-          v-if="sermon.has_playback_audio"
+          v-if="sermon.has_playback_audio || sermon.has_isolated_audio"
           class="share-player__variants"
           role="group"
           aria-label="Optional audio version"
         >
+          <button
+            v-if="sermon.has_playback_audio"
+            type="button"
+            :aria-pressed="audioVariant === 'playback'"
+            :class="{ 'is-active': audioVariant === 'playback' }"
+            @click="setAudioVariant('playback')"
+          >
+            Normalized
+          </button>
           <button
             type="button"
             :aria-pressed="audioVariant === 'original'"
@@ -938,10 +949,11 @@ onBeforeUnmount(() => {
             Original
           </button>
           <button
+            v-if="sermon.has_isolated_audio"
             type="button"
-            :aria-pressed="audioVariant === 'processed'"
-            :class="{ 'is-active': audioVariant === 'processed' }"
-            @click="setAudioVariant('processed')"
+            :aria-pressed="audioVariant === 'isolated'"
+            :class="{ 'is-active': audioVariant === 'isolated' }"
+            @click="setAudioVariant('isolated')"
           >
             Isolated Speaker Voice
           </button>

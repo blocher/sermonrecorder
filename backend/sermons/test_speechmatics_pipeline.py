@@ -16,7 +16,11 @@ from .speechmatics_transcriber import (
     speechmatics_raw_segments,
 )
 from .transcript_cleanup import TranscriptCleanupOutput
-from .voice_isolation import isolate_sermon_voice
+from .voice_isolation import (
+    PLAYBACK_AUDIO_FILTER,
+    _encode_isolated_m4a,
+    isolate_sermon_voice,
+)
 
 
 class SpeechmaticsMappingTests(SimpleTestCase):
@@ -458,8 +462,31 @@ class VoiceIsolationTests(TestCase):
             audio_normalized_at=timezone.now(),
         )
 
-    def test_isolate_rewrites_file_and_clears_normalized_flag(self):
+    def test_isolated_encoding_applies_playback_loudness_target(self):
+        with patch("sermons.voice_isolation.subprocess.run") as run:
+            _encode_isolated_m4a(Path("isolated.raw"), Path("isolated.m4a"))
+
+        command = run.call_args.args[0]
+        self.assertIn(PLAYBACK_AUDIO_FILTER, command)
+        self.assertIn("+faststart", command)
+
+    def test_isolate_writes_independent_normalized_file(self):
         sermon = self.sermon()
+        sermon.playback_audio = SimpleUploadedFile(
+            "playback.m4a",
+            b"normalized-original",
+            content_type="audio/mp4",
+        )
+        sermon.playback_audio_mime_type = "audio/mp4"
+        sermon.playback_audio_size_bytes = 19
+        sermon.save(
+            update_fields=(
+                "playback_audio",
+                "playback_audio_mime_type",
+                "playback_audio_size_bytes",
+                "updated_at",
+            )
+        )
 
         def fake_encode(source_path: Path, destination_path: Path) -> None:
             self.assertEqual(source_path.read_bytes(), b"isolated-raw-audio")
@@ -471,7 +498,7 @@ class VoiceIsolationTests(TestCase):
                 return_value=b"isolated-raw-audio",
             ),
             patch(
-                "sermons.voice_isolation._encode_playback_m4a",
+                "sermons.voice_isolation._encode_isolated_m4a",
                 side_effect=fake_encode,
             ),
         ):
@@ -480,19 +507,38 @@ class VoiceIsolationTests(TestCase):
         sermon.refresh_from_db()
         self.assertTrue(changed)
         self.assertIsNotNone(sermon.audio_isolated_at)
-        self.assertIsNone(sermon.audio_normalized_at)
+        self.assertIsNotNone(sermon.audio_normalized_at)
         self.assertEqual(Path(sermon.audio.path).read_bytes(), b"quiet-audio")
-        self.assertTrue(bool(sermon.playback_audio))
-        self.assertEqual(sermon.playback_audio_size_bytes, 20)
         self.assertEqual(
             Path(sermon.playback_audio.path).read_bytes(),
+            b"normalized-original",
+        )
+        self.assertTrue(bool(sermon.isolated_audio))
+        self.assertEqual(sermon.isolated_audio_size_bytes, 20)
+        self.assertEqual(
+            Path(sermon.isolated_audio.path).read_bytes(),
             b"isolated-encoded-m4a",
         )
 
     def test_isolate_skips_when_already_isolated(self):
         sermon = self.sermon()
+        sermon.isolated_audio = SimpleUploadedFile(
+            "isolated.m4a",
+            b"isolated-audio",
+            content_type="audio/mp4",
+        )
+        sermon.isolated_audio_mime_type = "audio/mp4"
+        sermon.isolated_audio_size_bytes = 14
         sermon.audio_isolated_at = timezone.now()
-        sermon.save(update_fields=("audio_isolated_at", "updated_at"))
+        sermon.save(
+            update_fields=(
+                "isolated_audio",
+                "isolated_audio_mime_type",
+                "isolated_audio_size_bytes",
+                "audio_isolated_at",
+                "updated_at",
+            )
+        )
 
         with patch("sermons.voice_isolation._call_elevenlabs_isolation") as call:
             changed = isolate_sermon_voice(sermon)

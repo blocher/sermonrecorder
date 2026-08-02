@@ -12,8 +12,13 @@ def sermon_audio_path(sermon: "Sermon", filename: str) -> str:
 
 
 def sermon_playback_audio_path(sermon: "Sermon", filename: str) -> str:
-    # Derived listen/isolate/loudnorm copy — never overwrite the upload.
+    # Loudness-normalized listen copy — never overwrite the upload.
     return f"sermons/{sermon.owner_id}/{sermon.id}/playback.m4a"
+
+
+def sermon_isolated_audio_path(sermon: "Sermon", filename: str) -> str:
+    # Optional voice-isolated copy — never overwrite the upload or normal playback.
+    return f"sermons/{sermon.owner_id}/{sermon.id}/isolated.m4a"
 
 
 def normalize_personal_book_value(value: str) -> str:
@@ -114,7 +119,8 @@ class Sermon(models.Model):
         OTHER = "other", "Other"
 
     class TranscriptionAudioSource(models.TextChoices):
-        PLAYBACK = "playback", "Isolated playback"
+        PLAYBACK = "playback", "Normalized playback"
+        ISOLATED = "isolated", "Isolated playback"
         ORIGINAL = "original", "Original upload"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -148,7 +154,7 @@ class Sermon(models.Model):
     audio = models.FileField(upload_to=sermon_audio_path, max_length=500)
     audio_mime_type = models.CharField(max_length=120)
     audio_size_bytes = models.PositiveBigIntegerField()
-    # Optional derived listen copy (isolation / loudnorm). Original `audio` stays intact.
+    # Default listen copy: loudness-normalized original. `audio` stays intact.
     playback_audio = models.FileField(
         upload_to=sermon_playback_audio_path,
         max_length=500,
@@ -158,7 +164,15 @@ class Sermon(models.Model):
     playback_audio_size_bytes = models.PositiveBigIntegerField(null=True, blank=True)
     # Set when playback audio has been loudness-normalized.
     audio_normalized_at = models.DateTimeField(null=True, blank=True)
-    # Set when playback audio has been voice-isolated (ElevenLabs).
+    # Optional ElevenLabs-isolated and loudness-normalized listen copy.
+    isolated_audio = models.FileField(
+        upload_to=sermon_isolated_audio_path,
+        max_length=500,
+        blank=True,
+    )
+    isolated_audio_mime_type = models.CharField(max_length=120, blank=True)
+    isolated_audio_size_bytes = models.PositiveBigIntegerField(null=True, blank=True)
+    # Set when isolated audio has been generated.
     audio_isolated_at = models.DateTimeField(null=True, blank=True)
     church = models.ForeignKey(
         Church,
@@ -201,7 +215,7 @@ class Sermon(models.Model):
         blank=True,
         validators=(MinValueValidator(0),),
     )
-    # Which stored audio file feeds ASR. Prefer processed playback by default.
+    # Which stored audio file feeds ASR. Original remains the default.
     transcription_audio_source = models.CharField(
         max_length=20,
         choices=TranscriptionAudioSource,
@@ -227,23 +241,34 @@ class Sermon(models.Model):
         return f"{self.owner} · {self.captured_at:%Y-%m-%d %H:%M}"
 
     def listening_audio_file(self):
-        """Serve the original upload by default; isolated playback is opt-in."""
-        return self.audio
+        """Prefer normalized playback, falling back to the original upload."""
+        return self.playback_audio or self.audio
 
     def listening_audio_mime_type(self) -> str:
+        if self.playback_audio:
+            return self.playback_audio_mime_type or "audio/mp4"
         return self.audio_mime_type
 
     def listening_audio_size_bytes(self) -> int:
+        if self.playback_audio:
+            if self.playback_audio_size_bytes is not None:
+                return self.playback_audio_size_bytes
+            return self.playback_audio.size
         return self.audio_size_bytes
 
     def original_audio_path(self) -> Path:
         return Path(self.audio.path)
 
     def transcription_audio_path(self) -> Path:
-        """Local path for ASR: original by default, or isolated playback when chosen."""
+        """Return the explicitly selected ASR source, falling back to original."""
         if (
             self.transcription_audio_source
-            == self.TranscriptionAudioSource.PLAYBACK
+            == self.TranscriptionAudioSource.ISOLATED
+            and self.isolated_audio
+        ):
+            return Path(self.isolated_audio.path)
+        if (
+            self.transcription_audio_source == self.TranscriptionAudioSource.PLAYBACK
             and self.playback_audio
         ):
             return Path(self.playback_audio.path)
@@ -252,7 +277,13 @@ class Sermon(models.Model):
     def transcription_audio_size_bytes(self) -> int:
         if (
             self.transcription_audio_source
-            == self.TranscriptionAudioSource.PLAYBACK
+            == self.TranscriptionAudioSource.ISOLATED
+            and self.isolated_audio
+            and self.isolated_audio_size_bytes is not None
+        ):
+            return self.isolated_audio_size_bytes
+        if (
+            self.transcription_audio_source == self.TranscriptionAudioSource.PLAYBACK
             and self.playback_audio
             and self.playback_audio_size_bytes is not None
         ):

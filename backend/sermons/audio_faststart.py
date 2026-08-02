@@ -132,9 +132,9 @@ def ensure_m4a_faststart(path: Path) -> bool:
 
 
 def ensure_sermon_listen_audio_faststart(sermon: Sermon) -> bool:
-    """Faststart the original upload and any derived playback copy.
+    """Faststart the original upload and all derived listen copies.
 
-    Returns True when either file was rewritten.
+    Returns True when any file was rewritten.
     """
     changed = False
     try:
@@ -159,5 +159,13 @@ def ensure_sermon_listen_audio_faststart(sermon: Sermon) -> bool:
             )
             changed = True
             logger.info("Faststarted playback audio for sermon %s", sermon.id)
+
+    if sermon.isolated_audio:
+        isolated_path = Path(sermon.isolated_audio.path)
+        if ensure_m4a_faststart(isolated_path):
+            sermon.isolated_audio_size_bytes = isolated_path.stat().st_size
+            sermon.save(update_fields=("isolated_audio_size_bytes", "updated_at"))
+            changed = True
+            logger.info("Faststarted isolated audio for sermon %s", sermon.id)
 
     return changed

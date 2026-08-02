@@ -28,9 +28,11 @@ const uploadedSermon = {
   duration_seconds: 2700,
   audio_url: 'http://api.example.test/api/sermons/server-sermon/audio/?token=signed',
   has_playback_audio: false,
+  has_isolated_audio: false,
   original_audio_url:
     'http://api.example.test/api/sermons/server-sermon/audio/?token=signed&variant=original',
   playback_audio_url: '',
+  isolated_audio_url: '',
   audio_mime_type: 'audio/mp4',
   audio_size_bytes: 1024,
   church: null,

@@ -1,12 +1,14 @@
+import importlib
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from django.apps import apps
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
-from io import StringIO
 
 from accounts.models import User
 
@@ -72,8 +74,23 @@ class PlaybackAudioTests(TestCase):
 
     def test_normalize_is_idempotent_without_force(self):
         sermon = self.sermon()
+        sermon.playback_audio = SimpleUploadedFile(
+            "playback.m4a",
+            b"normalized-audio",
+            content_type="audio/mp4",
+        )
+        sermon.playback_audio_mime_type = "audio/mp4"
+        sermon.playback_audio_size_bytes = 16
         sermon.audio_normalized_at = timezone.now()
-        sermon.save(update_fields=("audio_normalized_at", "updated_at"))
+        sermon.save(
+            update_fields=(
+                "playback_audio",
+                "playback_audio_mime_type",
+                "playback_audio_size_bytes",
+                "audio_normalized_at",
+                "updated_at",
+            )
+        )
 
         with patch("sermons.playback_audio._run_ffmpeg") as run_ffmpeg:
             changed = normalize_sermon_playback_audio(sermon)
@@ -120,3 +137,35 @@ class PlaybackAudioTests(TestCase):
 
         with self.assertRaises(PermanentProcessingError):
             normalize_sermon_playback_audio(sermon)
+
+    def test_migration_preserves_legacy_isolated_audio_separately(self):
+        sermon = self.sermon()
+        sermon.playback_audio = SimpleUploadedFile(
+            "playback.m4a",
+            b"legacy-isolated",
+            content_type="audio/mp4",
+        )
+        sermon.playback_audio_mime_type = "audio/mp4"
+        sermon.playback_audio_size_bytes = 15
+        sermon.audio_normalized_at = timezone.now()
+        sermon.audio_isolated_at = timezone.now()
+        sermon.transcription_audio_source = (
+            Sermon.TranscriptionAudioSource.PLAYBACK
+        )
+        sermon.save()
+        legacy_name = sermon.playback_audio.name
+        migration = importlib.import_module(
+            "sermons.migrations.0023_separate_isolated_audio"
+        )
+
+        migration.separate_legacy_isolated_audio(apps, None)
+
+        sermon.refresh_from_db()
+        self.assertFalse(bool(sermon.playback_audio))
+        self.assertEqual(sermon.isolated_audio.name, legacy_name)
+        self.assertEqual(sermon.isolated_audio_size_bytes, 15)
+        self.assertIsNone(sermon.audio_normalized_at)
+        self.assertEqual(
+            sermon.transcription_audio_source,
+            Sermon.TranscriptionAudioSource.ISOLATED,
+        )

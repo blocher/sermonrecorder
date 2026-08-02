@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Q
 
 from sermons.models import Sermon
 from sermons.playback_audio import normalize_sermon_playback_audio
@@ -7,7 +8,7 @@ from sermons.processing import PermanentProcessingError
 
 class Command(BaseCommand):
     help = (
-        "Loudness-normalize stored Sermon playback audio in place "
+        "Create loudness-normalized Sermon playback audio from each original "
         "(fixes quiet pew recordings without re-transcribing)."
     )
 
@@ -42,7 +43,9 @@ class Command(BaseCommand):
         if sermon_ids:
             queryset = queryset.filter(id__in=sermon_ids)
         elif not options["force"]:
-            queryset = queryset.filter(audio_normalized_at__isnull=True)
+            queryset = queryset.filter(
+                Q(audio_normalized_at__isnull=True) | Q(playback_audio="")
+            )
 
         limit = options["limit"]
         if limit < 0:

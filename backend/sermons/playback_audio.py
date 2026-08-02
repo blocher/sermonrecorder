@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from pathlib import Path
 
 from django.conf import settings
 from django.utils import timezone
@@ -42,21 +41,17 @@ def normalize_sermon_playback_audio(
 ) -> bool:
     """Write a loudness-normalized AAC copy to ``playback_audio``.
 
-    Uses existing playback audio as the source when present (e.g. after
-    isolation); otherwise loudnorms the original upload into a new playback
-    file. Never modifies the original ``audio`` upload.
+    Always loudnorms the original upload into a new default playback file.
+    Voice isolation is stored independently and never enters this path.
 
     Returns True when the playback file was rewritten. Skips when already
     normalized unless ``force`` is set.
     """
-    if sermon.audio_normalized_at is not None and not force:
+    if sermon.audio_normalized_at is not None and sermon.playback_audio and not force:
         return False
 
     try:
-        if sermon.playback_audio:
-            source_path = Path(sermon.playback_audio.path)
-        else:
-            source_path = sermon.original_audio_path()
+        source_path = sermon.original_audio_path()
     except (NotImplementedError, ValueError) as error:
         raise PermanentProcessingError(
             "The configured audio storage cannot provide a local worker path."

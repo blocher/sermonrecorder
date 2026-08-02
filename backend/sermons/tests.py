@@ -194,7 +194,7 @@ class SermonApiTests(APITestCase):
         )
         self.assertEqual(
             response.data["scripture_references"][0]["display"],
-            "Luke 15:11–32",
+            "Luke 15:11\u201332",
         )
         self.assertEqual(response.data["tag_suggestions"], ["Grace"])
         self.assertEqual(
@@ -232,7 +232,7 @@ class SermonApiTests(APITestCase):
         self.assertNotIn("processing_error", response.data["results"][0])
         self.assertEqual(
             response.data["results"][0]["processing_message"],
-            "Processing couldn't finish. Your recording is still safe — "
+            "Processing couldn't finish. Your recording is still safe \u2014 "
             "try again when you're ready.",
         )
 
@@ -269,7 +269,7 @@ class SermonApiTests(APITestCase):
             ),
             Sermon.ProcessingStatus.READY: "Ready to revisit.",
             Sermon.ProcessingStatus.FAILED: (
-                "Processing couldn't finish. Your recording is still safe — "
+                "Processing couldn't finish. Your recording is still safe \u2014 "
                 "try again when you're ready."
             ),
         }
@@ -436,8 +436,8 @@ class SermonApiTests(APITestCase):
         )
         enqueue.assert_called_once_with(str(sermon.id))
 
-    def test_regenerate_rejects_playback_source_without_playback_audio(self):
-        uploaded = self.upload("regenerate-missing-playback")
+    def test_regenerate_rejects_isolated_source_without_isolated_audio(self):
+        uploaded = self.upload("regenerate-missing-isolated")
         sermon = Sermon.objects.get(id=uploaded.data["id"])
         sermon.processing_status = Sermon.ProcessingStatus.READY
         sermon.save(update_fields=("processing_status", "updated_at"))
@@ -445,7 +445,7 @@ class SermonApiTests(APITestCase):
 
         response = self.client.post(
             f"/api/sermons/{sermon.id}/regenerate/",
-            {"transcription_audio_source": "playback"},
+            {"transcription_audio_source": "isolated"},
             format="json",
         )
 
@@ -586,9 +586,30 @@ class SermonApiTests(APITestCase):
         uploaded = self.upload("delete-ready")
         sermon = Sermon.objects.get(id=uploaded.data["id"])
         sermon.processing_status = Sermon.ProcessingStatus.READY
-        sermon.save(update_fields=("processing_status", "updated_at"))
+        sermon.playback_audio = SimpleUploadedFile(
+            "playback.m4a",
+            b"normalized-audio",
+            content_type="audio/mp4",
+        )
+        sermon.isolated_audio = SimpleUploadedFile(
+            "isolated.m4a",
+            b"isolated-audio",
+            content_type="audio/mp4",
+        )
+        sermon.save(
+            update_fields=(
+                "processing_status",
+                "playback_audio",
+                "isolated_audio",
+                "updated_at",
+            )
+        )
         audio_name = sermon.audio.name
+        playback_name = sermon.playback_audio.name
+        isolated_name = sermon.isolated_audio.name
         self.assertTrue(sermon.audio.storage.exists(audio_name))
+        self.assertTrue(sermon.audio.storage.exists(playback_name))
+        self.assertTrue(sermon.audio.storage.exists(isolated_name))
         self.client.force_authenticate(user=self.user)
 
         response = self.client.delete(f"/api/sermons/{sermon.id}/")
@@ -596,6 +617,8 @@ class SermonApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Sermon.objects.filter(id=sermon.id).exists())
         self.assertFalse(sermon.audio.storage.exists(audio_name))
+        self.assertFalse(sermon.audio.storage.exists(playback_name))
+        self.assertFalse(sermon.audio.storage.exists(isolated_name))
 
     def test_delete_is_owner_private(self):
         uploaded = self.upload("delete-private")

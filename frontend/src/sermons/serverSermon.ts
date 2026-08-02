@@ -43,8 +43,10 @@ export interface ServerSermon {
   duration_seconds: number
   audio_url: string
   has_playback_audio: boolean
+  has_isolated_audio: boolean
   original_audio_url: string
   playback_audio_url: string
+  isolated_audio_url: string
   audio_mime_type: string
   audio_size_bytes: number
   church: ServerChurch | null
@@ -57,7 +59,7 @@ export interface ServerSermon {
   tag_suggestions: string[]
   consider_start_seconds: number | null
   consider_end_seconds: number | null
-  transcription_audio_source: 'playback' | 'original'
+  transcription_audio_source: 'playback' | 'isolated' | 'original'
   created_at: string
   updated_at: string
 }
@@ -156,8 +158,10 @@ export interface SharedSermonDetail {
   liturgical_day: string
   audio_url: string
   has_playback_audio: boolean
+  has_isolated_audio: boolean
   original_audio_url: string
   playback_audio_url: string
+  isolated_audio_url: string
   transcript: ServerTranscript | null
   study_artifacts: ServerStudyArtifact[]
   scripture_references: ServerScriptureReference[]
@@ -284,7 +288,7 @@ export async function regenerateSermon(
   window: {
     consider_start_seconds?: number | null
     consider_end_seconds?: number | null
-    transcription_audio_source?: 'playback' | 'original'
+    transcription_audio_source?: 'playback' | 'isolated' | 'original'
   } = {},
 ): Promise<ServerSermon> {
   return authorizedJson<ServerSermon>(

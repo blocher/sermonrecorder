@@ -10,8 +10,9 @@ import httpx
 from django.conf import settings
 from django.utils import timezone
 
-from .audio_files import save_playback_m4a
+from .audio_files import save_isolated_m4a
 from .models import Sermon
+from .playback_audio import PLAYBACK_AUDIO_BITRATE, PLAYBACK_AUDIO_FILTER
 from .processing import PermanentProcessingError, RetryableProcessingError
 
 logger = logging.getLogger(__name__)
@@ -24,17 +25,17 @@ ELEVENLABS_MAX_ISOLATION_BYTES = 500 * 1024 * 1024
 
 
 def isolate_sermon_voice(sermon: Sermon, *, force: bool = False) -> bool:
-    """Write an ElevenLabs-isolated copy to ``playback_audio``.
+    """Write an ElevenLabs-isolated, loudness-normalized copy.
 
     The original upload in ``audio`` is never modified. Returns True when a
-    new playback file was written. Skips when already isolated unless
-    ``force`` is set. Clears ``audio_normalized_at`` so loudnorm can run on
-    the new playback copy. Skips (without failing) when the recording is
-    shorter than ElevenLabs' minimum or exceeds the 1-hour / 500 MB limits.
+    new isolated file was written. The normal playback copy remains an
+    independently normalized version of the original. Skips when already
+    isolated unless ``force`` is set, or when the recording falls outside
+    ElevenLabs' supported duration and size limits.
     """
     if not settings.SERMON_VOICE_ISOLATION_ENABLED:
         return False
-    if sermon.audio_isolated_at is not None and not force:
+    if sermon.audio_isolated_at is not None and sermon.isolated_audio and not force:
         return False
     if not settings.ELEVENLABS_API_KEY:
         raise PermanentProcessingError(
@@ -90,21 +91,18 @@ def isolate_sermon_voice(sermon: Sermon, *, force: bool = False) -> bool:
     m4a_temp = source_path.with_name(f".{source_path.name}.isolated.tmp.m4a")
     try:
         raw_temp.write_bytes(isolated_bytes)
-        _encode_playback_m4a(raw_temp, m4a_temp)
+        _encode_isolated_m4a(raw_temp, m4a_temp)
         if m4a_temp.stat().st_size <= 0:
             raise PermanentProcessingError("Isolated Sermon audio was empty.")
 
-        save_playback_m4a(sermon, m4a_temp)
+        save_isolated_m4a(sermon, m4a_temp)
         sermon.audio_isolated_at = timezone.now()
-        # Isolation changes levels; require a fresh loudnorm pass on playback.
-        sermon.audio_normalized_at = None
         sermon.save(
             update_fields=(
-                "playback_audio",
-                "playback_audio_mime_type",
-                "playback_audio_size_bytes",
+                "isolated_audio",
+                "isolated_audio_mime_type",
+                "isolated_audio_size_bytes",
                 "audio_isolated_at",
-                "audio_normalized_at",
                 "updated_at",
             )
         )
@@ -161,7 +159,7 @@ def _call_elevenlabs_isolation(source_path: Path) -> bytes:
     return response.content
 
 
-def _encode_playback_m4a(source_path: Path, destination_path: Path) -> None:
+def _encode_isolated_m4a(source_path: Path, destination_path: Path) -> None:
     command = (
         settings.FFMPEG_BINARY,
         "-hide_banner",
@@ -175,10 +173,12 @@ def _encode_playback_m4a(source_path: Path, destination_path: Path) -> None:
         "1",
         "-ar",
         "44100",
+        "-af",
+        PLAYBACK_AUDIO_FILTER,
         "-c:a",
         "aac",
         "-b:a",
-        "128k",
+        PLAYBACK_AUDIO_BITRATE,
         "-movflags",
         "+faststart",
         str(destination_path),

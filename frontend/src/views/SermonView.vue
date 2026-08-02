@@ -116,8 +116,8 @@ const playbackErrorDetail = ref('')
 const preparingAudioFallback = ref(false)
 const refreshingAudio = ref(false)
 const audioReloadToken = ref(0)
-type AudioVariant = 'processed' | 'original'
-const audioVariant = ref<AudioVariant>('original')
+type AudioVariant = 'playback' | 'isolated' | 'original'
+const audioVariant = ref<AudioVariant>('playback')
 let audioBlobUrl = ''
 let audioFallbackGeneration = 0
 let audioFallbackPromise: Promise<boolean> | undefined
@@ -155,7 +155,7 @@ const regeneratingMagisterium = ref(false)
 const regenerateMessage = ref('')
 const regenerateStartClock = ref('00:00')
 const regenerateEndClock = ref('00:00')
-const regenerateAudioSource = ref<'playback' | 'original'>('original')
+const regenerateAudioSource = ref<'isolated' | 'original'>('original')
 let magisteriumPollTimer: ReturnType<typeof setTimeout> | undefined
 const scrubbing = ref(false)
 const contextLoading = ref(false)
@@ -184,8 +184,8 @@ const progressPercent = computed(() => `${Math.round(progress.value * 100)}%`)
 const activeAudioUrl = computed(() => {
   const current = sermon.value
   if (!current) return ''
-  if (!current.has_playback_audio) return current.audio_url
   if (audioVariant.value === 'original') return current.original_audio_url
+  if (audioVariant.value === 'isolated') return current.isolated_audio_url || current.audio_url
   return current.playback_audio_url || current.audio_url
 })
 const hymn = computed(() => parseHymn(artifact('hymn')))
@@ -819,8 +819,8 @@ function openRegenerateAction(): void {
     current?.consider_end_seconds ?? current?.duration_seconds ?? 0,
   )
   regenerateAudioSource.value =
-    current?.has_playback_audio && current.transcription_audio_source === 'playback'
-      ? 'playback'
+    current?.has_isolated_audio && current.transcription_audio_source === 'isolated'
+      ? 'isolated'
       : 'original'
   actionsView.value = 'regenerate'
 }
@@ -829,7 +829,7 @@ function resolveRegenerateWindow():
   | {
       consider_start_seconds: number | null
       consider_end_seconds: number | null
-      transcription_audio_source?: 'playback' | 'original'
+      transcription_audio_source?: 'isolated' | 'original'
     }
   | null {
   if (!sermon.value) return null
@@ -855,7 +855,7 @@ function resolveRegenerateWindow():
   return {
     consider_start_seconds: start <= 0 ? null : start,
     consider_end_seconds: end >= duration ? null : end,
-    ...(sermon.value.has_playback_audio
+    ...(sermon.value.has_isolated_audio
       ? { transcription_audio_source: regenerateAudioSource.value }
       : {}),
   }
@@ -1230,6 +1230,7 @@ function applyLoadedSermon(loadedSermon: ServerSermonDetail, id: string): void {
   if (loadedSermon.processing_status === 'ready') {
     processingSermon.value = undefined
     sermon.value = loadedSermon
+    audioVariant.value = loadedSermon.has_playback_audio ? 'playback' : 'original'
     reflectionContent.value = loadedSermon.reflections[0]?.content ?? ''
     return
   }
@@ -1274,7 +1275,7 @@ async function load(id: string): Promise<void> {
   playbackError.value = false
   refreshingAudio.value = false
   audioReloadToken.value += 1
-  audioVariant.value = 'original'
+  audioVariant.value = 'playback'
   regeneratingMagisterium.value = false
   editingKind.value = undefined
   editMessage.value = ''
@@ -1901,7 +1902,7 @@ onBeforeUnmount(() => {
                   The audio itself is never deleted or trimmed.
                 </p>
                 <div
-                  v-if="sermon.has_playback_audio"
+                  v-if="sermon.has_isolated_audio"
                   class="sermon-regenerate-source"
                 >
                   <p class="rubric-label">Audio to transcribe</p>
@@ -1921,10 +1922,10 @@ onBeforeUnmount(() => {
                     </button>
                     <button
                       type="button"
-                      :aria-pressed="regenerateAudioSource === 'playback'"
-                      :class="{ 'is-active': regenerateAudioSource === 'playback' }"
+                      :aria-pressed="regenerateAudioSource === 'isolated'"
+                      :class="{ 'is-active': regenerateAudioSource === 'isolated' }"
                       :disabled="regenerating || regeneratingMagisterium"
-                      @click="regenerateAudioSource = 'playback'"
+                      @click="regenerateAudioSource = 'isolated'"
                     >
                       Isolated Speaker Voice
                     </button>
@@ -2961,11 +2962,20 @@ onBeforeUnmount(() => {
               </button>
             </div>
             <div
-              v-if="sermon.has_playback_audio"
+              v-if="sermon.has_playback_audio || sermon.has_isolated_audio"
               class="audio-player__variants"
               role="group"
               aria-label="Optional audio version"
             >
+              <button
+                v-if="sermon.has_playback_audio"
+                type="button"
+                :aria-pressed="audioVariant === 'playback'"
+                :class="{ 'is-active': audioVariant === 'playback' }"
+                @click="setAudioVariant('playback')"
+              >
+                Normalized
+              </button>
               <button
                 type="button"
                 :aria-pressed="audioVariant === 'original'"
@@ -2975,10 +2985,11 @@ onBeforeUnmount(() => {
                 Original
               </button>
               <button
+                v-if="sermon.has_isolated_audio"
                 type="button"
-                :aria-pressed="audioVariant === 'processed'"
-                :class="{ 'is-active': audioVariant === 'processed' }"
-                @click="setAudioVariant('processed')"
+                :aria-pressed="audioVariant === 'isolated'"
+                :class="{ 'is-active': audioVariant === 'isolated' }"
+                @click="setAudioVariant('isolated')"
               >
                 Isolated Speaker Voice
               </button>

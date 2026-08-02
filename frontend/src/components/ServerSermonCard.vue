@@ -28,12 +28,12 @@ const playbackUrl = ref(props.sermon.audio_url)
 const playing = ref(false)
 const playbackError = ref(false)
 const confirmingDelete = ref(false)
-type AudioVariant = 'processed' | 'original'
-const audioVariant = ref<AudioVariant>('original')
+type AudioVariant = 'playback' | 'isolated' | 'original'
+const audioVariant = ref<AudioVariant>(props.sermon.has_playback_audio ? 'playback' : 'original')
 
 function activeUrlFor(sermon: typeof props.sermon, variant: AudioVariant): string {
-  if (!sermon.has_playback_audio) return sermon.audio_url
   if (variant === 'original') return sermon.original_audio_url
+  if (variant === 'isolated') return sermon.isolated_audio_url || sermon.audio_url
   return sermon.playback_audio_url || sermon.audio_url
 }
 
@@ -130,10 +130,22 @@ watch(
     props.sermon.audio_url,
     props.sermon.original_audio_url,
     props.sermon.playback_audio_url,
+    props.sermon.isolated_audio_url,
     props.sermon.has_playback_audio,
+    props.sermon.has_isolated_audio,
   ],
   () => syncPlaybackUrl(activeUrlFor(props.sermon, audioVariant.value)),
   { immediate: true },
+)
+
+watch(
+  () => props.sermon.has_playback_audio,
+  (hasPlayback, hadPlayback) => {
+    if (hasPlayback && !hadPlayback) {
+      audioVariant.value = 'playback'
+      syncPlaybackUrl(activeUrlFor(props.sermon, 'playback'))
+    }
+  },
 )
 
 watch(playing, (isPlaying) => {
@@ -177,11 +189,21 @@ onBeforeUnmount(() => {
         }}
       </p>
       <div
-        v-if="sermon.has_playback_audio"
+        v-if="sermon.has_playback_audio || sermon.has_isolated_audio"
         class="server-sermon__variants"
         role="group"
         aria-label="Optional audio version"
       >
+        <button
+          v-if="sermon.has_playback_audio"
+          type="button"
+          :aria-pressed="audioVariant === 'playback'"
+          :class="{ 'is-active': audioVariant === 'playback' }"
+          :disabled="busy"
+          @click="setAudioVariant('playback')"
+        >
+          Normalized
+        </button>
         <button
           type="button"
           :aria-pressed="audioVariant === 'original'"
@@ -192,11 +214,12 @@ onBeforeUnmount(() => {
           Original
         </button>
         <button
+          v-if="sermon.has_isolated_audio"
           type="button"
-          :aria-pressed="audioVariant === 'processed'"
-          :class="{ 'is-active': audioVariant === 'processed' }"
+          :aria-pressed="audioVariant === 'isolated'"
+          :class="{ 'is-active': audioVariant === 'isolated' }"
           :disabled="busy"
-          @click="setAudioVariant('processed')"
+          @click="setAudioVariant('isolated')"
         >
           Isolated Speaker Voice
         </button>

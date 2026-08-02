@@ -90,8 +90,8 @@ class ProviderSermonProcessor:
     def process(self, sermon: Sermon) -> ProcessedSermon:
         # iOS Safari cannot play progressive M4A when moov is after mdat.
         ensure_sermon_listen_audio_faststart(sermon)
-        isolate_sermon_voice(sermon)
         normalize_sermon_playback_audio(sermon)
+        isolate_sermon_voice(sermon)
         ensure_sermon_listen_audio_faststart(sermon)
         _sync_duration_from_audio(sermon)
         transcript = self.transcriber.transcribe(sermon)

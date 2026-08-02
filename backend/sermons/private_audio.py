@@ -56,6 +56,16 @@ def _resolve_sermon_audio(sermon: Sermon, variant: str):
             if sermon.playback_audio_size_bytes is not None
             else sermon.playback_audio.size,
         )
+    if variant == "isolated":
+        if not sermon.isolated_audio:
+            return None
+        return (
+            sermon.isolated_audio,
+            sermon.isolated_audio_mime_type or "audio/mp4",
+            sermon.isolated_audio_size_bytes
+            if sermon.isolated_audio_size_bytes is not None
+            else sermon.isolated_audio.size,
+        )
     return (
         sermon.listening_audio_file(),
         sermon.listening_audio_mime_type(),
