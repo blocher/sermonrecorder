@@ -18,6 +18,42 @@ logger = logging.getLogger(__name__)
 _FASTSTART_MOVFLAGS = "+faststart"
 
 
+def m4a_moov_exclusive_end(path: Path) -> int | None:
+    """Byte offset just past the first ``moov`` atom, or None if not found early."""
+    try:
+        with path.open("rb") as handle:
+            offset = 0
+            while True:
+                header = handle.read(8)
+                if len(header) < 8:
+                    return None
+                size, atom_type = struct.unpack(">I4s", header)
+                if size == 1:
+                    large = handle.read(8)
+                    if len(large) < 8:
+                        return None
+                    size = struct.unpack(">Q", large)[0]
+                    header_size = 16
+                elif size == 0:
+                    return None
+                else:
+                    header_size = 8
+
+                if size < header_size:
+                    return None
+
+                label = atom_type.decode("latin1")
+                if label == "moov":
+                    return offset + size
+                if label == "mdat":
+                    return None
+
+                offset += size
+                handle.seek(size - header_size, 1)
+    except OSError:
+        return None
+
+
 def m4a_needs_faststart(path: Path) -> bool:
     """True when the first media atom is ``mdat`` (moov is later / at EOF)."""
     try:
@@ -37,19 +73,17 @@ def m4a_needs_faststart(path: Path) -> bool:
                     return False
                 else:
                     header_size = 8
-
                 if size < header_size:
                     return False
-
                 label = atom_type.decode("latin1")
                 if label == "moov":
                     return False
                 if label == "mdat":
                     return True
-
                 handle.seek(size - header_size, 1)
     except OSError:
         return False
+    return False
 
 
 def ensure_m4a_faststart(path: Path) -> bool:

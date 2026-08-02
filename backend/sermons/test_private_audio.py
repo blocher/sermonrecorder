@@ -92,6 +92,23 @@ class PrivateSermonAudioTests(APITestCase):
         self.assertEqual(response["Content-Type"], "audio/mp4")
         self.assertEqual(response["Content-Length"], str(len(self.audio)))
 
+    def test_tiny_prefix_range_is_expanded_for_ios_media_probes(self):
+        parsed = urlsplit(self.audio_url())
+        self.client.force_authenticate(user=None)
+
+        response = self.client.get(
+            f"{parsed.path}?{parsed.query}",
+            HTTP_RANGE="bytes=0-1",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_206_PARTIAL_CONTENT)
+        body = b"".join(response.streaming_content)
+        self.assertEqual(body, self.audio)
+        self.assertEqual(
+            response["Content-Range"],
+            f"bytes 0-{len(self.audio) - 1}/{len(self.audio)}",
+        )
+
     def test_invalid_or_mismatched_audio_capabilities_are_rejected(self):
         parsed = urlsplit(self.audio_url())
         other_sermon = Sermon.objects.create(

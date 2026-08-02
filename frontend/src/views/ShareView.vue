@@ -784,6 +784,7 @@ onBeforeUnmount(() => {
         :key="`${activeAudioUrl}:${audioReloadToken}`"
         ref="audio"
         :src="activeAudioUrl"
+        crossorigin="anonymous"
         preload="metadata"
         @play="playing = true"
         @pause="playing = false"

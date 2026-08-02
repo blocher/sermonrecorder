@@ -139,9 +139,8 @@ def shared_sermon_audio(request: HttpRequest, token: str) -> HttpResponse:
         share_link = _active_share_link(token)
     except (Http404, NotFound):
         return HttpResponse(status=404)
-    response = sermon_audio_response(request, share_link.sermon)
-    response["Cache-Control"] = "private, no-store"
-    return response
+    # Keep the same cache policy as private audio; no-store breaks iOS media.
+    return sermon_audio_response(request, share_link.sermon)
 
 
 @require_http_methods(["GET", "HEAD"])

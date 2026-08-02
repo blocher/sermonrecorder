@@ -1,5 +1,5 @@
 from tempfile import TemporaryDirectory
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
@@ -240,7 +240,10 @@ class SermonSharingTests(APITestCase):
             response.data["liturgical_day"],
             "Third Sunday of Ordinary Time",
         )
-        self.assertIn(f"/api/shares/{token}/audio/", response.data["audio_url"])
+        self.assertIn(
+            f"/api/shares/{quote(token, safe='')}/audio/",
+            response.data["audio_url"],
+        )
         self.assertEqual(response["Cache-Control"], "private, no-store")
         self.assertNotIn("reflections", response.data)
         self.assertNotIn("This response is private.", str(response.data))
@@ -252,7 +255,7 @@ class SermonSharingTests(APITestCase):
         self.client.force_authenticate(user=None)
 
         audio_response = self.client.get(
-            f"/api/shares/{token}/audio/",
+            f"/api/shares/{quote(token, safe='')}/audio/",
             HTTP_RANGE="bytes=2-7",
         )
 
@@ -261,13 +264,15 @@ class SermonSharingTests(APITestCase):
             b"".join(audio_response.streaming_content),
             self.audio[2:8],
         )
-        self.assertEqual(audio_response["Cache-Control"], "private, no-store")
+        self.assertEqual(audio_response["Cache-Control"], "private, max-age=3600")
 
         self.client.force_authenticate(user=self.owner)
         self.client.delete(self.owner_url)
         self.client.force_authenticate(user=None)
 
-        detail_after_revoke = self.client.get(f"/api/shares/{token}/")
-        audio_after_revoke = self.client.get(f"/api/shares/{token}/audio/")
+        detail_after_revoke = self.client.get(f"/api/shares/{quote(token, safe='')}/")
+        audio_after_revoke = self.client.get(
+            f"/api/shares/{quote(token, safe='')}/audio/"
+        )
         self.assertEqual(detail_after_revoke.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(audio_after_revoke.status_code, status.HTTP_404_NOT_FOUND)

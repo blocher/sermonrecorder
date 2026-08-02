@@ -1,7 +1,8 @@
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
-from rest_framework import serializers
+from django.conf import settings
 from django.urls import reverse
+from rest_framework import serializers
 
 from .models import (
     Church,
@@ -677,16 +678,17 @@ class PublicSharedSermonSerializer(serializers.ModelSerializer):
         )
 
     def _shared_audio_url(self, *, variant: str | None = None) -> str:
-        request = self.context.get("request")
         token = self.context.get("share_token")
-        if not request or not token:
+        if not token:
             return ""
-        path = reverse("shared-sermon-audio", kwargs={"token": token})
+        # Percent-encode the signed token so iOS WebViews do not mishandle ":".
+        path = f"/api/shares/{quote(str(token), safe='')}/audio/"
         if variant:
-            return request.build_absolute_uri(
-                f"{path}?{urlencode({'variant': variant})}"
-            )
-        return request.build_absolute_uri(path)
+            path = f"{path}?{urlencode({'variant': variant})}"
+        request = self.context.get("request")
+        if request is not None:
+            return request.build_absolute_uri(path)
+        return f"{settings.PEWCORDER_PUBLIC_WEB_URL.rstrip('/')}{path}"
 
     def get_audio_url(self, sermon: Sermon) -> str:
         return self._shared_audio_url()

@@ -15,6 +15,7 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
+from corsheaders.defaults import default_headers
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -185,6 +186,17 @@ AUTH_USER_MODEL = "accounts.User"
 CORS_ALLOWED_ORIGINS = _csv_env(
     "DJANGO_CORS_ALLOWED_ORIGINS",
     "http://localhost:5173,http://127.0.0.1:5173,capacitor://localhost,http://localhost",
+)
+# Media elements on iOS may preflight Range; expose length/range for seekers.
+CORS_ALLOW_HEADERS = (
+    *default_headers,
+    "range",
+)
+CORS_EXPOSE_HEADERS = (
+    "accept-ranges",
+    "content-length",
+    "content-range",
+    "content-type",
 )
 
 REST_FRAMEWORK = {
