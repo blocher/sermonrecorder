@@ -22,8 +22,10 @@ from .serializers import (
     ScriptureReferenceSerializer,
     ScriptureReferencesEditSerializer,
     StudyArtifactEditSerializer,
+    StudyArtifactSerializer,
     TagsEditSerializer,
     TranscriptEditSerializer,
+    TranscriptSerializer,
 )
 
 
@@ -36,8 +38,31 @@ def _owned_ready_sermon(request: Request, sermon_id: UUID) -> Sermon:
     )
 
 
+def _include_raw_segments(request: Request) -> bool:
+    value = request.query_params.get("include_raw", "").strip().casefold()
+    return value in {"1", "true", "yes"}
+
+
+class StudyArtifactListView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request: Request, sermon_id: UUID) -> Response:
+        sermon = _owned_ready_sermon(request, sermon_id)
+        artifacts = sermon.study_artifacts.all()
+        return Response(StudyArtifactSerializer(artifacts, many=True).data)
+
+
 class StudyArtifactDetailView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request: Request, sermon_id: UUID, kind: str) -> Response:
+        sermon = _owned_ready_sermon(request, sermon_id)
+        artifact = get_object_or_404(
+            StudyArtifact,
+            sermon=sermon,
+            kind=kind,
+        )
+        return Response(StudyArtifactSerializer(artifact).data)
 
     def patch(self, request: Request, sermon_id: UUID, kind: str) -> Response:
         sermon = _owned_ready_sermon(request, sermon_id)
@@ -58,6 +83,16 @@ class StudyArtifactDetailView(APIView):
 
 class TranscriptDetailView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request: Request, sermon_id: UUID) -> Response:
+        sermon = _owned_ready_sermon(request, sermon_id)
+        transcript = get_object_or_404(Transcript, sermon=sermon)
+        serializer_class = (
+            OwnerTranscriptSerializer
+            if _include_raw_segments(request)
+            else TranscriptSerializer
+        )
+        return Response(serializer_class(transcript).data)
 
     def patch(self, request: Request, sermon_id: UUID) -> Response:
         sermon = _owned_ready_sermon(request, sermon_id)
@@ -81,7 +116,12 @@ class TranscriptDetailView(APIView):
                 "updated_at",
             )
         )
-        return Response(OwnerTranscriptSerializer(transcript).data)
+        serializer_class = (
+            OwnerTranscriptSerializer
+            if _include_raw_segments(request)
+            else TranscriptSerializer
+        )
+        return Response(serializer_class(transcript).data)
 
 
 class TagsDetailView(APIView):

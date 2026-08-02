@@ -114,7 +114,11 @@ onMounted(() => {
       :inert="modalActive"
       :aria-hidden="modalActive ? 'true' : undefined"
     >
-      <RouterView />
+      <RouterView v-slot="{ Component, route: viewRoute }">
+        <KeepAlive :include="['LibraryView']">
+          <component :is="Component" :key="viewRoute.meta.keepAlive ? 'library' : viewRoute.fullPath" />
+        </KeepAlive>
+      </RouterView>
     </div>
     <Teleport to="body">
       <RecordSeal :state="state" :elapsed-seconds="elapsedSeconds" @toggle="toggle" />

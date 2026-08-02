@@ -44,9 +44,10 @@ export interface ServerSermon {
   audio_url: string
   has_playback_audio: boolean
   has_isolated_audio: boolean
-  original_audio_url: string
-  playback_audio_url: string
-  isolated_audio_url: string
+  /** Present on detail/share; omitted from library list payloads. */
+  original_audio_url?: string
+  playback_audio_url?: string
+  isolated_audio_url?: string
   audio_mime_type: string
   audio_size_bytes: number
   church: ServerChurch | null
@@ -62,6 +63,25 @@ export interface ServerSermon {
   transcription_audio_source: 'playback' | 'isolated' | 'original'
   created_at: string
   updated_at: string
+}
+
+export interface ServerSermonStatus {
+  id: string
+  processing_status: ProcessingStatus
+  processing_message: string
+  updated_at: string
+  transcript_updated_at: string | null
+  doctrinal_review_updated_at: string | null
+  related_sources_updated_at: string | null
+}
+
+export interface ServerSermonAudioLinks {
+  audio_url: string
+  has_playback_audio: boolean
+  has_isolated_audio: boolean
+  original_audio_url: string
+  playback_audio_url: string
+  isolated_audio_url: string
 }
 
 export interface ServerTranscriptSegment {
@@ -136,7 +156,11 @@ export interface ServerReflection {
 
 export interface ServerSermonDetail extends ServerSermon {
   audio_url: string
+  original_audio_url: string
+  playback_audio_url: string
+  isolated_audio_url: string
   transcript: ServerTranscript | null
+  /** Loaded separately via loadStudyArtifacts after the shell opens. */
   study_artifacts: ServerStudyArtifact[]
   scripture_references: ServerScriptureReference[]
   related_sermons: RelatedServerSermon[]
@@ -268,10 +292,52 @@ async function readResponseJson(response: Response, fallback: string): Promise<u
 }
 
 export async function loadServerSermon(id: string): Promise<ServerSermonDetail> {
-  return authorizedJson<ServerSermonDetail>(
+  const shell = await authorizedJson<Omit<ServerSermonDetail, 'study_artifacts'> & {
+    study_artifacts?: ServerStudyArtifact[]
+  }>(
     `/api/sermons/${encodeURIComponent(id)}/`,
     {},
     'This Sermon could not be opened.',
+  )
+  return {
+    ...shell,
+    study_artifacts: shell.study_artifacts ?? [],
+  }
+}
+
+export async function loadSermonStatus(id: string): Promise<ServerSermonStatus> {
+  return authorizedJson<ServerSermonStatus>(
+    `/api/sermons/${encodeURIComponent(id)}/status/`,
+    {},
+    'This Sermon status could not be checked.',
+  )
+}
+
+export async function loadSermonAudioLinks(id: string): Promise<ServerSermonAudioLinks> {
+  return authorizedJson<ServerSermonAudioLinks>(
+    `/api/sermons/${encodeURIComponent(id)}/audio-links/`,
+    {},
+    'Playback links could not be refreshed.',
+  )
+}
+
+export async function loadStudyArtifacts(id: string): Promise<ServerStudyArtifact[]> {
+  return authorizedJson<ServerStudyArtifact[]>(
+    `/api/sermons/${encodeURIComponent(id)}/artifacts/`,
+    {},
+    'Study notes could not be loaded.',
+  )
+}
+
+export async function loadTranscript(
+  id: string,
+  options: { includeRaw?: boolean } = {},
+): Promise<ServerTranscript> {
+  const query = options.includeRaw ? '?include_raw=1' : ''
+  return authorizedJson<ServerTranscript>(
+    `/api/sermons/${encodeURIComponent(id)}/transcript/${query}`,
+    {},
+    'This Transcript could not be loaded.',
   )
 }
 
@@ -308,8 +374,8 @@ export async function regenerateSermon(
   )
 }
 
-export async function regenerateMagisteriumSermon(id: string): Promise<ServerSermonDetail> {
-  return authorizedJson<ServerSermonDetail>(
+export async function regenerateMagisteriumSermon(id: string): Promise<ServerSermonStatus> {
+  return authorizedJson<ServerSermonStatus>(
     `/api/sermons/${encodeURIComponent(id)}/regenerate-magisterium/`,
     { method: 'POST' },
     'Magisterium AI notes could not be regenerated.',

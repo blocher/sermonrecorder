@@ -168,11 +168,20 @@ describe('server Sermon detail', () => {
   })
 
   it('queues Magisterium-only regeneration with a POST', async () => {
+    const status = {
+      id: 'ready-sermon',
+      processing_status: 'ready',
+      processing_message: 'Ready to revisit.',
+      updated_at: detail.updated_at,
+      transcript_updated_at: detail.transcript?.updated_at ?? null,
+      doctrinal_review_updated_at: null,
+      related_sources_updated_at: null,
+    }
     mocks.fetch.mockResolvedValueOnce(
-      new Response(JSON.stringify(detail), { status: 200 }),
+      new Response(JSON.stringify(status), { status: 200 }),
     )
 
-    await expect(regenerateMagisteriumSermon('ready-sermon')).resolves.toEqual(detail)
+    await expect(regenerateMagisteriumSermon('ready-sermon')).resolves.toEqual(status)
     expect(mocks.fetch).toHaveBeenCalledWith(
       'http://api.example.test/api/sermons/ready-sermon/regenerate-magisterium/',
       { method: 'POST', headers: { Authorization: 'Bearer access-token' } },

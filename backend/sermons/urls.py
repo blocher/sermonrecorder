@@ -14,6 +14,7 @@ from .editing_views import (
     ReflectionListCreateView,
     ScriptureReferencesDetailView,
     StudyArtifactDetailView,
+    StudyArtifactListView,
     TagsDetailView,
     TranscriptDetailView,
 )
@@ -65,6 +66,11 @@ urlpatterns = [
         "<uuid:sermon_id>/share/",
         SermonShareLinkView.as_view(),
         name="sermon-share-link",
+    ),
+    path(
+        "<uuid:sermon_id>/artifacts/",
+        StudyArtifactListView.as_view(),
+        name="sermon-study-artifacts",
     ),
     path(
         "<uuid:sermon_id>/artifacts/<str:kind>/",

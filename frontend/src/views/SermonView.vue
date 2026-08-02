@@ -58,6 +58,10 @@ import {
   loadPreachers,
   loadShareLink,
   loadServerSermon,
+  loadSermonAudioLinks,
+  loadSermonStatus,
+  loadStudyArtifacts,
+  loadTranscript,
   regenerateMagisteriumSermon,
   regenerateSermon,
   retrySermonProcessing,
@@ -76,6 +80,7 @@ import {
   type ServerPreacher,
   type ServerShareLink,
   type ServerSermonDetail,
+  type ServerSermonStatus,
   type ServerScriptureReference,
   type ServerTranscriptSegment,
   type StudyArtifactKind,
@@ -105,6 +110,8 @@ const errorMessage = ref('')
 const failedSermonId = ref('')
 const retrying = ref(false)
 const checkingProcessing = ref(false)
+const loadingArtifacts = ref(false)
+const loadingRawTranscript = ref(false)
 const activeSection = ref<SermonSection>('study')
 const transcriptLayout = ref<TranscriptLayout>('timeline')
 const transcriptEdition = ref<TranscriptEdition>('polished')
@@ -349,7 +356,12 @@ function occasionLabel(kind: OccasionKind | ''): string {
 }
 
 function artifact(kind: StudyArtifactKind): string {
-  return sermon.value?.study_artifacts.find((candidate) => candidate.kind === kind)?.content ?? ''
+  const content =
+    sermon.value?.study_artifacts.find((candidate) => candidate.kind === kind)?.content ?? ''
+  if (content) return content
+  // Shell payload includes short_summary before study artifacts hydrate.
+  if (kind === 'short_summary') return sermon.value?.short_summary ?? ''
+  return ''
 }
 
 function timestamp(seconds: number): string {
@@ -724,7 +736,7 @@ async function seekTo(seconds: number): Promise<void> {
 
 async function refreshPrivateAudioLink(): Promise<void> {
   const id = String(route.params.id)
-  if (!id || refreshingAudio.value) return
+  if (!id || refreshingAudio.value || !sermon.value) return
   const position = audio.value?.currentTime ?? currentSeconds.value
   refreshingAudio.value = true
   releaseAudioBlobFallback()
@@ -733,14 +745,12 @@ async function refreshPrivateAudioLink(): Promise<void> {
   audio.value?.pause()
   playing.value = false
   try {
-    const loadedSermon = await loadServerSermon(id)
-    if (String(route.params.id) !== id) return
-    if (loadedSermon.processing_status !== 'ready') {
-      applyLoadedSermon(loadedSermon, id)
-      return
+    const links = await loadSermonAudioLinks(id)
+    if (String(route.params.id) !== id || !sermon.value) return
+    sermon.value = {
+      ...sermon.value,
+      ...links,
     }
-    sermon.value = loadedSermon
-    reflectionContent.value = loadedSermon.reflections[0]?.content ?? ''
     audioReloadToken.value += 1
     await nextTick()
     const element = audio.value
@@ -861,13 +871,23 @@ function resolveRegenerateWindow():
   }
 }
 
+function magisteriumStatusStamp(status: Pick<
+  ServerSermonStatus,
+  'related_sources_updated_at' | 'doctrinal_review_updated_at'
+>): string {
+  return [
+    `related_sources:${status.related_sources_updated_at ?? ''}`,
+    `doctrinal_review:${status.doctrinal_review_updated_at ?? ''}`,
+  ].join('|')
+}
+
 function magisteriumArtifactStamp(detail: ServerSermonDetail): string {
-  return ['related_sources', 'doctrinal_review']
-    .map((kind) => {
-      const artifact = detail.study_artifacts.find((item) => item.kind === kind)
-      return `${kind}:${artifact?.updated_at ?? ''}:${artifact?.content?.length ?? 0}`
-    })
-    .join('|')
+  const related = detail.study_artifacts.find((item) => item.kind === 'related_sources')
+  const doctrinal = detail.study_artifacts.find((item) => item.kind === 'doctrinal_review')
+  return magisteriumStatusStamp({
+    related_sources_updated_at: related?.updated_at ?? null,
+    doctrinal_review_updated_at: doctrinal?.updated_at ?? null,
+  })
 }
 
 function clearMagisteriumPoll(): void {
@@ -884,13 +904,17 @@ async function pollMagisteriumRegeneration(
 ): Promise<void> {
   if (String(route.params.id) !== id) return
   try {
-    const loaded = await loadServerSermon(id)
+    const status = await loadSermonStatus(id)
     if (String(route.params.id) !== id) return
     if (
-      loaded.processing_status === 'ready' &&
-      magisteriumArtifactStamp(loaded) !== beforeStamp
+      status.processing_status === 'ready' &&
+      magisteriumStatusStamp(status) !== beforeStamp
     ) {
-      applyLoadedSermon(loaded, id)
+      if (sermon.value) {
+        const artifacts = await loadStudyArtifacts(id)
+        if (String(route.params.id) !== id || !sermon.value) return
+        sermon.value = { ...sermon.value, study_artifacts: artifacts }
+      }
       regeneratingMagisterium.value = false
       regenerateMessage.value = 'Related sources and Doctrinal review were refreshed.'
       return
@@ -1222,6 +1246,52 @@ function scheduleProcessingPoll(id: string): void {
   processingPollTimer = window.setTimeout(() => void refreshProcessing(id), 5000)
 }
 
+async function hydrateStudyArtifacts(id: string): Promise<void> {
+  if (!sermon.value || sermon.value.id !== id) return
+  loadingArtifacts.value = true
+  try {
+    const artifacts = await loadStudyArtifacts(id)
+    if (!sermon.value || sermon.value.id !== id) return
+    sermon.value = { ...sermon.value, study_artifacts: artifacts }
+  } catch (error) {
+    if (!sermon.value || sermon.value.id !== id) return
+    editMessage.value =
+      error instanceof Error ? error.message : 'Study notes could not be loaded.'
+  } finally {
+    if (sermon.value?.id === id) loadingArtifacts.value = false
+  }
+}
+
+async function ensureRawTranscriptLoaded(): Promise<void> {
+  const current = sermon.value
+  if (!current?.transcript) return
+  if (current.transcript.raw_segments) return
+  if (loadingRawTranscript.value) return
+  loadingRawTranscript.value = true
+  try {
+    const transcript = await loadTranscript(current.id, { includeRaw: true })
+    if (!sermon.value || sermon.value.id !== current.id) return
+    sermon.value = {
+      ...sermon.value,
+      transcript: {
+        ...sermon.value.transcript!,
+        ...transcript,
+      },
+    }
+  } catch (error) {
+    if (!sermon.value || sermon.value.id !== current.id) return
+    transcriptMessage.value =
+      error instanceof Error ? error.message : 'Unredacted Transcript could not be loaded.'
+  } finally {
+    loadingRawTranscript.value = false
+  }
+}
+
+async function setTranscriptLayout(layout: TranscriptLayout): Promise<void> {
+  transcriptLayout.value = layout
+  if (layout === 'raw') await ensureRawTranscriptLoaded()
+}
+
 function applyLoadedSermon(loadedSermon: ServerSermonDetail, id: string): void {
   clearProcessingPoll()
   errorMessage.value = ''
@@ -1232,6 +1302,8 @@ function applyLoadedSermon(loadedSermon: ServerSermonDetail, id: string): void {
     sermon.value = loadedSermon
     audioVariant.value = loadedSermon.has_playback_audio ? 'playback' : 'original'
     reflectionContent.value = loadedSermon.reflections[0]?.content ?? ''
+    void hydrateStudyArtifacts(id)
+    if (transcriptLayout.value === 'raw') void ensureRawTranscriptLoaded()
     return
   }
 
@@ -1248,8 +1320,27 @@ async function refreshProcessing(id: string, manual = false): Promise<void> {
   if (String(route.params.id) !== id) return
   if (manual) checkingProcessing.value = true
   try {
-    const loadedSermon = await loadServerSermon(id)
-    if (String(route.params.id) === id) applyLoadedSermon(loadedSermon, id)
+    const status = await loadSermonStatus(id)
+    if (String(route.params.id) !== id) return
+    if (status.processing_status === 'ready') {
+      const loadedSermon = await loadServerSermon(id)
+      if (String(route.params.id) === id) applyLoadedSermon(loadedSermon, id)
+      return
+    }
+    if (processingSermon.value) {
+      processingSermon.value = {
+        ...processingSermon.value,
+        processing_status: status.processing_status,
+        processing_message: status.processing_message,
+        updated_at: status.updated_at,
+      }
+    }
+    if (status.processing_status === 'failed') {
+      failedSermonId.value = status.id
+      clearProcessingPoll()
+    } else {
+      scheduleProcessingPoll(id)
+    }
   } catch {
     if (
       String(route.params.id) === id &&
@@ -1265,7 +1356,10 @@ async function refreshProcessing(id: string, manual = false): Promise<void> {
 async function load(id: string): Promise<void> {
   clearProcessingPoll()
   clearMagisteriumPoll()
+  releaseAudioBlobFallback()
   loading.value = true
+  loadingArtifacts.value = false
+  loadingRawTranscript.value = false
   errorMessage.value = ''
   failedSermonId.value = ''
   sermon.value = undefined
@@ -1273,6 +1367,7 @@ async function load(id: string): Promise<void> {
   playing.value = false
   currentSeconds.value = 0
   playbackError.value = false
+  playbackErrorDetail.value = ''
   refreshingAudio.value = false
   audioReloadToken.value += 1
   audioVariant.value = 'playback'
@@ -2648,7 +2743,7 @@ onBeforeUnmount(() => {
                   type="button"
                   :class="{ active: transcriptLayout === 'timeline' }"
                   :aria-pressed="transcriptLayout === 'timeline'"
-                  @click="transcriptLayout = 'timeline'"
+                  @click="void setTranscriptLayout('timeline')"
                 >
                   Timeline
                 </button>
@@ -2656,7 +2751,7 @@ onBeforeUnmount(() => {
                   type="button"
                   :class="{ active: transcriptLayout === 'reading' }"
                   :aria-pressed="transcriptLayout === 'reading'"
-                  @click="transcriptLayout = 'reading'"
+                  @click="void setTranscriptLayout('reading')"
                 >
                   Reading
                 </button>
@@ -2664,7 +2759,7 @@ onBeforeUnmount(() => {
                   type="button"
                   :class="{ active: transcriptLayout === 'raw' }"
                   :aria-pressed="transcriptLayout === 'raw'"
-                  @click="transcriptLayout = 'raw'"
+                  @click="void setTranscriptLayout('raw')"
                 >
                   Full tape
                 </button>
@@ -2724,7 +2819,7 @@ onBeforeUnmount(() => {
                   ? displayTranscriptSegments
                   : originalTranscriptSegments"
                 :key="`${transcriptEdition}-${segment.start_seconds}-${segment.text}`"
-                class="transcript__segment"
+                class="transcript__segment transcript__segment--virtual"
               >
                 <button
                   type="button"
@@ -2737,10 +2832,11 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div v-else-if="transcriptLayout === 'raw'" class="transcript__segments">
+              <p v-if="loadingRawTranscript" class="transcript__empty">Loading diarization…</p>
               <div
                 v-for="segment in rawTranscriptSegments"
                 :key="`${segment.speaker}-${segment.start_seconds}-${segment.text}`"
-                class="transcript__segment transcript__segment--raw"
+                class="transcript__segment transcript__segment--raw transcript__segment--virtual"
               >
                 <button
                   type="button"
@@ -2917,7 +3013,7 @@ onBeforeUnmount(() => {
             :key="`${activeAudioUrl}:${audioReloadToken}`"
             ref="audio"
             :src="activeAudioUrl"
-            preload="metadata"
+            preload="none"
             @play="playing = true"
             @pause="playing = false"
             @ended="playing = false"
@@ -4878,6 +4974,11 @@ a.tag-chip:focus-visible {
   display: grid;
   gap: 1rem;
   grid-template-columns: 3.2rem 1fr;
+}
+
+.transcript__segment--virtual {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 4.5rem;
 }
 
 .transcript__segment + .transcript__segment {

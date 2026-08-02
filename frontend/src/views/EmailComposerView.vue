@@ -39,11 +39,7 @@ const shareUrl = ref('')
 const composerMessage = ref('')
 
 const selectedCount = computed(() => recipients.value.filter((recipient) => recipient.selected).length)
-const shortSummary = computed(
-  () =>
-    sermon.value?.study_artifacts.find((artifact) => artifact.kind === 'short_summary')?.content ??
-    '',
-)
+const shortSummary = computed(() => sermon.value?.short_summary ?? '')
 const capturedDate = computed(() =>
   sermon.value
     ? new Intl.DateTimeFormat(undefined, {

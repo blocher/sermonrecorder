@@ -164,9 +164,14 @@ class SermonEditingApiTests(APITestCase):
             detail.data["reflections"][0]["content"],
             "I will make room before I feel ready.",
         )
-        self.assertEqual(len(detail.data["transcript"]["raw_segments"]), 3)
+        self.assertNotIn("raw_segments", detail.data["transcript"])
+        transcript = self.client.get(
+            f"/api/sermons/{self.sermon.id}/transcript/?include_raw=1"
+        )
+        self.assertEqual(transcript.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(transcript.data["raw_segments"]), 3)
         self.assertEqual(
-            detail.data["transcript"]["raw_segments"][1]["text"],
+            transcript.data["raw_segments"][1]["text"],
             "Pass me that.",
         )
 

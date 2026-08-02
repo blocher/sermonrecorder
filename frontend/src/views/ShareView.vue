@@ -882,7 +882,7 @@ onBeforeUnmount(() => {
         :key="`${activeAudioUrl}:${audioReloadToken}`"
         ref="audio"
         :src="activeAudioUrl"
-        preload="metadata"
+        preload="none"
         @play="playing = true"
         @pause="playing = false"
         @ended="playing = false"
@@ -1586,6 +1586,8 @@ onBeforeUnmount(() => {
 }
 
 .share-transcript__segments > div {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 4.5rem;
   align-items: baseline;
   display: grid;
   gap: 1rem;

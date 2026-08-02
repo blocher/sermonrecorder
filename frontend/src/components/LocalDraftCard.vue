@@ -121,7 +121,7 @@ onBeforeUnmount(clearAudioUrl)
     <audio
       ref="audio"
       :src="audioUrl"
-      preload="metadata"
+      preload="none"
       @play="playing = true"
       @pause="playing = false"
       @ended="playing = false"

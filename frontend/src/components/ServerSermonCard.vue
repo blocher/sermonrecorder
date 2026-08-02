@@ -32,10 +32,14 @@ type AudioVariant = 'playback' | 'isolated' | 'original'
 const audioVariant = ref<AudioVariant>(props.sermon.has_playback_audio ? 'playback' : 'original')
 
 function activeUrlFor(sermon: typeof props.sermon, variant: AudioVariant): string {
-  if (variant === 'original') return sermon.original_audio_url
+  if (variant === 'original') return sermon.original_audio_url || sermon.audio_url
   if (variant === 'isolated') return sermon.isolated_audio_url || sermon.audio_url
   return sermon.playback_audio_url || sermon.audio_url
 }
+
+const canChooseAudioVariants = computed(
+  () => Boolean(props.sermon.original_audio_url || props.sermon.playback_audio_url),
+)
 
 const title = computed(() => {
   const captured = new Date(props.sermon.captured_at)
@@ -189,7 +193,7 @@ onBeforeUnmount(() => {
         }}
       </p>
       <div
-        v-if="sermon.has_playback_audio || sermon.has_isolated_audio"
+        v-if="canChooseAudioVariants && (sermon.has_playback_audio || sermon.has_isolated_audio)"
         class="server-sermon__variants"
         role="group"
         aria-label="Optional audio version"
@@ -268,7 +272,7 @@ onBeforeUnmount(() => {
     <audio
       v-if="playbackUrl"
       ref="audio"
-      preload="metadata"
+      preload="none"
       :src="playbackUrl"
       @play="playing = true"
       @pause="playing = false"

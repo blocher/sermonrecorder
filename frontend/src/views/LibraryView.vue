@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+
+defineOptions({ name: 'LibraryView' })
 import {
   CalendarDays,
   ChevronRight,
@@ -149,23 +151,39 @@ async function loadReadySermons(reset: boolean): Promise<void> {
   }
 }
 
-async function loadSearchBooks(): Promise<void> {
+let searchBooksLoaded = false
+let searchBooksLoading: Promise<void> | undefined
+
+async function loadSearchBooks(force = false): Promise<void> {
   if (!isAuthenticated.value) {
     churches.value = []
     preachers.value = []
+    searchBooksLoaded = false
     return
   }
-  try {
-    const [loadedChurches, loadedPreachers] = await Promise.all([
-      loadChurches(),
-      loadPreachers(),
-    ])
-    churches.value = loadedChurches
-    preachers.value = loadedPreachers
-  } catch {
-    churches.value = []
-    preachers.value = []
+  if (!force && searchBooksLoaded) return
+  if (searchBooksLoading) {
+    await searchBooksLoading
+    return
   }
+  searchBooksLoading = (async () => {
+    try {
+      const [loadedChurches, loadedPreachers] = await Promise.all([
+        loadChurches(),
+        loadPreachers(),
+      ])
+      churches.value = loadedChurches
+      preachers.value = loadedPreachers
+      searchBooksLoaded = true
+    } catch {
+      churches.value = []
+      preachers.value = []
+      searchBooksLoaded = false
+    } finally {
+      searchBooksLoading = undefined
+    }
+  })()
+  await searchBooksLoading
 }
 
 function scheduleSearch(): void {
@@ -245,19 +263,22 @@ function clearSearch(): void {
   }
 }
 
+const capturedDateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+})
+const capturedTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  hour: 'numeric',
+  minute: '2-digit',
+})
+
 function capturedDate(sermon: ServerSermon): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(sermon.captured_at))
+  return capturedDateFormatter.format(new Date(sermon.captured_at))
 }
 
 function capturedTime(sermon: ServerSermon): string {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(sermon.captured_at))
+  return capturedTimeFormatter.format(new Date(sermon.captured_at))
 }
 
 function occasionLabel(kind: OccasionKind | ''): string {
@@ -408,7 +429,7 @@ watch(
 watch(
   isAuthenticated,
   () => {
-    void loadSearchBooks()
+    searchBooksLoaded = false
     scheduleSearch()
     void loadReadySermons(true)
     void resumeRedirectedDraft()
@@ -430,6 +451,13 @@ watch(
 )
 
 const searchOpen = computed(() => route.query.focus === 'search')
+
+watch(
+  [searchOpen, filterPanelOpen],
+  ([open, filtersOpen]) => {
+    if (open || filtersOpen) void loadSearchBooks()
+  },
+)
 
 async function openSearch(): Promise<void> {
   if (searchOpen.value) {
@@ -554,7 +582,7 @@ watch(
 
     <p v-if="searchError && !searchOpen" class="server-error" role="status">{{ searchError }}</p>
 
-    <section aria-labelledby="recent-sermons">
+    <section v-show="!searchOpen" aria-labelledby="recent-sermons">
       <div class="section-heading">
         <h2 id="recent-sermons">{{ hasSearchCriteria ? 'Search results' : 'Recently heard' }}</h2>
         <span v-if="searching || loadingReady">Loading…</span>

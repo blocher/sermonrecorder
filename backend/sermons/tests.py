@@ -188,8 +188,13 @@ class SermonApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["transcript"]["text"], "A cleaned Transcript.")
+        self.assertNotIn("raw_segments", response.data["transcript"])
+        self.assertNotIn("study_artifacts", response.data)
+        self.assertEqual(response.data["short_summary"], "A short summary.")
+        artifacts = self.client.get(f"/api/sermons/{sermon.id}/artifacts/")
+        self.assertEqual(artifacts.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data["study_artifacts"][0]["kind"],
+            artifacts.data[0]["kind"],
             StudyArtifact.Kind.SHORT_SUMMARY,
         )
         self.assertEqual(
@@ -211,6 +216,13 @@ class SermonApiTests(APITestCase):
         self.assertEqual(ready_entry["tag_suggestions"], ["Grace"])
         self.assertIn("audio_url", ready_entry)
         self.assertNotIn("transcript", ready_entry)
+        self.assertNotIn("original_audio_url", ready_entry)
+        self.assertNotIn("playback_audio_url", ready_entry)
+        self.assertNotIn("isolated_audio_url", ready_entry)
+        status_response = self.client.get(f"/api/sermons/{sermon.id}/status/")
+        self.assertEqual(status_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(status_response.data["processing_status"], "ready")
+        self.assertIn("processing_message", status_response.data)
 
         self.client.force_authenticate(user=self.other_user)
         private_response = self.client.get(f"/api/sermons/{sermon.id}/")

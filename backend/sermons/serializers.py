@@ -186,9 +186,6 @@ class SermonSerializer(serializers.ModelSerializer):
     audio_url = serializers.SerializerMethodField()
     has_playback_audio = serializers.SerializerMethodField()
     has_isolated_audio = serializers.SerializerMethodField()
-    original_audio_url = serializers.SerializerMethodField()
-    playback_audio_url = serializers.SerializerMethodField()
-    isolated_audio_url = serializers.SerializerMethodField()
     processing_message = serializers.SerializerMethodField()
     short_summary = serializers.SerializerMethodField()
     tag_suggestions = serializers.SerializerMethodField()
@@ -209,9 +206,6 @@ class SermonSerializer(serializers.ModelSerializer):
             "audio_url",
             "has_playback_audio",
             "has_isolated_audio",
-            "original_audio_url",
-            "playback_audio_url",
-            "isolated_audio_url",
             "audio_mime_type",
             "audio_size_bytes",
             "church",
@@ -234,9 +228,6 @@ class SermonSerializer(serializers.ModelSerializer):
             "audio_url",
             "has_playback_audio",
             "has_isolated_audio",
-            "original_audio_url",
-            "playback_audio_url",
-            "isolated_audio_url",
             "audio_mime_type",
             "audio_size_bytes",
             "church",
@@ -313,24 +304,6 @@ class SermonSerializer(serializers.ModelSerializer):
 
     def get_has_isolated_audio(self, sermon: Sermon) -> bool:
         return bool(sermon.isolated_audio)
-
-    def get_original_audio_url(self, sermon: Sermon) -> str:
-        request = self.context.get("request")
-        return (
-            private_audio_url(request, sermon, variant="original") if request else ""
-        )
-
-    def get_playback_audio_url(self, sermon: Sermon) -> str:
-        request = self.context.get("request")
-        if not request or not sermon.playback_audio:
-            return ""
-        return private_audio_url(request, sermon, variant="playback")
-
-    def get_isolated_audio_url(self, sermon: Sermon) -> str:
-        request = self.context.get("request")
-        if not request or not sermon.isolated_audio:
-            return ""
-        return private_audio_url(request, sermon, variant="isolated")
 
     def get_processing_message(self, sermon: Sermon) -> str:
         return owner_facing_processing_message(
@@ -646,28 +619,104 @@ class RelatedSermonSerializer(serializers.ModelSerializer):
         fields = ("id", "title", "captured_at", "score", "reason")
 
 
+class SermonStatusSerializer(serializers.ModelSerializer):
+    processing_message = serializers.SerializerMethodField()
+    transcript_updated_at = serializers.SerializerMethodField()
+    doctrinal_review_updated_at = serializers.SerializerMethodField()
+    related_sources_updated_at = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Sermon
+        fields = (
+            "id",
+            "processing_status",
+            "processing_message",
+            "updated_at",
+            "transcript_updated_at",
+            "doctrinal_review_updated_at",
+            "related_sources_updated_at",
+        )
+
+    def get_processing_message(self, sermon: Sermon) -> str:
+        return owner_facing_processing_message(
+            sermon.processing_status,
+            sermon.processing_error,
+        )
+
+    def get_transcript_updated_at(self, sermon: Sermon) -> str | None:
+        transcript = getattr(sermon, "transcript", None)
+        if transcript is None:
+            return None
+        return transcript.updated_at.isoformat().replace("+00:00", "Z")
+
+    def _artifact_updated_at(self, sermon: Sermon, kind: str) -> str | None:
+        artifact = next(
+            (
+                item
+                for item in sermon.study_artifacts.all()
+                if item.kind == kind
+            ),
+            None,
+        )
+        if artifact is None:
+            return None
+        return artifact.updated_at.isoformat().replace("+00:00", "Z")
+
+    def get_doctrinal_review_updated_at(self, sermon: Sermon) -> str | None:
+        return self._artifact_updated_at(sermon, StudyArtifact.Kind.DOCTRINAL_REVIEW)
+
+    def get_related_sources_updated_at(self, sermon: Sermon) -> str | None:
+        return self._artifact_updated_at(sermon, StudyArtifact.Kind.RELATED_SOURCES)
+
+
 class SermonDetailSerializer(SermonSerializer):
-    transcript = OwnerTranscriptSerializer(read_only=True, allow_null=True)
-    study_artifacts = StudyArtifactSerializer(many=True, read_only=True)
+    # Signed variant URLs belong on detail/playback surfaces, not the library list.
+    original_audio_url = serializers.SerializerMethodField()
+    playback_audio_url = serializers.SerializerMethodField()
+    isolated_audio_url = serializers.SerializerMethodField()
+    # Omit raw_segments and study_artifacts from the shell; load those on demand.
+    transcript = TranscriptSerializer(read_only=True, allow_null=True)
     scripture_references = ScriptureReferenceSerializer(many=True, read_only=True)
     related_sermons = RelatedSermonSerializer(many=True, read_only=True)
     reflections = ReflectionSerializer(many=True, read_only=True)
 
     class Meta(SermonSerializer.Meta):
         fields = SermonSerializer.Meta.fields + (
+            "original_audio_url",
+            "playback_audio_url",
+            "isolated_audio_url",
             "transcript",
-            "study_artifacts",
             "scripture_references",
             "related_sermons",
             "reflections",
         )
         read_only_fields = SermonSerializer.Meta.read_only_fields + (
+            "original_audio_url",
+            "playback_audio_url",
+            "isolated_audio_url",
             "transcript",
-            "study_artifacts",
             "scripture_references",
             "related_sermons",
             "reflections",
         )
+
+    def get_original_audio_url(self, sermon: Sermon) -> str:
+        request = self.context.get("request")
+        return (
+            private_audio_url(request, sermon, variant="original") if request else ""
+        )
+
+    def get_playback_audio_url(self, sermon: Sermon) -> str:
+        request = self.context.get("request")
+        if not request or not sermon.playback_audio:
+            return ""
+        return private_audio_url(request, sermon, variant="playback")
+
+    def get_isolated_audio_url(self, sermon: Sermon) -> str:
+        request = self.context.get("request")
+        if not request or not sermon.isolated_audio:
+            return ""
+        return private_audio_url(request, sermon, variant="isolated")
 
 
 class PublicSharedSermonSerializer(serializers.ModelSerializer):

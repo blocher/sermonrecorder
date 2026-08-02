@@ -1,9 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import AccountView from './views/AccountView.vue'
-import EmailComposerView from './views/EmailComposerView.vue'
-import LibraryView from './views/LibraryView.vue'
-import SermonView from './views/SermonView.vue'
-import ShareView from './views/ShareView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -21,27 +16,28 @@ const router = createRouter({
     {
       path: '/',
       name: 'library',
-      component: LibraryView,
+      component: () => import('./views/LibraryView.vue'),
+      meta: { keepAlive: true },
     },
     {
       path: '/sermons/:id',
       name: 'sermon',
-      component: SermonView,
+      component: () => import('./views/SermonView.vue'),
     },
     {
       path: '/sermons/:id/email',
       name: 'email',
-      component: EmailComposerView,
+      component: () => import('./views/EmailComposerView.vue'),
     },
     {
       path: '/account',
       name: 'account',
-      component: AccountView,
+      component: () => import('./views/AccountView.vue'),
     },
     {
       path: '/share/:token',
       name: 'share',
-      component: ShareView,
+      component: () => import('./views/ShareView.vue'),
       meta: { public: true },
     },
   ],

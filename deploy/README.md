@@ -47,3 +47,15 @@ git push production main
 - DB password copy (root only): `/root/pewcorder-db-credentials.txt`
 
 Templates in this directory are the source of truth; re-copy to the server when updating nginx/systemd units.
+
+## Nginx compression
+
+`nginx/gzip.conf` enables gzip for API JSON and SPA assets. Install it once as a snippet, then include it in both the HTTP and Certbot HTTPS server blocks:
+
+```bash
+sudo cp deploy/nginx/gzip.conf /etc/nginx/snippets/pewcorder-gzip.conf
+# Re-copy api.pewcorder...conf and pewcorder.benlocher.com.conf into sites-available,
+# then add the same `include /etc/nginx/snippets/pewcorder-gzip.conf;` line inside
+# each HTTPS server block Certbot manages.
+sudo nginx -t && sudo systemctl reload nginx
+```

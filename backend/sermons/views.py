@@ -1,17 +1,19 @@
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
-from .models import Sermon
+from .models import Sermon, StudyArtifact
 from .pagination import LibraryPagination
+from .private_audio import private_audio_url
 from .serializers import (
     LibrarySearchQuerySerializer,
     RegenerateSerializer,
     SermonDetailSerializer,
     SermonSerializer,
+    SermonStatusSerializer,
 )
 from .tasks import enqueue_magisterium_regeneration, enqueue_sermon_processing
 
@@ -55,14 +57,39 @@ class SermonViewSet(
                 queryset,
                 query_serializer.validated_data,
             )
-            queryset = queryset.prefetch_related("study_artifacts", "tag_suggestions")
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    "study_artifacts",
+                    queryset=StudyArtifact.objects.filter(
+                        kind=StudyArtifact.Kind.SHORT_SUMMARY
+                    ),
+                ),
+                "tag_suggestions",
+            )
         elif self.action == "retrieve":
             queryset = queryset.select_related("transcript").prefetch_related(
-                "study_artifacts",
+                Prefetch(
+                    "study_artifacts",
+                    queryset=StudyArtifact.objects.filter(
+                        kind=StudyArtifact.Kind.SHORT_SUMMARY
+                    ),
+                ),
                 "scripture_references",
                 "tag_suggestions",
                 "related_sermons__related_sermon",
                 "reflections",
+            )
+        elif self.action == "status":
+            queryset = queryset.select_related("transcript").prefetch_related(
+                Prefetch(
+                    "study_artifacts",
+                    queryset=StudyArtifact.objects.filter(
+                        kind__in=(
+                            StudyArtifact.Kind.DOCTRINAL_REVIEW,
+                            StudyArtifact.Kind.RELATED_SOURCES,
+                        )
+                    ),
+                ),
             )
         return queryset
 
@@ -145,22 +172,40 @@ class SermonViewSet(
         transaction.on_commit(lambda: enqueue_sermon_processing(str(sermon.id)))
         return Response(SermonSerializer(sermon, context={"request": request}).data)
 
+    @action(detail=True, methods=["get"], url_path="status")
+    def status(self, request, pk=None):
+        sermon = self.get_object()
+        return Response(SermonStatusSerializer(sermon).data)
+
+    @action(detail=True, methods=["get"], url_path="audio-links")
+    def audio_links(self, request, pk=None):
+        sermon = self.get_object()
+        return Response(
+            {
+                "audio_url": private_audio_url(request, sermon),
+                "has_playback_audio": bool(sermon.playback_audio),
+                "has_isolated_audio": bool(sermon.isolated_audio),
+                "original_audio_url": private_audio_url(
+                    request, sermon, variant="original"
+                ),
+                "playback_audio_url": (
+                    private_audio_url(request, sermon, variant="playback")
+                    if sermon.playback_audio
+                    else ""
+                ),
+                "isolated_audio_url": (
+                    private_audio_url(request, sermon, variant="isolated")
+                    if sermon.isolated_audio
+                    else ""
+                ),
+            }
+        )
+
     @action(detail=True, methods=["post"], url_path="regenerate-magisterium")
     def regenerate_magisterium(self, request, pk=None):
         try:
             sermon = (
-                Sermon.objects.select_related(
-                    "transcript",
-                    "church",
-                    "preacher",
-                )
-                .prefetch_related(
-                    "study_artifacts",
-                    "scripture_references",
-                    "tag_suggestions",
-                    "related_sermons__related_sermon",
-                    "reflections",
-                )
+                Sermon.objects.select_related("transcript")
                 .filter(owner=request.user, pk=pk)
                 .get()
             )
@@ -198,9 +243,7 @@ class SermonViewSet(
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        return Response(
-            SermonDetailSerializer(sermon, context={"request": request}).data
-        )
+        return Response(SermonStatusSerializer(sermon).data)
 
     def _queue_reprocessing(self, sermon: Sermon) -> None:
         sermon.processing_status = Sermon.ProcessingStatus.UPLOADED
