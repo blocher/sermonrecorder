@@ -1414,7 +1414,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <template v-else>
-            <div v-if="sermon.tag_suggestions.length" class="tag-list tag-list--header">
+            <div class="tag-list tag-list--header">
               <RouterLink
                 v-for="tag in sermon.tag_suggestions"
                 :key="tag"
@@ -1424,16 +1424,18 @@ onBeforeUnmount(() => {
               >
                 {{ tag }}
               </RouterLink>
+              <p v-if="!sermon.tag_suggestions.length" class="tag-list__empty tag-list__empty--header">
+                No Tags yet
+              </p>
+              <button
+                class="sermon-header__tag-edit"
+                type="button"
+                aria-label="Edit Tags"
+                @click="beginTagEdit"
+              >
+                <PencilLine :size="15" aria-hidden="true" />
+              </button>
             </div>
-            <p v-else class="tag-list__empty tag-list__empty--header">No Tags yet</p>
-            <button
-              class="sermon-header__tag-edit"
-              type="button"
-              aria-label="Edit Tags"
-              @click="beginTagEdit"
-            >
-              <PencilLine :size="15" aria-hidden="true" />
-            </button>
           </template>
           <p v-if="tagMessage" class="artifact__message" role="status">
             {{ tagMessage }}
@@ -1609,19 +1611,24 @@ onBeforeUnmount(() => {
                         {{ church.name }}{{ church.address ? ` · ${church.address}` : '' }}
                       </option>
                     </select>
-                    <button
-                      class="context-field__locate"
-                      type="button"
-                      :disabled="findingChurches || contextSaving"
-                      @click="suggestNearbyChurches"
-                    >
-                      <LocateFixed :size="15" aria-hidden="true" />
-                      {{
-                        findingChurches
-                          ? 'Finding near recording…'
-                          : 'Find Churches near recording'
-                      }}
-                    </button>
+                    <div class="context-field__actions">
+                      <button
+                        class="context-field__locate"
+                        type="button"
+                        :disabled="findingChurches || contextSaving"
+                        @click="suggestNearbyChurches"
+                      >
+                        <LocateFixed :size="15" aria-hidden="true" />
+                        {{
+                          findingChurches
+                            ? 'Finding near recording…'
+                            : 'Find Churches near recording'
+                        }}
+                      </button>
+                      <button type="button" @click="addingChurch = !addingChurch">
+                        {{ addingChurch ? 'Cancel new Church' : 'Add a Church' }}
+                      </button>
+                    </div>
                     <div v-if="churchSuggestions.length" class="church-suggestions">
                       <button
                         v-for="suggestion in churchSuggestions"
@@ -1636,9 +1643,6 @@ onBeforeUnmount(() => {
                         <small>{{ suggestion.distance_meters }} m</small>
                       </button>
                     </div>
-                    <button type="button" @click="addingChurch = !addingChurch">
-                      {{ addingChurch ? 'Cancel new Church' : 'Add a Church' }}
-                    </button>
                     <div v-if="addingChurch" class="context-new">
                       <input
                         v-model="newChurchName"
@@ -3048,27 +3052,28 @@ onBeforeUnmount(() => {
 }
 
 .sermon-header__tags {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem 0.7rem;
   margin: 1rem 0 1.35rem;
 }
 
 .sermon-header__tag-edit {
   align-items: center;
+  align-self: center;
   background: transparent;
   border: 1px solid var(--color-margin);
+  box-sizing: border-box;
   color: var(--color-lapis);
   cursor: pointer;
   display: inline-flex;
-  height: 1.85rem;
+  flex: 0 0 auto;
+  height: 1.7rem;
   justify-content: center;
+  line-height: 1;
   padding: 0;
-  width: 1.85rem;
+  width: 1.7rem;
 }
 
 .tag-list--header {
+  align-items: center;
   margin-top: 0;
 }
 
@@ -3564,7 +3569,16 @@ a.tag-chip:focus-visible {
   outline: 2px solid rgba(47, 75, 124, 0.12);
 }
 
-.context-field > button {
+.context-field__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 1.15rem;
+  margin-top: 0.15rem;
+}
+
+.context-field > button,
+.context-field__actions > button {
   background: transparent;
   border: 0;
   color: var(--color-lapis);
@@ -3574,15 +3588,18 @@ a.tag-chip:focus-visible {
   font-weight: 650;
   min-height: 2.5rem;
   padding: 0.4rem 0;
+  text-align: left;
+  white-space: nowrap;
 }
 
-.context-field > .context-field__locate {
+.context-field__locate {
   align-items: center;
   display: inline-flex;
   gap: 0.35rem;
 }
 
-.context-field > button:disabled {
+.context-field > button:disabled,
+.context-field__actions > button:disabled {
   cursor: wait;
   opacity: 0.58;
 }
