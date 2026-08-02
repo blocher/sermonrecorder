@@ -84,7 +84,10 @@ class InjectSharePreviewMetaTests(TestCase):
     def test_replaces_default_title_and_description(self):
         shell = (
             "<!doctype html><html><head>"
-            "<meta name=\"description\" content=\"Generic app blurb.\" />"
+            '<meta name="description" content="Generic app blurb." />'
+            '<meta property="og:title" content="Pewcorder · AI Sermon Journal" />'
+            '<meta property="og:description" content="Private journal." />'
+            '<meta property="og:image" content="/og-share.png" />'
             "<title>Pewcorder · AI Sermon Journal</title>"
             "</head><body><div id=\"app\"></div></body></html>"
         )
@@ -102,6 +105,7 @@ class InjectSharePreviewMetaTests(TestCase):
         )
 
         self.assertIn("<title>The Banquet Table · Pewcorder</title>", html_document)
+        self.assertEqual(html_document.count('property="og:title"'), 1)
         self.assertIn('property="og:title" content="The Banquet Table"', html_document)
         self.assertIn(
             'property="og:description" content="Rev. Miriam Cho · Jan 15, 2026"',
@@ -113,7 +117,13 @@ class InjectSharePreviewMetaTests(TestCase):
         )
         self.assertNotIn("Generic app blurb.", html_document)
         self.assertNotIn("Pewcorder · AI Sermon Journal", html_document)
+        self.assertNotIn('content="/og-share.png"', html_document)
         self.assertIn('<div id="app"></div>', html_document)
+        # Sermon tags must appear before SPA assets so crawlers prefer them.
+        self.assertLess(
+            html_document.index('property="og:title"'),
+            html_document.index("</head>"),
+        )
 
 
 @override_settings(PEWCORDER_PUBLIC_WEB_URL="https://listen.example.test")

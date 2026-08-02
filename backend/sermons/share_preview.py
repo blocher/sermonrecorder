@@ -22,13 +22,23 @@ _DESCRIPTION_MAX_CHARS = 220
 _SUMMARY_MAX_CHARS = 140
 
 _TITLE_RE = re.compile(
-    r"<title[^>]*>.*?</title>",
+    r"<title[^>]*>.*?</title>\s*",
     flags=re.IGNORECASE | re.DOTALL,
 )
 _DESCRIPTION_META_RE = re.compile(
-    r'<meta\s+name=["\']description["\'][^>]*>',
+    r'<meta\s+name=["\']description["\'][^>]*>\s*',
     flags=re.IGNORECASE,
 )
+# Crawlers use the first og:/twitter: tag; strip SPA defaults before injecting.
+_SOCIAL_META_RE = re.compile(
+    r'<meta\s+(?:property|name)=["\'](?:og|twitter):[^"\']+["\'][^>]*>\s*',
+    flags=re.IGNORECASE,
+)
+_CANONICAL_RE = re.compile(
+    r'<link\s+rel=["\']canonical["\'][^>]*>\s*',
+    flags=re.IGNORECASE,
+)
+_HEAD_OPEN_RE = re.compile(r"<head[^>]*>", flags=re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -148,15 +158,17 @@ def inject_share_preview_meta(
         canonical_url=canonical_url,
         image_url=image_url,
     )
-    document = _TITLE_RE.sub("", html_document, count=1)
-    document = _DESCRIPTION_META_RE.sub("", document, count=1)
-    if "</head>" not in document.lower():
+    document = _TITLE_RE.sub("", html_document)
+    document = _DESCRIPTION_META_RE.sub("", document)
+    document = _SOCIAL_META_RE.sub("", document)
+    document = _CANONICAL_RE.sub("", document)
+
+    head_match = _HEAD_OPEN_RE.search(document)
+    if head_match is None:
         return f"{tags}\n{document}"
-    # Preserve original casing of the closing head tag.
-    match = re.search(r"</head>", document, flags=re.IGNORECASE)
-    assert match is not None
-    insert_at = match.start()
-    return f"{document[:insert_at]}{tags}\n{document[insert_at:]}"
+    # Insert first so unfurlers never prefer leftover SPA defaults.
+    insert_at = head_match.end()
+    return f"{document[:insert_at]}\n{tags}\n{document[insert_at:]}"
 
 
 def load_spa_shell_html() -> str | None:

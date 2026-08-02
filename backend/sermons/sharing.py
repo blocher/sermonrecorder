@@ -8,7 +8,7 @@ from django.db import IntegrityError, transaction
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_http_methods
 from rest_framework import permissions, status
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
@@ -144,7 +144,7 @@ def shared_sermon_audio(request: HttpRequest, token: str) -> HttpResponse:
     return response
 
 
-@require_GET
+@require_http_methods(["GET", "HEAD"])
 def shared_sermon_page(request: HttpRequest, token: str) -> HttpResponse:
     """Serve the SPA shell with sermon-specific Open Graph tags for link unfurls."""
     try:
