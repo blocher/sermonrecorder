@@ -33,6 +33,7 @@ import {
   serverSermonDuration,
   serverSermonTitle,
   deleteSermon,
+  regenerateMagisteriumSermon,
   regenerateSermon,
   retrySermonProcessing,
   updateStudyArtifact,
@@ -157,6 +158,18 @@ describe('server Sermon detail', () => {
           transcription_audio_source: 'original',
         }),
       },
+    )
+  })
+
+  it('queues Magisterium-only regeneration with a POST', async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify(detail), { status: 200 }),
+    )
+
+    await expect(regenerateMagisteriumSermon('ready-sermon')).resolves.toEqual(detail)
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'http://api.example.test/api/sermons/ready-sermon/regenerate-magisterium/',
+      { method: 'POST', headers: { Authorization: 'Bearer access-token' } },
     )
   })
 

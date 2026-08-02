@@ -52,6 +52,7 @@ import {
   loadPreachers,
   loadShareLink,
   loadServerSermon,
+  regenerateMagisteriumSermon,
   regenerateSermon,
   retrySermonProcessing,
   revokeShareLink,
@@ -137,10 +138,12 @@ const deleting = ref(false)
 const deleteMessage = ref('')
 const confirmingRegenerate = ref(false)
 const regenerating = ref(false)
+const regeneratingMagisterium = ref(false)
 const regenerateMessage = ref('')
 const regenerateStartClock = ref('00:00')
 const regenerateEndClock = ref('00:00')
 const regenerateAudioSource = ref<'playback' | 'original'>('playback')
+let magisteriumPollTimer: ReturnType<typeof setTimeout> | undefined
 const scrubbing = ref(false)
 const contextPanelOpen = ref(false)
 const contextLoading = ref(false)
@@ -661,8 +664,56 @@ function resolveRegenerateWindow():
   }
 }
 
+function magisteriumArtifactStamp(detail: ServerSermonDetail): string {
+  return ['related_sources', 'doctrinal_review']
+    .map((kind) => {
+      const artifact = detail.study_artifacts.find((item) => item.kind === kind)
+      return `${kind}:${artifact?.updated_at ?? ''}:${artifact?.content?.length ?? 0}`
+    })
+    .join('|')
+}
+
+function clearMagisteriumPoll(): void {
+  if (magisteriumPollTimer !== undefined) {
+    clearTimeout(magisteriumPollTimer)
+    magisteriumPollTimer = undefined
+  }
+}
+
+async function pollMagisteriumRegeneration(
+  id: string,
+  beforeStamp: string,
+  attempt = 0,
+): Promise<void> {
+  if (String(route.params.id) !== id) return
+  try {
+    const loaded = await loadServerSermon(id)
+    if (String(route.params.id) !== id) return
+    if (
+      loaded.processing_status === 'ready' &&
+      magisteriumArtifactStamp(loaded) !== beforeStamp
+    ) {
+      applyLoadedSermon(loaded, id)
+      regeneratingMagisterium.value = false
+      regenerateMessage.value = 'Related sources and Doctrinal review were refreshed.'
+      return
+    }
+  } catch {
+    // Keep polling; worker may still be running.
+  }
+  if (attempt >= 45) {
+    regeneratingMagisterium.value = false
+    regenerateMessage.value =
+      'Magisterium AI is still running. Reopen this Sermon in a minute to see updates.'
+    return
+  }
+  magisteriumPollTimer = setTimeout(() => {
+    void pollMagisteriumRegeneration(id, beforeStamp, attempt + 1)
+  }, 2000)
+}
+
 async function regenerateCurrentSermon(): Promise<void> {
-  if (!sermon.value || regenerating.value) return
+  if (!sermon.value || regenerating.value || regeneratingMagisterium.value) return
   const window = resolveRegenerateWindow()
   if (!window) return
   regenerating.value = true
@@ -684,6 +735,27 @@ async function regenerateCurrentSermon(): Promise<void> {
       error instanceof Error ? error.message : 'This Sermon could not be regenerated.'
   } finally {
     regenerating.value = false
+  }
+}
+
+async function regenerateMagisteriumOnly(): Promise<void> {
+  if (!sermon.value || regenerating.value || regeneratingMagisterium.value) return
+  const current = sermon.value
+  regeneratingMagisterium.value = true
+  regenerateMessage.value = ''
+  clearMagisteriumPoll()
+  try {
+    const beforeStamp = magisteriumArtifactStamp(current)
+    await regenerateMagisteriumSermon(current.id)
+    confirmingRegenerate.value = false
+    regenerateMessage.value = 'Refreshing Related sources and Doctrinal review…'
+    await pollMagisteriumRegeneration(current.id, beforeStamp)
+  } catch (error) {
+    regeneratingMagisterium.value = false
+    regenerateMessage.value =
+      error instanceof Error
+        ? error.message
+        : 'Magisterium AI notes could not be regenerated.'
   }
 }
 
@@ -980,6 +1052,7 @@ async function refreshProcessing(id: string, manual = false): Promise<void> {
 
 async function load(id: string): Promise<void> {
   clearProcessingPoll()
+  clearMagisteriumPoll()
   loading.value = true
   errorMessage.value = ''
   failedSermonId.value = ''
@@ -991,6 +1064,7 @@ async function load(id: string): Promise<void> {
   refreshingAudio.value = false
   audioReloadToken.value += 1
   audioVariant.value = 'processed'
+  regeneratingMagisterium.value = false
   editingKind.value = undefined
   editMessage.value = ''
   editingTags.value = false
@@ -1075,7 +1149,10 @@ watch(
   { immediate: true },
 )
 
-onBeforeUnmount(clearProcessingPoll)
+onBeforeUnmount(() => {
+  clearProcessingPoll()
+  clearMagisteriumPoll()
+})
 </script>
 
 <template>
@@ -1282,11 +1359,15 @@ onBeforeUnmount(clearProcessingPoll)
             v-if="!confirmingRegenerate && !confirmingDelete"
             class="sermon-header__regenerate"
             type="button"
-            :disabled="regenerating"
+            :disabled="regenerating || regeneratingMagisterium"
             @click="beginRegenerateConfirmation"
           >
-            <RotateCcw :size="16" aria-hidden="true" />
-            Regenerate
+            <RotateCcw
+              :size="16"
+              :class="{ 'is-spinning': regeneratingMagisterium }"
+              aria-hidden="true"
+            />
+            {{ regeneratingMagisterium ? 'Refreshing Magisterium…' : 'Regenerate' }}
           </button>
           <button
             v-if="!confirmingDelete && !confirmingRegenerate"
@@ -1301,6 +1382,14 @@ onBeforeUnmount(clearProcessingPoll)
         </div>
       </header>
 
+      <p
+        v-if="!confirmingRegenerate && regenerateMessage"
+        class="sermon-regenerate-status"
+        role="status"
+      >
+        {{ regenerateMessage }}
+      </p>
+
       <section
         v-if="confirmingRegenerate"
         class="sermon-delete-confirm sermon-regenerate-confirm"
@@ -1310,12 +1399,14 @@ onBeforeUnmount(clearProcessingPoll)
           <p class="rubric-label">Destructive regeneration</p>
           <h2 id="regenerate-sermon-title">Regenerate this Sermon?</h2>
           <p>
-            This rewrites the Transcript, title suggestion, Study artifacts, Scripture references,
-            Tags, and Related Sermons from the selected recording. Your existing summaries and
-            other AI-generated notes will be permanently replaced.
+            Full regeneration rewrites the Transcript, title suggestion, Study artifacts, Scripture
+            references, Tags, and Related Sermons from the selected recording. Your existing
+            summaries and other AI-generated notes will be permanently replaced.
           </p>
           <p>
-            Reflections and Share links are kept. The audio itself is never deleted or trimmed.
+            Magisterium AI only refreshes Related sources and Doctrinal review from the current
+            Transcript — everything else stays put. Reflections and Share links are kept either way.
+            The audio itself is never deleted or trimmed.
           </p>
           <div
             v-if="sermon.has_playback_audio"
@@ -1331,7 +1422,7 @@ onBeforeUnmount(clearProcessingPoll)
                 type="button"
                 :aria-pressed="regenerateAudioSource === 'playback'"
                 :class="{ 'is-active': regenerateAudioSource === 'playback' }"
-                :disabled="regenerating"
+                :disabled="regenerating || regeneratingMagisterium"
                 @click="regenerateAudioSource = 'playback'"
               >
                 Processed
@@ -1340,7 +1431,7 @@ onBeforeUnmount(clearProcessingPoll)
                 type="button"
                 :aria-pressed="regenerateAudioSource === 'original'"
                 :class="{ 'is-active': regenerateAudioSource === 'original' }"
-                :disabled="regenerating"
+                :disabled="regenerating || regeneratingMagisterium"
                 @click="regenerateAudioSource = 'original'"
               >
                 Original
@@ -1361,7 +1452,7 @@ onBeforeUnmount(clearProcessingPoll)
                   type="text"
                   inputmode="numeric"
                   autocomplete="off"
-                  :disabled="regenerating"
+                  :disabled="regenerating || regeneratingMagisterium"
                   aria-label="Regenerate start time"
                   placeholder="00:00"
                 />
@@ -1373,7 +1464,7 @@ onBeforeUnmount(clearProcessingPoll)
                   type="text"
                   inputmode="numeric"
                   autocomplete="off"
-                  :disabled="regenerating"
+                  :disabled="regenerating || regeneratingMagisterium"
                   aria-label="Regenerate end time"
                   :placeholder="formatClock(sermon.duration_seconds)"
                 />
@@ -1384,14 +1475,29 @@ onBeforeUnmount(clearProcessingPoll)
             {{ regenerateMessage }}
           </p>
         </div>
-        <div class="sermon-delete-confirm__actions">
-          <button type="button" :disabled="regenerating" @click="confirmingRegenerate = false">
+        <div class="sermon-delete-confirm__actions sermon-regenerate-confirm__actions">
+          <button
+            type="button"
+            :disabled="regenerating || regeneratingMagisterium"
+            @click="confirmingRegenerate = false"
+          >
             Keep current notes
+          </button>
+          <button
+            type="button"
+            :disabled="regenerating || regeneratingMagisterium"
+            @click="regenerateMagisteriumOnly"
+          >
+            {{
+              regeneratingMagisterium
+                ? 'Starting Magisterium…'
+                : 'Regenerate Magisterium AI only'
+            }}
           </button>
           <button
             class="sermon-delete-confirm__delete"
             type="button"
-            :disabled="regenerating"
+            :disabled="regenerating || regeneratingMagisterium"
             @click="regenerateCurrentSermon"
           >
             {{ regenerating ? 'Starting…' : 'Regenerate and replace notes' }}
@@ -2946,14 +3052,30 @@ a.tag-chip:focus-visible {
   margin-left: auto;
 }
 
+.sermon-header__actions .sermon-header__regenerate .is-spinning {
+  animation: processing-spin 0.9s linear infinite;
+}
+
 .sermon-header__actions .sermon-header__delete {
   border-color: color-mix(in srgb, var(--color-rubric) 55%, transparent);
   color: var(--color-rubric);
 }
 
+.sermon-regenerate-status {
+  color: var(--color-lapis);
+  font-family: var(--font-utility);
+  font-size: 0.82rem;
+  margin: -0.35rem auto 1.25rem;
+  max-width: var(--reading-width);
+}
+
 .sermon-regenerate-confirm {
   background: color-mix(in srgb, var(--color-lapis) 6%, var(--color-vellum-light));
   border-color: color-mix(in srgb, var(--color-lapis) 40%, var(--color-margin));
+}
+
+.sermon-regenerate-confirm__actions {
+  flex-wrap: wrap;
 }
 
 .sermon-regenerate-source,

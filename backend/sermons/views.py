@@ -13,7 +13,7 @@ from .serializers import (
     SermonDetailSerializer,
     SermonSerializer,
 )
-from .tasks import enqueue_sermon_processing
+from .tasks import enqueue_magisterium_regeneration, enqueue_sermon_processing
 
 UPLOAD_METADATA_FIELDS = ("source_draft_id", "captured_at", "duration_seconds")
 IN_PROGRESS_STATUSES = (
@@ -135,6 +135,63 @@ class SermonViewSet(
 
         transaction.on_commit(lambda: enqueue_sermon_processing(str(sermon.id)))
         return Response(SermonSerializer(sermon, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"], url_path="regenerate-magisterium")
+    def regenerate_magisterium(self, request, pk=None):
+        try:
+            sermon = (
+                Sermon.objects.select_related(
+                    "transcript",
+                    "church",
+                    "preacher",
+                )
+                .prefetch_related(
+                    "study_artifacts",
+                    "scripture_references",
+                    "tag_suggestions",
+                    "related_sermons__related_sermon",
+                    "reflections",
+                )
+                .filter(owner=request.user, pk=pk)
+                .get()
+            )
+        except (Sermon.DoesNotExist, ValueError):
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        if sermon.processing_status != Sermon.ProcessingStatus.READY:
+            return Response(
+                {
+                    "detail": (
+                        "Only Ready Sermons can regenerate Magisterium AI notes."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not hasattr(sermon, "transcript"):
+            return Response(
+                {
+                    "detail": (
+                        "This Sermon has no Transcript to enrich with Magisterium AI."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queued = enqueue_magisterium_regeneration(str(sermon.id))
+        if not queued:
+            return Response(
+                {
+                    "detail": (
+                        "Magisterium regeneration could not be queued. "
+                        "Try again shortly."
+                    )
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            SermonDetailSerializer(sermon, context={"request": request}).data
+        )
 
     def _queue_reprocessing(self, sermon: Sermon) -> None:
         sermon.processing_status = Sermon.ProcessingStatus.UPLOADED

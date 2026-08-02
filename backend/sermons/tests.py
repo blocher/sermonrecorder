@@ -466,6 +466,74 @@ class SermonApiTests(APITestCase):
             "Only Ready or Failed Sermons can be regenerated.",
         )
 
+    def test_owner_can_queue_magisterium_only_regeneration(self):
+        uploaded = self.upload("regenerate-magisterium")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        sermon.processing_status = Sermon.ProcessingStatus.READY
+        sermon.save(update_fields=("processing_status", "updated_at"))
+        Transcript.objects.create(
+            sermon=sermon,
+            text="Grace alone sustains the Church.",
+            segments=[
+                {
+                    "start_seconds": 0,
+                    "end_seconds": 5,
+                    "text": "Grace alone sustains the Church.",
+                }
+            ],
+        )
+        StudyArtifact.objects.create(
+            sermon=sermon,
+            kind=StudyArtifact.Kind.RELATED_SOURCES,
+            content="[]",
+        )
+        StudyArtifact.objects.create(
+            sermon=sermon,
+            kind=StudyArtifact.Kind.DOCTRINAL_REVIEW,
+            content='{"findings":[],"summary":"old","citations":[]}',
+        )
+        self.client.force_authenticate(user=self.user)
+
+        with patch("sermons.views.enqueue_magisterium_regeneration") as enqueue:
+            enqueue.return_value = True
+            response = self.client.post(
+                f"/api/sermons/{sermon.id}/regenerate-magisterium/"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["processing_status"], "ready")
+        self.assertEqual(response.data["id"], str(sermon.id))
+        sermon.refresh_from_db()
+        self.assertEqual(sermon.processing_status, Sermon.ProcessingStatus.READY)
+        enqueue.assert_called_once_with(str(sermon.id))
+
+    def test_magisterium_regeneration_requires_ready_transcript(self):
+        uploaded = self.upload("regenerate-magisterium-missing")
+        sermon = Sermon.objects.get(id=uploaded.data["id"])
+        sermon.processing_status = Sermon.ProcessingStatus.READY
+        sermon.save(update_fields=("processing_status", "updated_at"))
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            f"/api/sermons/{sermon.id}/regenerate-magisterium/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Transcript", response.data["detail"])
+
+        sermon.processing_status = Sermon.ProcessingStatus.FAILED
+        sermon.save(update_fields=("processing_status", "updated_at"))
+        Transcript.objects.create(
+            sermon=sermon,
+            text="Ready text.",
+            segments=[{"start_seconds": 0, "end_seconds": 1, "text": "Ready text."}],
+        )
+        failed = self.client.post(
+            f"/api/sermons/{sermon.id}/regenerate-magisterium/"
+        )
+        self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Ready Sermons", failed.data["detail"])
+
     def test_retry_is_owner_private(self):
         uploaded = self.upload("retry-private")
         sermon = Sermon.objects.get(id=uploaded.data["id"])

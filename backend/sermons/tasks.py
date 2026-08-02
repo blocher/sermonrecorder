@@ -12,6 +12,7 @@ from kombu.exceptions import OperationalError
 
 from accounts.models import DeviceRegistration
 
+from .magisterium_regeneration import regenerate_magisterium_artifacts
 from .models import ProcessingAlert, Sermon
 from .processed_sermon_repository import persist_processed_sermon
 from .processing import (
@@ -194,6 +195,54 @@ def enqueue_sermon_processing(sermon_id: str) -> bool:
     except (OperationalError, OSError):
         logger.warning(
             "Sermon remains safely uploaded because the worker broker is unavailable",
+            extra={"sermon_id": sermon_id},
+        )
+        return False
+    return True
+
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def regenerate_sermon_magisterium(self: Task, sermon_id: str) -> None:
+    try:
+        sermon = Sermon.objects.select_related("transcript").get(
+            id=sermon_id,
+            processing_status=Sermon.ProcessingStatus.READY,
+        )
+    except (Sermon.DoesNotExist, ValueError):
+        return
+
+    try:
+        regenerate_magisterium_artifacts(sermon)
+    except PermanentProcessingError:
+        logger.warning(
+            "Magisterium-only regeneration failed permanently",
+            extra={"sermon_id": sermon_id},
+            exc_info=True,
+        )
+    except RetryableProcessingError as error:
+        raise self.retry(
+            exc=error,
+            countdown=_retry_delay(self.request.retries),
+        ) from error
+    except Exception:
+        logger.exception(
+            "Magisterium-only regeneration failed",
+            extra={"sermon_id": sermon_id},
+        )
+        raise self.retry(countdown=_retry_delay(self.request.retries))
+
+
+def enqueue_magisterium_regeneration(sermon_id: str) -> bool:
+    try:
+        regenerate_sermon_magisterium.apply_async(args=(sermon_id,), retry=False)
+    except (OperationalError, OSError):
+        logger.warning(
+            "Magisterium regeneration could not be queued; broker unavailable",
             extra={"sermon_id": sermon_id},
         )
         return False

@@ -1,18 +1,25 @@
 import json
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 import httpx
+
+from accounts.models import User
 
 from .magisterium_client import MagisteriumClient, MagisteriumSearchHit
 from .magisterium_enrichment import (
     AssertionListOutput,
+    MagisteriumArtifacts,
     MagisteriumEnricher,
     SearchQueryOutput,
 )
-from .models import StudyArtifact
+from .magisterium_regeneration import regenerate_magisterium_artifacts
+from .models import Sermon, StudyArtifact, Transcript
 from .openai_transcriber import CleanedTranscript
-from .processing import TranscriptSegment
+from .processing import StudyArtifactResult, TranscriptSegment
 
 
 @override_settings(
@@ -156,3 +163,85 @@ class MagisteriumEnricherTests(SimpleTestCase):
         self.assertEqual(related["sources"][0]["title"], "Deus Caritas Est")
         client.search.assert_called()
         client.chat.assert_not_called()
+
+
+class MagisteriumRegenerationTests(TestCase):
+    def setUp(self):
+        self.media_directory = TemporaryDirectory()
+        self.settings_override = override_settings(MEDIA_ROOT=self.media_directory.name)
+        self.settings_override.enable()
+        self.addCleanup(self.settings_override.disable)
+        self.addCleanup(self.media_directory.cleanup)
+        self.user = User.objects.create_user(
+            email="magisterium-regen@example.com",
+            password="safe-test-password",
+        )
+        self.sermon = Sermon.objects.create(
+            owner=self.user,
+            source_draft_id="magisterium-regen",
+            captured_at=timezone.now(),
+            duration_seconds=60,
+            audio=SimpleUploadedFile(
+                "sermon.m4a", b"audio", content_type="audio/mp4"
+            ),
+            audio_mime_type="audio/mp4",
+            audio_size_bytes=5,
+            processing_status=Sermon.ProcessingStatus.READY,
+        )
+        Transcript.objects.create(
+            sermon=self.sermon,
+            text="Grace alone sustains the Church.",
+            segments=[
+                {
+                    "start_seconds": 0,
+                    "end_seconds": 5,
+                    "text": "Grace alone sustains the Church.",
+                }
+            ],
+        )
+        StudyArtifact.objects.create(
+            sermon=self.sermon,
+            kind=StudyArtifact.Kind.SHORT_SUMMARY,
+            content="Keep me.",
+        )
+        StudyArtifact.objects.create(
+            sermon=self.sermon,
+            kind=StudyArtifact.Kind.RELATED_SOURCES,
+            content='{"sources":[]}',
+        )
+        StudyArtifact.objects.create(
+            sermon=self.sermon,
+            kind=StudyArtifact.Kind.DOCTRINAL_REVIEW,
+            content='{"findings":[],"summary":"old","citations":[]}',
+        )
+
+    def test_regeneration_rewrites_only_magisterium_artifacts(self):
+        enricher = Mock()
+        enricher.enrich.return_value = MagisteriumArtifacts(
+            study_artifacts=(
+                StudyArtifactResult(
+                    kind=StudyArtifact.Kind.RELATED_SOURCES,
+                    content='{"sources":[{"title":"Deus Caritas Est"}]}',
+                ),
+                StudyArtifactResult(
+                    kind=StudyArtifact.Kind.DOCTRINAL_REVIEW,
+                    content='{"findings":[],"summary":"fresh","citations":[]}',
+                ),
+            )
+        )
+
+        regenerate_magisterium_artifacts(self.sermon, enricher=enricher)
+
+        related = StudyArtifact.objects.get(
+            sermon=self.sermon, kind=StudyArtifact.Kind.RELATED_SOURCES
+        )
+        doctrinal = StudyArtifact.objects.get(
+            sermon=self.sermon, kind=StudyArtifact.Kind.DOCTRINAL_REVIEW
+        )
+        summary = StudyArtifact.objects.get(
+            sermon=self.sermon, kind=StudyArtifact.Kind.SHORT_SUMMARY
+        )
+        self.assertIn("Deus Caritas Est", related.content)
+        self.assertIn("fresh", doctrinal.content)
+        self.assertEqual(summary.content, "Keep me.")
+        enricher.enrich.assert_called_once()

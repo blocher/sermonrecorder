@@ -300,6 +300,14 @@ export async function regenerateSermon(
   )
 }
 
+export async function regenerateMagisteriumSermon(id: string): Promise<ServerSermonDetail> {
+  return authorizedJson<ServerSermonDetail>(
+    `/api/sermons/${encodeURIComponent(id)}/regenerate-magisterium/`,
+    { method: 'POST' },
+    'Magisterium AI notes could not be regenerated.',
+  )
+}
+
 export async function deleteSermon(id: string): Promise<void> {
   return authorizedJson<void>(
     `/api/sermons/${encodeURIComponent(id)}/`,
