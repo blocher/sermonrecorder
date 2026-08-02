@@ -58,7 +58,7 @@ const activeSection = ref<SermonSection>('study')
 let robotsMeta: HTMLMetaElement | null = null
 let previousRobotsContent: string | null = null
 
-const transcriptView = ref<'timeline' | 'full'>('timeline')
+const transcriptLayout = ref<'timeline' | 'reading'>('timeline')
 
 const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
@@ -108,12 +108,31 @@ const readingTranscriptParagraphs = computed(() => {
   if (paragraph) grouped.push(paragraph)
   return grouped
 })
+const transcriptViewMeta = computed(() =>
+  transcriptLayout.value === 'timeline'
+    ? {
+        rubric: 'Polished for listening',
+        note: 'Tap a timestamp to listen from that moment.',
+      }
+    : {
+        rubric: 'Polished for reading',
+        note: 'Gathered into longer paragraphs for easier reading.',
+      },
+)
 const capturedDate = computed(() =>
   sermon.value
     ? new Intl.DateTimeFormat(undefined, {
         month: 'long',
         day: 'numeric',
         year: 'numeric',
+      }).format(new Date(sermon.value.captured_at))
+    : '',
+)
+const capturedTime = computed(() =>
+  sermon.value
+    ? new Intl.DateTimeFormat(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
       }).format(new Date(sermon.value.captured_at))
     : '',
 )
@@ -333,24 +352,60 @@ onBeforeUnmount(() => {
 
       <article v-else-if="sermon" class="share-document">
         <header class="share-title page-gather">
-          <p class="rubric-label">
-            {{ sermon.liturgical_day || occasionLabel(sermon.occasion_kind) || 'Shared sermon' }}
-          </p>
+          <div class="share-title__rubric">
+            <span>{{ sermon.liturgical_day || 'Shared sermon' }}</span>
+            <span v-if="sermon.occasion_kind">{{ occasionLabel(sermon.occasion_kind) }}</span>
+          </div>
           <h1>{{ serverSermonTitle(sermon) }}</h1>
-          <div class="share-title__meta">
-            <span v-if="sermon.preacher">
-              <UserRound :size="15" aria-hidden="true" />{{ sermon.preacher.name }}
-            </span>
-            <span v-if="sermon.church">
-              <MapPin :size="15" aria-hidden="true" />{{ sermon.church.name }}
-            </span>
-            <span><CalendarDays :size="15" aria-hidden="true" />{{ capturedDate }}</span>
-            <span>
-              <Clock3 :size="15" aria-hidden="true" />{{
-                serverSermonDuration(sermon.duration_seconds)
-              }}
+          <div
+            v-if="sermon.tag_suggestions.length"
+            class="share-title__tags"
+            aria-label="Tags"
+          >
+            <span v-for="tag in sermon.tag_suggestions" :key="tag" class="share-tag-chip">
+              {{ tag }}
             </span>
           </div>
+          <dl class="share-register" aria-label="Sermon details">
+            <div class="share-register__entry">
+              <dt><MapPin :size="15" aria-hidden="true" />Church</dt>
+              <dd>
+                <strong :class="{ 'is-unset': !sermon.church }">{{
+                  sermon.church?.name || 'Not assigned'
+                }}</strong>
+                <small v-if="sermon.church?.address">{{ sermon.church.address }}</small>
+              </dd>
+            </div>
+            <div class="share-register__entry">
+              <dt><UserRound :size="15" aria-hidden="true" />Preacher</dt>
+              <dd>
+                <strong :class="{ 'is-unset': !sermon.preacher }">{{
+                  sermon.preacher?.name || 'Not assigned'
+                }}</strong>
+              </dd>
+            </div>
+            <div class="share-register__entry">
+              <dt><BookOpenText :size="15" aria-hidden="true" />Occasion</dt>
+              <dd>
+                <strong :class="{ 'is-unset': !sermon.occasion_kind }">
+                  {{ occasionLabel(sermon.occasion_kind) || 'Not specified' }}
+                </strong>
+              </dd>
+            </div>
+            <div class="share-register__entry">
+              <dt><CalendarDays :size="15" aria-hidden="true" />Heard</dt>
+              <dd>
+                <strong>{{ capturedDate }}</strong>
+                <small>{{ capturedTime }}</small>
+              </dd>
+            </div>
+            <div class="share-register__entry">
+              <dt><Clock3 :size="15" aria-hidden="true" />Length</dt>
+              <dd>
+                <strong>{{ serverSermonDuration(sermon.duration_seconds) }}</strong>
+              </dd>
+            </div>
+          </dl>
         </header>
 
         <SermonSectionTabs
@@ -419,9 +474,9 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
-          <section v-if="sermon.scripture_references.length" class="share-section page-gather">
+          <section class="share-section page-gather">
             <h2>Scripture</h2>
-            <div class="share-scripture">
+            <div v-if="sermon.scripture_references.length" class="share-scripture">
               <a
                 v-for="reference in sermon.scripture_references"
                 :key="reference.display"
@@ -433,6 +488,7 @@ onBeforeUnmount(() => {
                 {{ reference.display }}
               </a>
             </div>
+            <p v-else class="share-empty-copy">No Scripture references for this sermon.</p>
           </section>
 
           <section
@@ -478,12 +534,20 @@ onBeforeUnmount(() => {
             <h2>Doctrinal review</h2>
             <p class="share-feedback__note">
               Advisory only. Verify every judgment against Scripture and the Church’s Magisterium.
+              Generated citations can miss context.
             </p>
             <DoctrinalFindingsList
               :findings="doctrinalReview.findings"
               :empty-summary="doctrinalReview.summary"
             />
           </section>
+
+          <p
+            v-if="!artifact('sermon_feedback') && !artifact('doctrinal_review')"
+            class="share-section share-empty-copy page-gather"
+          >
+            Feedback is not available for this sermon yet.
+          </p>
         </template>
 
         <template v-else-if="activeSection === 'hymn'">
@@ -527,29 +591,30 @@ onBeforeUnmount(() => {
 
         <template v-else-if="activeSection === 'discuss'">
           <section class="share-section page-gather">
-        <h2>Discussion</h2>
-        <ol class="share-questions">
-          <li
-            v-for="question in numberedItems(artifact('adult_discussion_questions'))"
-            :key="question"
-          >
-            {{ question }}
-          </li>
-        </ol>
+            <p class="rubric-label">Around the table</p>
+            <h2>Discussion questions</h2>
+            <ol class="share-questions">
+              <li
+                v-for="question in numberedItems(artifact('adult_discussion_questions'))"
+                :key="question"
+              >
+                {{ question }}
+              </li>
+            </ol>
           </section>
 
-      <section class="share-section page-gather">
-        <p class="rubric-label">With children</p>
-        <h2>Questions for younger listeners</h2>
-        <ol class="share-questions">
-          <li
-            v-for="question in numberedItems(artifact('kids_discussion_questions'))"
-            :key="question"
-          >
-            {{ question }}
-          </li>
-        </ol>
-      </section>
+          <section class="share-section page-gather">
+            <p class="rubric-label">With children</p>
+            <h2>Questions for younger listeners</h2>
+            <ol class="share-questions">
+              <li
+                v-for="question in numberedItems(artifact('kids_discussion_questions'))"
+                :key="question"
+              >
+                {{ question }}
+              </li>
+            </ol>
+          </section>
 
           <section v-if="artifact('quiz')" class="share-section share-quiz page-gather">
             <p class="rubric-label">Check the takeaways</p>
@@ -568,34 +633,28 @@ onBeforeUnmount(() => {
 
         <template v-else-if="activeSection === 'transcript'">
           <section class="share-section share-transcript page-gather">
-            <p class="rubric-label">Polished for listening</p>
+            <p class="rubric-label">{{ transcriptViewMeta.rubric }}</p>
             <h2>Follow the sermon</h2>
-            <div class="share-transcript-toggle" role="group" aria-label="Transcript view">
+            <div class="share-transcript-toggle" role="group" aria-label="Transcript layout">
               <button
                 type="button"
-                :class="{ active: transcriptView === 'timeline' }"
-                :aria-pressed="transcriptView === 'timeline'"
-                @click="transcriptView = 'timeline'"
+                :class="{ active: transcriptLayout === 'timeline' }"
+                :aria-pressed="transcriptLayout === 'timeline'"
+                @click="transcriptLayout = 'timeline'"
               >
                 Timeline
               </button>
               <button
                 type="button"
-                :class="{ active: transcriptView === 'full' }"
-                :aria-pressed="transcriptView === 'full'"
-                @click="transcriptView = 'full'"
+                :class="{ active: transcriptLayout === 'reading' }"
+                :aria-pressed="transcriptLayout === 'reading'"
+                @click="transcriptLayout = 'reading'"
               >
-                Full transcript
+                Reading
               </button>
             </div>
-            <p class="share-transcript__note">
-              {{
-                transcriptView === 'timeline'
-                  ? 'Jump to any moment in the polished Transcript.'
-                  : 'The polished Transcript is gathered into longer paragraphs for uninterrupted reading.'
-              }}
-            </p>
-            <div v-if="transcriptView === 'timeline'" class="share-transcript__segments">
+            <p class="share-transcript__note">{{ transcriptViewMeta.note }}</p>
+            <div v-if="transcriptLayout === 'timeline'" class="share-transcript__segments">
               <div
                 v-for="segment in displayTranscriptSegments"
                 :key="`${segment.start_seconds}-${segment.text}`"
@@ -792,8 +851,25 @@ onBeforeUnmount(() => {
 }
 
 .share-title {
-  border-bottom: 1px solid var(--color-rule-gold);
-  padding-bottom: 3rem;
+  padding-bottom: 0.5rem;
+}
+
+.share-title__rubric {
+  color: var(--color-rubric);
+  display: flex;
+  flex-wrap: wrap;
+  font-family: var(--font-utility);
+  font-size: 0.7rem;
+  font-weight: 700;
+  gap: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.share-title__rubric span + span::before {
+  color: var(--color-rule-gold);
+  content: '·';
+  margin-right: 0.75rem;
 }
 
 .share-title h1 {
@@ -803,29 +879,98 @@ onBeforeUnmount(() => {
   font-weight: 500;
   letter-spacing: -0.065em;
   line-height: 0.9;
-  margin: 0.8rem 0 1.5rem;
+  margin: 0.8rem 0 0;
 }
 
-.share-title__preacher {
-  font-family: var(--font-reading);
-  font-size: 1.15rem;
-  font-style: italic;
-}
-
-.share-title__meta {
-  color: var(--color-ink-muted);
+.share-title__tags {
   display: flex;
   flex-wrap: wrap;
-  font-family: var(--font-utility);
-  font-size: 0.78rem;
-  gap: 0.65rem 1.1rem;
-  margin-top: 1.1rem;
+  gap: 0.55rem;
+  margin: 1rem 0 0;
 }
 
-.share-title__meta span {
+.share-tag-chip {
   align-items: center;
+  background: color-mix(in srgb, var(--color-lapis) 8%, var(--color-vellum));
+  border: 1px solid color-mix(in srgb, var(--color-lapis) 28%, var(--color-margin));
+  color: var(--color-lapis);
   display: inline-flex;
-  gap: 0.3rem;
+  font-family: var(--font-utility);
+  font-size: 0.74rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 0.42rem 0.7rem;
+}
+
+.share-register {
+  background: color-mix(in srgb, var(--color-vellum-light) 82%, transparent);
+  border-bottom: 1px solid var(--color-rule-gold);
+  border-top: 1px solid var(--color-rule-gold);
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1.2fr 1fr 0.7fr;
+  margin: 1.35rem 0 0;
+}
+
+.share-register__entry {
+  min-width: 0;
+  padding: 1rem clamp(0.7rem, 2vw, 1.15rem);
+}
+
+.share-register__entry + .share-register__entry {
+  border-left: 1px solid var(--color-margin);
+}
+
+.share-register dt {
+  align-items: center;
+  color: var(--color-rubric);
+  display: inline-flex;
+  font-family: var(--font-utility);
+  font-size: 0.65rem;
+  font-weight: 700;
+  gap: 0.35rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.share-register dd {
+  margin: 0.55rem 0 0;
+}
+
+.share-register strong,
+.share-register small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.share-register strong {
+  color: var(--color-ink);
+  font-family: var(--font-reading);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.share-register strong.is-unset {
+  color: var(--color-ink-muted);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.share-register small {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.69rem;
+  line-height: 1.35;
+  margin-top: 0.25rem;
+}
+
+.share-empty-copy {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  font-style: italic;
+  line-height: 1.55;
+  margin: 1.3rem 0 0;
 }
 
 .share-tabs {
@@ -1241,8 +1386,11 @@ onBeforeUnmount(() => {
 
 .share-transcript-toggle {
   border: 1px solid var(--color-margin);
-  display: inline-flex;
+  display: grid;
+  gap: 0.15rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 1.25rem;
+  max-width: 18rem;
   padding: 0.2rem;
 }
 
@@ -1252,10 +1400,11 @@ onBeforeUnmount(() => {
   color: var(--color-ink-muted);
   cursor: pointer;
   font-family: var(--font-utility);
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 700;
-  min-height: 2.25rem;
-  padding: 0.4rem 0.8rem;
+  letter-spacing: 0.02em;
+  min-height: 2.35rem;
+  padding: 0.4rem 0.65rem;
 }
 
 .share-transcript-toggle button.active {
@@ -1268,7 +1417,7 @@ onBeforeUnmount(() => {
   font-family: var(--font-utility);
   font-size: 0.82rem;
   line-height: 1.5;
-  margin: 1rem 0 2rem;
+  margin: 0.85rem 0 2rem;
 }
 
 .share-transcript__reading {
@@ -1442,6 +1591,28 @@ onBeforeUnmount(() => {
   margin: 0;
   position: relative;
   width: 18%;
+}
+
+@media (max-width: 800px) {
+  .share-register {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .share-register__entry + .share-register__entry {
+    border-left: 0;
+  }
+
+  .share-register__entry:nth-child(even) {
+    border-left: 1px solid var(--color-margin);
+  }
+
+  .share-register__entry:nth-child(n + 3) {
+    border-top: 1px solid var(--color-margin);
+  }
+
+  .share-register__entry:last-child {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 600px) {
