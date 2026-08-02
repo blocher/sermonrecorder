@@ -78,6 +78,7 @@ import {
 } from '../sermons/serverSermon'
 
 type TranscriptView = 'timeline' | 'reading' | 'full'
+type SermonActionsView = 'details' | 'share' | 'regenerate' | 'delete'
 type ScriptureReferenceDraft = Omit<
   ServerScriptureReference,
   'display' | 'chapter_start' | 'verse_start' | 'chapter_end' | 'verse_end'
@@ -130,15 +131,14 @@ const reflectionPrompt = 'Where is this sermon asking for one faithful action?'
 const reflectionContent = ref('')
 const savingReflection = ref(false)
 const reflectionMessage = ref('')
-const sharePanelOpen = ref(false)
+const actionsView = ref<SermonActionsView | null>(null)
+const actionsPanel = ref<HTMLElement>()
 const shareLink = ref<ServerShareLink | null>(null)
 const shareLoading = ref(false)
 const shareBusy = ref(false)
 const shareMessage = ref('')
-const confirmingDelete = ref(false)
 const deleting = ref(false)
 const deleteMessage = ref('')
-const confirmingRegenerate = ref(false)
 const regenerating = ref(false)
 const regeneratingMagisterium = ref(false)
 const regenerateMessage = ref('')
@@ -147,7 +147,6 @@ const regenerateEndClock = ref('00:00')
 const regenerateAudioSource = ref<'playback' | 'original'>('playback')
 let magisteriumPollTimer: ReturnType<typeof setTimeout> | undefined
 const scrubbing = ref(false)
-const contextPanelOpen = ref(false)
 const contextLoading = ref(false)
 const contextSaving = ref(false)
 const contextMessage = ref('')
@@ -183,6 +182,34 @@ const hymnTunes = computed(() => parseTuneSuggestions(artifact('hymn_tune_sugges
 const quiz = computed(() => parseQuiz(artifact('quiz')))
 const relatedSources = computed(() => parseRelatedSources(artifact('related_sources')))
 const doctrinalReview = computed(() => parseDoctrinalReview(artifact('doctrinal_review')))
+const actionsModalTitle = computed(() => {
+  switch (actionsView.value) {
+    case 'details':
+      return 'Make this Sermon easy to return to'
+    case 'share':
+      return 'Share the sermon, never your Reflection'
+    case 'regenerate':
+      return 'Regenerate this Sermon?'
+    case 'delete':
+      return 'Delete this Sermon?'
+    default:
+      return ''
+  }
+})
+const actionsModalRubric = computed(() => {
+  switch (actionsView.value) {
+    case 'details':
+      return 'Sermon details'
+    case 'share':
+      return 'Unlisted page'
+    case 'regenerate':
+      return 'Destructive regeneration'
+    case 'delete':
+      return 'Permanent deletion'
+    default:
+      return ''
+  }
+})
 const rawTranscriptSegments = computed(
   () => sermon.value?.transcript?.raw_segments ?? [],
 )
@@ -612,9 +639,19 @@ async function endTrackScrub(event: PointerEvent): Promise<void> {
   await startPlayback(audio.value)
 }
 
-function beginRegenerateConfirmation(): void {
-  sharePanelOpen.value = false
-  confirmingDelete.value = false
+function closeActionsModal(): void {
+  if (regenerating.value || regeneratingMagisterium.value || deleting.value) return
+  shareMessage.value = ''
+  deleteMessage.value = ''
+  contextMessage.value = ''
+  actionsView.value = null
+}
+
+function openRegenerateAction(): void {
+  if (actionsView.value === 'regenerate') {
+    closeActionsModal()
+    return
+  }
   regenerateMessage.value = ''
   const current = sermon.value
   regenerateStartClock.value = formatClock(current?.consider_start_seconds ?? 0)
@@ -627,7 +664,7 @@ function beginRegenerateConfirmation(): void {
       : current?.has_playback_audio
         ? 'playback'
         : 'original'
-  confirmingRegenerate.value = true
+  actionsView.value = 'regenerate'
 }
 
 function resolveRegenerateWindow():
@@ -724,7 +761,7 @@ async function regenerateCurrentSermon(): Promise<void> {
     audio.value?.pause()
     const current = sermon.value
     const queued = await regenerateSermon(current.id, window)
-    confirmingRegenerate.value = false
+    actionsView.value = null
     applyLoadedSermon(
       {
         ...current,
@@ -749,7 +786,7 @@ async function regenerateMagisteriumOnly(): Promise<void> {
   try {
     const beforeStamp = magisteriumArtifactStamp(current)
     await regenerateMagisteriumSermon(current.id)
-    confirmingRegenerate.value = false
+    actionsView.value = null
     regenerateMessage.value = 'Refreshing Related sources and Doctrinal review…'
     await pollMagisteriumRegeneration(current.id, beforeStamp)
   } catch (error) {
@@ -761,14 +798,14 @@ async function regenerateMagisteriumOnly(): Promise<void> {
   }
 }
 
-async function toggleSharePanel(): Promise<void> {
-  if (!sharePanelOpen.value && contextPanelOpen.value) {
-    contextMessage.value = 'Save or close the Sermon details before opening sharing.'
+async function openShareAction(): Promise<void> {
+  if (actionsView.value === 'share') {
+    closeActionsModal()
     return
   }
-  sharePanelOpen.value = !sharePanelOpen.value
+  actionsView.value = 'share'
   shareMessage.value = ''
-  if (!sharePanelOpen.value || !sermon.value) return
+  if (!sermon.value) return
   shareLoading.value = true
   try {
     shareLink.value = await loadShareLink(sermon.value.id)
@@ -843,12 +880,15 @@ async function unpublishShareLink(): Promise<void> {
   }
 }
 
-async function toggleContextPanel(): Promise<void> {
-  contextPanelOpen.value = !contextPanelOpen.value
-  if (contextPanelOpen.value) sharePanelOpen.value = false
+async function openDetailsAction(): Promise<void> {
+  if (actionsView.value === 'details') {
+    closeActionsModal()
+    return
+  }
+  actionsView.value = 'details'
   contextMessage.value = ''
   churchSuggestions.value = []
-  if (!contextPanelOpen.value || !sermon.value) return
+  if (!sermon.value) return
   sermonTitle.value = sermon.value.title
   selectedChurchId.value = sermon.value.church?.id ?? ''
   selectedPreacherId.value = sermon.value.preacher?.id ?? ''
@@ -870,10 +910,13 @@ async function toggleContextPanel(): Promise<void> {
   }
 }
 
-function beginDeleteConfirmation(): void {
-  sharePanelOpen.value = false
-  confirmingRegenerate.value = false
-  confirmingDelete.value = true
+function openDeleteAction(): void {
+  if (actionsView.value === 'delete') {
+    closeActionsModal()
+    return
+  }
+  deleteMessage.value = ''
+  actionsView.value = 'delete'
 }
 
 async function saveNewChurch(): Promise<void> {
@@ -992,7 +1035,7 @@ async function saveContext(): Promise<void> {
     sermon.value.preacher = saved.preacher
     sermon.value.occasion_kind = saved.occasion_kind
     sermon.value.liturgical_day = saved.liturgical_day
-    contextPanelOpen.value = false
+    actionsView.value = null
   } catch (error) {
     contextMessage.value =
       error instanceof Error ? error.message : 'These Sermon details could not be saved.'
@@ -1077,14 +1120,11 @@ async function load(id: string): Promise<void> {
   scriptureEdits.value = []
   scriptureMessage.value = ''
   reflectionMessage.value = ''
-  sharePanelOpen.value = false
+  actionsView.value = null
   shareLink.value = null
   shareMessage.value = ''
-  confirmingDelete.value = false
   deleteMessage.value = ''
-  confirmingRegenerate.value = false
   regenerateMessage.value = ''
-  contextPanelOpen.value = false
   contextMessage.value = ''
   try {
     const loadedSermon = await loadServerSermon(id)
@@ -1151,9 +1191,41 @@ watch(
   { immediate: true },
 )
 
+function setActionsBackgroundInert(inert: boolean): void {
+  for (const selector of ['.app-header', '.app-content', '.record-control']) {
+    const element = document.querySelector<HTMLElement>(selector)
+    element?.toggleAttribute('inert', inert)
+    if (inert) element?.setAttribute('aria-hidden', 'true')
+    else element?.removeAttribute('aria-hidden')
+  }
+}
+
+function onActionsModalKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeActionsModal()
+  }
+}
+
+watch(actionsView, async (view) => {
+  const open = view !== null
+  document.body.classList.toggle('sermon-actions-lock', open)
+  setActionsBackgroundInert(open)
+  if (open) {
+    window.addEventListener('keydown', onActionsModalKeydown)
+    await nextTick()
+    actionsPanel.value?.focus()
+    return
+  }
+  window.removeEventListener('keydown', onActionsModalKeydown)
+})
+
 onBeforeUnmount(() => {
   clearProcessingPoll()
   clearMagisteriumPoll()
+  window.removeEventListener('keydown', onActionsModalKeydown)
+  document.body.classList.remove('sermon-actions-lock')
+  setActionsBackgroundInert(false)
 })
 </script>
 
@@ -1340,29 +1412,35 @@ onBeforeUnmount(() => {
           </div>
         </dl>
         <div class="sermon-header__actions">
-          <button type="button" @click="toggleContextPanel">
+          <button
+            type="button"
+            :aria-expanded="actionsView === 'details'"
+            aria-controls="sermon-actions-dialog"
+            @click="openDetailsAction"
+          >
             <PencilLine :size="16" aria-hidden="true" />
-            {{ contextPanelOpen ? 'Close details' : 'Edit details' }}
+            Edit details
           </button>
           <button
             type="button"
-            :disabled="contextPanelOpen"
-            :title="contextPanelOpen ? 'Save or close details before sharing' : undefined"
-            @click="toggleSharePanel"
+            :aria-expanded="actionsView === 'share'"
+            aria-controls="sermon-actions-dialog"
+            @click="openShareAction"
           >
             <Share2 :size="16" aria-hidden="true" />
-            {{ sharePanelOpen ? 'Close sharing' : 'Share Sermon' }}
+            Share Sermon
           </button>
           <button type="button" @click="router.push(`/sermons/${sermon.id}/email`)">
             <Mail :size="16" aria-hidden="true" />
             Email handout
           </button>
           <button
-            v-if="!confirmingRegenerate && !confirmingDelete"
             class="sermon-header__regenerate"
             type="button"
+            :aria-expanded="actionsView === 'regenerate'"
+            aria-controls="sermon-actions-dialog"
             :disabled="regenerating || regeneratingMagisterium"
-            @click="beginRegenerateConfirmation"
+            @click="openRegenerateAction"
           >
             <RotateCcw
               :size="16"
@@ -1372,11 +1450,12 @@ onBeforeUnmount(() => {
             {{ regeneratingMagisterium ? 'Refreshing Magisterium…' : 'Regenerate' }}
           </button>
           <button
-            v-if="!confirmingDelete && !confirmingRegenerate"
             class="sermon-header__delete"
             type="button"
+            :aria-expanded="actionsView === 'delete'"
+            aria-controls="sermon-actions-dialog"
             :disabled="deleting"
-            @click="beginDeleteConfirmation"
+            @click="openDeleteAction"
           >
             <Trash2 :size="16" aria-hidden="true" />
             Delete Sermon
@@ -1385,347 +1464,368 @@ onBeforeUnmount(() => {
       </header>
 
       <p
-        v-if="!confirmingRegenerate && regenerateMessage"
+        v-if="actionsView !== 'regenerate' && regenerateMessage"
         class="sermon-regenerate-status"
         role="status"
       >
         {{ regenerateMessage }}
       </p>
 
-      <section
-        v-if="confirmingRegenerate"
-        class="sermon-delete-confirm sermon-regenerate-confirm"
-        aria-labelledby="regenerate-sermon-title"
-      >
-        <div>
-          <p class="rubric-label">Destructive regeneration</p>
-          <h2 id="regenerate-sermon-title">Regenerate this Sermon?</h2>
-          <p>
-            Full regeneration rewrites the Transcript, title suggestion, Study artifacts, Scripture
-            references, Tags, and Related Sermons from the selected recording. Your existing
-            summaries and other AI-generated notes will be permanently replaced.
-          </p>
-          <p>
-            Magisterium AI only refreshes Related sources and Doctrinal review from the current
-            Transcript — everything else stays put. Reflections and Share links are kept either way.
-            The audio itself is never deleted or trimmed.
-          </p>
-          <div
-            v-if="sermon.has_playback_audio"
-            class="sermon-regenerate-source"
-          >
-            <p class="rubric-label">Audio to transcribe</p>
-            <p>
-              Processed is usually clearer for pew recordings. Choose Original if isolation
-              damaged the speech.
-            </p>
-            <div class="sermon-regenerate-source__choices" role="group" aria-label="Audio to transcribe">
-              <button
-                type="button"
-                :aria-pressed="regenerateAudioSource === 'playback'"
-                :class="{ 'is-active': regenerateAudioSource === 'playback' }"
-                :disabled="regenerating || regeneratingMagisterium"
-                @click="regenerateAudioSource = 'playback'"
-              >
-                Processed
-              </button>
-              <button
-                type="button"
-                :aria-pressed="regenerateAudioSource === 'original'"
-                :class="{ 'is-active': regenerateAudioSource === 'original' }"
-                :disabled="regenerating || regeneratingMagisterium"
-                @click="regenerateAudioSource = 'original'"
-              >
-                Original
-              </button>
-            </div>
-          </div>
-          <div class="sermon-regenerate-window">
-            <p class="rubric-label">Audio window to consider</p>
-            <p>
-              Optionally skip prelude or trailing silence. Only speech inside this window feeds
-              the new Transcript and Study notes.
-            </p>
-            <div class="sermon-regenerate-window__fields">
-              <label>
-                Start
-                <input
-                  v-model="regenerateStartClock"
-                  type="text"
-                  inputmode="numeric"
-                  autocomplete="off"
-                  :disabled="regenerating || regeneratingMagisterium"
-                  aria-label="Regenerate start time"
-                  placeholder="00:00"
-                />
-              </label>
-              <label>
-                End
-                <input
-                  v-model="regenerateEndClock"
-                  type="text"
-                  inputmode="numeric"
-                  autocomplete="off"
-                  :disabled="regenerating || regeneratingMagisterium"
-                  aria-label="Regenerate end time"
-                  :placeholder="formatClock(sermon.duration_seconds)"
-                />
-              </label>
-            </div>
-          </div>
-          <p v-if="regenerateMessage" class="sermon-delete-confirm__error" role="alert">
-            {{ regenerateMessage }}
-          </p>
-        </div>
-        <div class="sermon-delete-confirm__actions sermon-regenerate-confirm__actions">
-          <button
-            type="button"
-            :disabled="regenerating || regeneratingMagisterium"
-            @click="confirmingRegenerate = false"
-          >
-            Keep current notes
-          </button>
-          <button
-            type="button"
-            :disabled="regenerating || regeneratingMagisterium"
-            @click="regenerateMagisteriumOnly"
-          >
-            {{
-              regeneratingMagisterium
-                ? 'Starting Magisterium…'
-                : 'Regenerate Magisterium AI only'
-            }}
-          </button>
-          <button
-            class="sermon-delete-confirm__delete"
-            type="button"
-            :disabled="regenerating || regeneratingMagisterium"
-            @click="regenerateCurrentSermon"
-          >
-            {{ regenerating ? 'Starting…' : 'Regenerate and replace notes' }}
-          </button>
-        </div>
-      </section>
-
-      <section
-        v-if="confirmingDelete"
-        class="sermon-delete-confirm"
-        aria-labelledby="delete-sermon-title"
-      >
-        <div>
-          <p class="rubric-label">Permanent deletion</p>
-          <h2 id="delete-sermon-title">Delete this Sermon?</h2>
-          <p>
-            This removes the recording, Transcript, Study artifacts, Reflections, and any active
-            Share link. It cannot be undone.
-          </p>
-          <p v-if="deleteMessage" class="sermon-delete-confirm__error" role="alert">
-            {{ deleteMessage }}
-          </p>
-        </div>
-        <div class="sermon-delete-confirm__actions">
-          <button type="button" :disabled="deleting" @click="confirmingDelete = false">
-            Keep Sermon
-          </button>
-          <button
-            class="sermon-delete-confirm__delete"
-            type="button"
-            :disabled="deleting"
-            @click="deleteCurrentSermon"
-          >
-            {{ deleting ? 'Deleting…' : 'Delete permanently' }}
-          </button>
-        </div>
-      </section>
-
-      <section v-if="contextPanelOpen" class="context-panel" aria-label="Sermon details">
-        <div class="context-panel__heading">
-          <p class="rubric-label">Sermon details</p>
-          <h2>Make this Sermon easy to return to</h2>
-          <p>
-            New Sermons begin with an AI-suggested title. Change it whenever you like, and reuse
-            Churches and Preachers from your private books.
-          </p>
-        </div>
-        <p v-if="contextLoading" class="context-panel__status" role="status">
-          Opening your saved details…
-        </p>
-        <div v-else class="context-fields">
-          <div class="context-field context-field--wide">
-            <label for="sermon-title">Title</label>
-            <input
-              id="sermon-title"
-              v-model="sermonTitle"
-              type="text"
-              maxlength="160"
-              placeholder="Add a memorable title"
-            />
-            <small>
-              {{ sermonTitle.length }}/160 ·
-              {{
-                sermon.title
-                  ? 'You can replace the AI suggestion.'
-                  : 'This older Sermon has no suggested title yet.'
-              }}
-            </small>
-          </div>
-
-          <div class="context-field">
-            <label for="sermon-church">Church</label>
-            <select id="sermon-church" v-model="selectedChurchId">
-              <option value="">Unassigned</option>
-              <option v-for="church in churches" :key="church.id" :value="church.id">
-                {{ church.name }}{{ church.address ? ` · ${church.address}` : '' }}
-              </option>
-            </select>
-            <button
-              class="context-field__locate"
-              type="button"
-              :disabled="findingChurches || contextSaving"
-              @click="suggestNearbyChurches"
-            >
-              <LocateFixed :size="15" aria-hidden="true" />
-              {{ findingChurches ? 'Finding near me…' : 'Find Churches near me' }}
-            </button>
-            <div v-if="churchSuggestions.length" class="church-suggestions">
-              <button
-                v-for="suggestion in churchSuggestions"
-                :key="suggestion.provider_id"
-                type="button"
-                @click="chooseChurchSuggestion(suggestion)"
-              >
-                <span>
-                  <strong>{{ suggestion.name }}</strong>
-                  <small v-if="suggestion.address">{{ suggestion.address }}</small>
-                </span>
-                <small>{{ suggestion.distance_meters }} m</small>
-              </button>
-            </div>
-            <button type="button" @click="addingChurch = !addingChurch">
-              {{ addingChurch ? 'Cancel new Church' : 'Add a Church' }}
-            </button>
-            <div v-if="addingChurch" class="context-new">
-              <input
-                v-model="newChurchName"
-                type="text"
-                placeholder="Church name"
-                aria-label="New Church name"
-              />
-              <input
-                v-model="newChurchAddress"
-                type="text"
-                placeholder="Address (optional)"
-                aria-label="New Church address"
-              />
-              <button
-                type="button"
-                :disabled="contextSaving || !newChurchName.trim()"
-                @click="saveNewChurch"
-              >
-                Save Church
-              </button>
-            </div>
-          </div>
-
-          <div class="context-field">
-            <label for="sermon-preacher">Preacher</label>
-            <select id="sermon-preacher" v-model="selectedPreacherId">
-              <option value="">Unassigned</option>
-              <option v-for="preacher in preachers" :key="preacher.id" :value="preacher.id">
-                {{ preacher.name }}
-              </option>
-            </select>
-            <button type="button" @click="addingPreacher = !addingPreacher">
-              {{ addingPreacher ? 'Cancel new Preacher' : 'Add a Preacher' }}
-            </button>
-            <div v-if="addingPreacher" class="context-new">
-              <input
-                v-model="newPreacherName"
-                type="text"
-                placeholder="Preacher name"
-                aria-label="New Preacher name"
-              />
-              <button
-                type="button"
-                :disabled="contextSaving || !newPreacherName.trim()"
-                @click="saveNewPreacher"
-              >
-                Save Preacher
-              </button>
-            </div>
-          </div>
-
-          <div class="context-field">
-            <label for="sermon-occasion">Occasion kind</label>
-            <select id="sermon-occasion" v-model="selectedOccasionKind">
-              <option value="">Unassigned</option>
-              <option v-for="[value, label] in occasionOptions" :key="value" :value="value">
-                {{ label }}
-              </option>
-            </select>
-          </div>
-
-          <div class="context-field">
-            <label for="sermon-liturgical-day">Liturgical day</label>
-            <input
-              id="sermon-liturgical-day"
-              v-model="liturgicalDay"
-              type="text"
-              placeholder="e.g. Third Sunday of Ordinary Time"
-            />
-          </div>
-        </div>
-        <div class="context-panel__footer">
-          <span role="status">{{ contextMessage }}</span>
-          <button type="button" :disabled="contextSaving || contextLoading" @click="saveContext">
-            {{ contextSaving ? 'Saving…' : 'Save details' }}
-          </button>
-        </div>
-      </section>
-
-      <section v-if="sharePanelOpen" class="share-panel" aria-label="Share this Sermon">
-        <div>
-          <p class="rubric-label">Unlisted page</p>
-          <h2>Share the sermon, never your Reflection</h2>
-          <p>
-            Anyone with the link can read the Study artifacts and Transcript and listen to the
-            recording. Your private Reflection is always excluded.
-          </p>
-        </div>
-        <p v-if="shareLoading" class="share-panel__status" role="status">
-          Checking for an existing link…
-        </p>
-        <template v-else-if="shareLink">
-          <input
-            :value="shareLink.url"
-            aria-label="Unlisted Sermon link"
-            readonly
-            @focus="selectShareLink"
-          />
-          <div class="share-panel__actions">
-            <button type="button" :disabled="shareBusy" @click="shareNative">
-              <Share2 :size="16" aria-hidden="true" /> Share link
-            </button>
-            <button type="button" :disabled="shareBusy" @click="copyShareLink">
-              <Copy :size="16" aria-hidden="true" /> Copy
-            </button>
-            <button type="button" :disabled="shareBusy" @click="unpublishShareLink">
-              <Trash2 :size="16" aria-hidden="true" /> Revoke
-            </button>
-          </div>
-        </template>
-        <button
-          v-else
-          class="share-panel__publish"
-          type="button"
-          :disabled="shareBusy"
-          @click="publishShareLink"
+      <Teleport to="body">
+        <div
+          v-if="actionsView && sermon"
+          class="sermon-actions"
+          role="presentation"
+          @click.self="closeActionsModal"
         >
-          <Share2 :size="16" aria-hidden="true" />
-          {{ shareBusy ? 'Creating…' : 'Create unlisted link' }}
-        </button>
-        <p v-if="shareMessage" class="share-panel__status" role="status">{{ shareMessage }}</p>
-      </section>
+          <div
+            id="sermon-actions-dialog"
+            ref="actionsPanel"
+            class="sermon-actions__panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sermon-actions-title"
+            tabindex="-1"
+          >
+            <header class="sermon-actions__header">
+              <div class="sermon-actions__heading">
+                <p class="rubric-label">{{ actionsModalRubric }}</p>
+                <h2 id="sermon-actions-title">{{ actionsModalTitle }}</h2>
+              </div>
+              <button
+                type="button"
+                class="sermon-actions__close"
+                :disabled="regenerating || regeneratingMagisterium || deleting"
+                aria-label="Close"
+                @click="closeActionsModal"
+              >
+                <X :size="18" :stroke-width="1.8" aria-hidden="true" />
+              </button>
+            </header>
+
+            <div class="sermon-actions__body">
+              <section v-if="actionsView === 'details'" class="context-panel context-panel--modal" aria-label="Sermon details">
+                <p class="sermon-actions__lead">
+                  New Sermons begin with an AI-suggested title. Change it whenever you like, and reuse
+                  Churches and Preachers from your private books.
+                </p>
+                <p v-if="contextLoading" class="context-panel__status" role="status">
+                  Opening your saved details…
+                </p>
+                <div v-else class="context-fields">
+                  <div class="context-field context-field--wide">
+                    <label for="sermon-title">Title</label>
+                    <input
+                      id="sermon-title"
+                      v-model="sermonTitle"
+                      type="text"
+                      maxlength="160"
+                      placeholder="Add a memorable title"
+                    />
+                    <small>
+                      {{ sermonTitle.length }}/160 ·
+                      {{
+                        sermon.title
+                          ? 'You can replace the AI suggestion.'
+                          : 'This older Sermon has no suggested title yet.'
+                      }}
+                    </small>
+                  </div>
+
+                  <div class="context-field">
+                    <label for="sermon-church">Church</label>
+                    <select id="sermon-church" v-model="selectedChurchId">
+                      <option value="">Unassigned</option>
+                      <option v-for="church in churches" :key="church.id" :value="church.id">
+                        {{ church.name }}{{ church.address ? ` · ${church.address}` : '' }}
+                      </option>
+                    </select>
+                    <button
+                      class="context-field__locate"
+                      type="button"
+                      :disabled="findingChurches || contextSaving"
+                      @click="suggestNearbyChurches"
+                    >
+                      <LocateFixed :size="15" aria-hidden="true" />
+                      {{ findingChurches ? 'Finding near me…' : 'Find Churches near me' }}
+                    </button>
+                    <div v-if="churchSuggestions.length" class="church-suggestions">
+                      <button
+                        v-for="suggestion in churchSuggestions"
+                        :key="suggestion.provider_id"
+                        type="button"
+                        @click="chooseChurchSuggestion(suggestion)"
+                      >
+                        <span>
+                          <strong>{{ suggestion.name }}</strong>
+                          <small v-if="suggestion.address">{{ suggestion.address }}</small>
+                        </span>
+                        <small>{{ suggestion.distance_meters }} m</small>
+                      </button>
+                    </div>
+                    <button type="button" @click="addingChurch = !addingChurch">
+                      {{ addingChurch ? 'Cancel new Church' : 'Add a Church' }}
+                    </button>
+                    <div v-if="addingChurch" class="context-new">
+                      <input
+                        v-model="newChurchName"
+                        type="text"
+                        placeholder="Church name"
+                        aria-label="New Church name"
+                      />
+                      <input
+                        v-model="newChurchAddress"
+                        type="text"
+                        placeholder="Address (optional)"
+                        aria-label="New Church address"
+                      />
+                      <button
+                        type="button"
+                        :disabled="contextSaving || !newChurchName.trim()"
+                        @click="saveNewChurch"
+                      >
+                        Save Church
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="context-field">
+                    <label for="sermon-preacher">Preacher</label>
+                    <select id="sermon-preacher" v-model="selectedPreacherId">
+                      <option value="">Unassigned</option>
+                      <option v-for="preacher in preachers" :key="preacher.id" :value="preacher.id">
+                        {{ preacher.name }}
+                      </option>
+                    </select>
+                    <button type="button" @click="addingPreacher = !addingPreacher">
+                      {{ addingPreacher ? 'Cancel new Preacher' : 'Add a Preacher' }}
+                    </button>
+                    <div v-if="addingPreacher" class="context-new">
+                      <input
+                        v-model="newPreacherName"
+                        type="text"
+                        placeholder="Preacher name"
+                        aria-label="New Preacher name"
+                      />
+                      <button
+                        type="button"
+                        :disabled="contextSaving || !newPreacherName.trim()"
+                        @click="saveNewPreacher"
+                      >
+                        Save Preacher
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="context-field">
+                    <label for="sermon-occasion">Occasion kind</label>
+                    <select id="sermon-occasion" v-model="selectedOccasionKind">
+                      <option value="">Unassigned</option>
+                      <option v-for="[value, label] in occasionOptions" :key="value" :value="value">
+                        {{ label }}
+                      </option>
+                    </select>
+                  </div>
+
+                  <div class="context-field">
+                    <label for="sermon-liturgical-day">Liturgical day</label>
+                    <input
+                      id="sermon-liturgical-day"
+                      v-model="liturgicalDay"
+                      type="text"
+                      placeholder="e.g. Third Sunday of Ordinary Time"
+                    />
+                  </div>
+                </div>
+                <div class="context-panel__footer">
+                  <span role="status">{{ contextMessage }}</span>
+                  <button type="button" :disabled="contextSaving || contextLoading" @click="saveContext">
+                    {{ contextSaving ? 'Saving…' : 'Save details' }}
+                  </button>
+                </div>
+              </section>
+
+              <section v-else-if="actionsView === 'share'" class="share-panel share-panel--modal" aria-label="Share this Sermon">
+                <p class="sermon-actions__lead">
+                  Anyone with the link can read the Study artifacts and Transcript and listen to the
+                  recording. Your private Reflection is always excluded.
+                </p>
+                <p v-if="shareLoading" class="share-panel__status" role="status">
+                  Checking for an existing link…
+                </p>
+                <template v-else-if="shareLink">
+                  <input
+                    :value="shareLink.url"
+                    aria-label="Unlisted Sermon link"
+                    readonly
+                    @focus="selectShareLink"
+                  />
+                  <div class="share-panel__actions">
+                    <button type="button" :disabled="shareBusy" @click="shareNative">
+                      <Share2 :size="16" aria-hidden="true" /> Share link
+                    </button>
+                    <button type="button" :disabled="shareBusy" @click="copyShareLink">
+                      <Copy :size="16" aria-hidden="true" /> Copy
+                    </button>
+                    <button type="button" :disabled="shareBusy" @click="unpublishShareLink">
+                      <Trash2 :size="16" aria-hidden="true" /> Revoke
+                    </button>
+                  </div>
+                </template>
+                <button
+                  v-else
+                  class="share-panel__publish"
+                  type="button"
+                  :disabled="shareBusy"
+                  @click="publishShareLink"
+                >
+                  <Share2 :size="16" aria-hidden="true" />
+                  {{ shareBusy ? 'Creating…' : 'Create unlisted link' }}
+                </button>
+                <p v-if="shareMessage" class="share-panel__status" role="status">{{ shareMessage }}</p>
+              </section>
+
+              <section
+                v-else-if="actionsView === 'regenerate'"
+                class="sermon-regenerate-confirm sermon-regenerate-confirm--modal"
+                aria-label="Regenerate this Sermon"
+              >
+                <p class="sermon-actions__lead">
+                  Full regeneration rewrites the Transcript, title suggestion, Study artifacts, Scripture
+                  references, Tags, and Related Sermons from the selected recording. Your existing
+                  summaries and other AI-generated notes will be permanently replaced.
+                </p>
+                <p class="sermon-actions__lead">
+                  Magisterium AI only refreshes Related sources and Doctrinal review from the current
+                  Transcript — everything else stays put. Reflections and Share links are kept either way.
+                  The audio itself is never deleted or trimmed.
+                </p>
+                <div
+                  v-if="sermon.has_playback_audio"
+                  class="sermon-regenerate-source"
+                >
+                  <p class="rubric-label">Audio to transcribe</p>
+                  <p>
+                    Processed is usually clearer for pew recordings. Choose Original if isolation
+                    damaged the speech.
+                  </p>
+                  <div class="sermon-regenerate-source__choices" role="group" aria-label="Audio to transcribe">
+                    <button
+                      type="button"
+                      :aria-pressed="regenerateAudioSource === 'playback'"
+                      :class="{ 'is-active': regenerateAudioSource === 'playback' }"
+                      :disabled="regenerating || regeneratingMagisterium"
+                      @click="regenerateAudioSource = 'playback'"
+                    >
+                      Processed
+                    </button>
+                    <button
+                      type="button"
+                      :aria-pressed="regenerateAudioSource === 'original'"
+                      :class="{ 'is-active': regenerateAudioSource === 'original' }"
+                      :disabled="regenerating || regeneratingMagisterium"
+                      @click="regenerateAudioSource = 'original'"
+                    >
+                      Original
+                    </button>
+                  </div>
+                </div>
+                <div class="sermon-regenerate-window">
+                  <p class="rubric-label">Audio window to consider</p>
+                  <p>
+                    Optionally skip prelude or trailing silence. Only speech inside this window feeds
+                    the new Transcript and Study notes.
+                  </p>
+                  <div class="sermon-regenerate-window__fields">
+                    <label>
+                      Start
+                      <input
+                        v-model="regenerateStartClock"
+                        type="text"
+                        inputmode="numeric"
+                        autocomplete="off"
+                        :disabled="regenerating || regeneratingMagisterium"
+                        aria-label="Regenerate start time"
+                        placeholder="00:00"
+                      />
+                    </label>
+                    <label>
+                      End
+                      <input
+                        v-model="regenerateEndClock"
+                        type="text"
+                        inputmode="numeric"
+                        autocomplete="off"
+                        :disabled="regenerating || regeneratingMagisterium"
+                        aria-label="Regenerate end time"
+                        :placeholder="formatClock(sermon.duration_seconds)"
+                      />
+                    </label>
+                  </div>
+                </div>
+                <p v-if="regenerateMessage" class="sermon-delete-confirm__error" role="alert">
+                  {{ regenerateMessage }}
+                </p>
+                <div class="sermon-delete-confirm__actions sermon-regenerate-confirm__actions">
+                  <button
+                    type="button"
+                    :disabled="regenerating || regeneratingMagisterium"
+                    @click="closeActionsModal"
+                  >
+                    Keep current notes
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="regenerating || regeneratingMagisterium"
+                    @click="regenerateMagisteriumOnly"
+                  >
+                    {{
+                      regeneratingMagisterium
+                        ? 'Starting Magisterium…'
+                        : 'Regenerate Magisterium AI only'
+                    }}
+                  </button>
+                  <button
+                    class="sermon-delete-confirm__delete"
+                    type="button"
+                    :disabled="regenerating || regeneratingMagisterium"
+                    @click="regenerateCurrentSermon"
+                  >
+                    {{ regenerating ? 'Starting…' : 'Regenerate and replace notes' }}
+                  </button>
+                </div>
+              </section>
+
+              <section
+                v-else-if="actionsView === 'delete'"
+                class="sermon-delete-confirm sermon-delete-confirm--modal"
+                aria-label="Delete this Sermon"
+              >
+                <p class="sermon-actions__lead">
+                  This removes the recording, Transcript, Study artifacts, Reflections, and any active
+                  Share link. It cannot be undone.
+                </p>
+                <p v-if="deleteMessage" class="sermon-delete-confirm__error" role="alert">
+                  {{ deleteMessage }}
+                </p>
+                <div class="sermon-delete-confirm__actions">
+                  <button type="button" :disabled="deleting" @click="closeActionsModal">
+                    Keep Sermon
+                  </button>
+                  <button
+                    class="sermon-delete-confirm__delete"
+                    type="button"
+                    :disabled="deleting"
+                    @click="deleteCurrentSermon"
+                  >
+                    {{ deleting ? 'Deleting…' : 'Delete permanently' }}
+                  </button>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </Teleport>
 
       <section class="audio-player" aria-label="Sermon audio player">
         <audio
@@ -2995,7 +3095,7 @@ a.tag-chip:focus-visible {
   margin-left: auto;
 }
 
-.sermon-header__actions .sermon-header__regenerate .is-spinning {
+.sermon-header__actions .is-spinning {
   animation: processing-spin 0.9s linear infinite;
 }
 
@@ -3012,13 +3112,120 @@ a.tag-chip:focus-visible {
   max-width: var(--reading-width);
 }
 
-.sermon-regenerate-confirm {
-  background: color-mix(in srgb, var(--color-lapis) 6%, var(--color-vellum-light));
-  border-color: color-mix(in srgb, var(--color-lapis) 40%, var(--color-margin));
+.sermon-actions {
+  background: color-mix(in srgb, var(--color-ink) 32%, transparent);
+  bottom: 0;
+  display: grid;
+  left: 0;
+  overflow: auto;
+  padding: 0.75rem 0.75rem calc(1.25rem + env(safe-area-inset-bottom));
+  place-items: center;
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 60;
+}
+
+.sermon-actions__panel {
+  background: var(--color-vellum-light);
+  border: 1px solid var(--color-margin);
+  box-shadow: 0 22px 60px rgba(28, 36, 48, 0.24);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  margin: auto;
+  max-height: min(46rem, calc(100svh - 1.5rem));
+  max-width: 40rem;
+  outline: none;
+  width: min(100%, 40rem);
+}
+
+.sermon-actions__header {
+  align-items: start;
+  border-bottom: 1px solid var(--color-margin);
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem 0.9rem 1.1rem;
+}
+
+.sermon-actions__heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.sermon-actions__heading h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.45rem, 4vw, 1.9rem);
+  font-variation-settings: 'opsz' 72, 'SOFT' 40;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin: 0.3rem 0 0;
+}
+
+.sermon-actions__close {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--color-margin);
+  color: var(--color-ink);
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 2.25rem;
+  min-width: 2.25rem;
+  padding: 0;
+}
+
+.sermon-actions__close:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.sermon-actions__close:focus-visible {
+  outline: 2px solid var(--color-rule-gold);
+  outline-offset: 2px;
+}
+
+.sermon-actions__body {
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 1.15rem clamp(1.1rem, 3vw, 1.6rem) 1.5rem;
+}
+
+.sermon-actions__lead {
+  color: var(--color-ink-muted);
+  font-family: var(--font-reading);
+  line-height: 1.55;
+  margin: 0 0 1rem;
+}
+
+.context-panel--modal,
+.share-panel--modal,
+.sermon-regenerate-confirm--modal,
+.sermon-delete-confirm--modal {
+  background: transparent;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.sermon-regenerate-confirm--modal,
+.sermon-delete-confirm--modal {
+  display: grid;
+  gap: 0.25rem;
 }
 
 .sermon-regenerate-confirm__actions {
+  display: flex;
   flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: flex-start;
+  margin-top: 1.25rem;
+}
+
+.sermon-regenerate-confirm__actions button {
+  flex: 1 1 auto;
+  min-width: min(100%, 11rem);
+  white-space: normal;
 }
 
 .sermon-regenerate-source,
@@ -3108,6 +3315,18 @@ a.tag-chip:focus-visible {
   padding: clamp(1.25rem, 4vw, 2rem);
 }
 
+.sermon-delete-confirm--modal,
+.sermon-regenerate-confirm--modal {
+  align-items: stretch;
+  background: transparent;
+  border: 0;
+  display: grid;
+  gap: 0.25rem;
+  justify-content: stretch;
+  margin: 0;
+  padding: 0;
+}
+
 .sermon-delete-confirm h2 {
   font-family: var(--font-display);
   font-size: clamp(1.65rem, 4vw, 2.25rem);
@@ -3162,6 +3381,13 @@ a.tag-chip:focus-visible {
   border: 1px solid var(--color-margin);
   margin: 1.5rem 0;
   padding: clamp(1.25rem, 4vw, 2rem);
+}
+
+.context-panel.context-panel--modal {
+  background: transparent;
+  border: 0;
+  margin: 0;
+  padding: 0;
 }
 
 .context-panel__heading h2 {
@@ -3354,6 +3580,13 @@ a.tag-chip:focus-visible {
   border: 1px solid var(--color-margin);
   margin: 1.5rem 0;
   padding: clamp(1.25rem, 4vw, 2rem);
+}
+
+.share-panel.share-panel--modal {
+  background: transparent;
+  border: 0;
+  margin: 0;
+  padding: 0;
 }
 
 .share-panel h2 {
@@ -4457,8 +4690,7 @@ a.tag-chip:focus-visible {
     flex-direction: column;
   }
 
-  .sermon-header__actions .sermon-header__regenerate,
-  .sermon-header__actions .sermon-header__delete {
+  .sermon-header__actions .sermon-header__regenerate {
     margin-left: 0;
   }
 

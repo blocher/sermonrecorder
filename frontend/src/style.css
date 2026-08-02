@@ -58,7 +58,9 @@ textarea:disabled {
 
 body.recording-lock,
 body.library-search-lock,
-body.draft-wizard-lock {
+body.draft-wizard-lock,
+body.sermon-actions-lock,
+body.browse-detail-lock {
   overflow: hidden;
 }
 
