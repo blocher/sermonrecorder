@@ -42,6 +42,7 @@ from .magisterium_enrichment import MAGISTERIUM_ARTIFACT_KINDS
 from .simpleai_artifacts import (
     GeneratedArtifacts,
     HymnVerseOutput,
+    OutlinePointOutput,
     QuizQuestionOutput,
     SimpleAIArtifactGenerator,
     ScriptureReferenceOutput,
@@ -413,14 +414,20 @@ class ProviderPipelineTests(TestCase):
                 sermon_title="The Father Runs to Welcome",
                 short_summary="God welcomes the lost.",
                 long_summary="A longer account of welcome and repentance.",
-                outline=["The younger son leaves", "The father runs to welcome him"],
+                outline=[
+                    OutlinePointOutput(text="The younger son leaves", start_seconds=0),
+                    OutlinePointOutput(
+                        text="The father runs to welcome him",
+                        start_seconds=12,
+                    ),
+                ],
                 practical_next_steps=[
                     "Welcome someone who expects distance.",
                     "Practice receiving grace without earning it.",
                 ],
                 call_to_action="Make the first move toward welcome this week.",
                 quotations=[
-                    "There was a father who welcomed his son home.",
+                    "there was a father who welcomed his son home",
                 ],
                 adult_discussion_questions=["Where is grace difficult to receive?"],
                 kids_discussion_questions=["How did the father show love?"],
@@ -476,6 +483,11 @@ class ProviderPipelineTests(TestCase):
                 TranscriptSegment(
                     start_seconds=0,
                     end_seconds=5,
+                    text="The younger son leaves home.",
+                ),
+                TranscriptSegment(
+                    start_seconds=12,
+                    end_seconds=18,
                     text="There was a father who welcomed his son home.",
                 ),
             ),
@@ -495,7 +507,13 @@ class ProviderPipelineTests(TestCase):
         )
         self.assertEqual(
             outline.content,
-            "1. The younger son leaves\n2. The father runs to welcome him",
+            "1. [00:00] The younger son leaves\n"
+            "2. [00:12] The father runs to welcome him",
+        )
+        self.assertIn("[00:00] The younger son leaves home.", runner.call_args.args[0])
+        self.assertIn(
+            "[00:12] There was a father who welcomed his son home.",
+            runner.call_args.args[0],
         )
         call_to_action = next(
             artifact
@@ -514,7 +532,7 @@ class ProviderPipelineTests(TestCase):
         self.assertEqual(
             quotations.content,
             "There was a father who welcomed his son home.",
-        )
+        )  # casing + terminal period normalized
         hymn = next(
             artifact
             for artifact in result.study_artifacts
@@ -540,7 +558,6 @@ class ProviderPipelineTests(TestCase):
         self.assertIn("A1. He welcomed his son home.", quiz.content)
         self.assertEqual(result.scripture_references[0].book, "Luke")
         self.assertEqual(result.tag_suggestions, ("Grace", "Homecoming"))
-        self.assertIn(transcript.text, runner.call_args.args[0])
 
     def test_artifact_output_schema_is_openai_strict_compatible(self):
         schema = openai_response_schema(StudyArtifactOutput)
@@ -556,7 +573,12 @@ class ProviderPipelineTests(TestCase):
                 sermon_title="Welcome Home",
                 short_summary="God welcomes the lost.",
                 long_summary="A longer account of welcome.",
-                outline=["The father welcomes his son"],
+                outline=[
+                    OutlinePointOutput(
+                        text="The father welcomes his son",
+                        start_seconds=0,
+                    )
+                ],
                 practical_next_steps=["Welcome someone this week."],
                 call_to_action="Make the first move toward welcome.",
                 quotations=["The father ran down the road."],
@@ -610,7 +632,7 @@ class ProviderPipelineTests(TestCase):
 
         with self.assertRaisesMessage(
             RetryableProcessingError,
-            "verbatim Sermon quotation",
+            "faithful Sermon quotation",
         ):
             generator.generate(transcript)
 

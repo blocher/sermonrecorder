@@ -26,6 +26,7 @@ import {
   paragraphs,
   parseDoctrinalReview,
   parseHymn,
+  parseOutlinePoints,
   parseQuiz,
   parseRelatedSources,
   parseTuneSuggestions,
@@ -74,6 +75,7 @@ const activeAudioUrl = computed(() => {
 const hymn = computed(() => parseHymn(artifact('hymn')))
 const hymnTunes = computed(() => parseTuneSuggestions(artifact('hymn_tune_suggestions')))
 const quiz = computed(() => parseQuiz(artifact('quiz')))
+const outlinePoints = computed(() => parseOutlinePoints(artifact('outline')))
 const relatedSources = computed(() => parseRelatedSources(artifact('related_sources')))
 const doctrinalReview = computed(() => parseDoctrinalReview(artifact('doctrinal_review')))
 const displayTranscriptSegments = computed(() => {
@@ -449,7 +451,23 @@ onBeforeUnmount(() => {
           <section class="share-section page-gather">
             <h2>Outline</h2>
             <ol class="share-outline">
-              <li v-for="item in numberedItems(artifact('outline'))" :key="item">{{ item }}</li>
+              <li v-for="(point, index) in outlinePoints" :key="`${index}-${point.text}`">
+                <button
+                  v-if="point.start_seconds != null"
+                  type="button"
+                  class="share-outline__seek"
+                  :aria-label="`Play from ${timestamp(point.start_seconds)}`"
+                  @click="seekTo(point.start_seconds)"
+                >
+                  {{ timestamp(point.start_seconds) }}
+                </button>
+                <span
+                  v-else
+                  class="share-outline__seek share-outline__seek--empty"
+                  aria-hidden="true"
+                ></span>
+                <span>{{ point.text }}</span>
+              </li>
             </ol>
           </section>
 
@@ -1157,8 +1175,8 @@ onBeforeUnmount(() => {
   counter-increment: share-outline;
   display: grid;
   font-family: var(--font-reading);
-  gap: 1rem;
-  grid-template-columns: 2rem 1fr;
+  gap: 0.75rem 1rem;
+  grid-template-columns: 2rem 3.4rem 1fr;
   line-height: 1.55;
   padding: 1rem 0;
 }
@@ -1168,6 +1186,29 @@ onBeforeUnmount(() => {
   content: counter(share-outline, upper-roman);
   font-family: var(--font-display);
   font-size: 0.78rem;
+}
+
+.share-outline__seek {
+  background: transparent;
+  border: 0;
+  color: var(--color-lapis);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0;
+  text-align: left;
+}
+
+.share-outline__seek--empty {
+  cursor: default;
+  min-height: 1em;
+}
+
+.share-outline__seek:not(.share-outline__seek--empty):hover,
+.share-outline__seek:not(.share-outline__seek--empty):focus-visible {
+  text-decoration: underline;
 }
 
 .share-feedback {

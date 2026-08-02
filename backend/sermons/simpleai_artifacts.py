@@ -14,7 +14,9 @@ from .processing import (
     RetryableProcessingError,
     ScriptureReferenceResult,
     StudyArtifactResult,
+    TranscriptSegment,
 )
+from .quotations import accepted_quotations
 
 
 class ScriptureReferenceOutput(BaseModel):
@@ -72,13 +74,18 @@ class QuizQuestionOutput(BaseModel):
     answer_text: str = Field(min_length=1)
 
 
+class OutlinePointOutput(BaseModel):
+    text: str = Field(min_length=1)
+    start_seconds: float = Field(ge=0)
+
+
 class StudyArtifactOutput(BaseModel):
     # SimpleAI strips JSON Schema's reserved "title" keyword recursively for
     # OpenAI, so a property with that exact name disappears from strict schemas.
     sermon_title: str = Field(min_length=1, max_length=160)
     short_summary: str = Field(min_length=1)
     long_summary: str = Field(min_length=1)
-    outline: list[str] = Field(min_length=1)
+    outline: list[OutlinePointOutput] = Field(min_length=1)
     practical_next_steps: list[str] = Field(min_length=1)
     call_to_action: str = Field(min_length=1, max_length=240)
     quotations: list[str] = Field(min_length=1, max_length=3)
@@ -110,6 +117,48 @@ def _numbered(items: list[str]) -> str:
     )
 
 
+def _clock(seconds: float) -> str:
+    total = max(0, int(round(seconds)))
+    minutes, remainder = divmod(total, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{remainder:02d}"
+    return f"{minutes:02d}:{remainder:02d}"
+
+
+def _timestamped_transcript(segments: tuple[TranscriptSegment, ...]) -> str:
+    lines = [
+        f"[{_clock(segment.start_seconds)}] {segment.text.strip()}"
+        for segment in segments
+        if segment.text.strip()
+    ]
+    return "\n".join(lines)
+
+
+def _snap_outline_start(
+    start_seconds: float,
+    segments: tuple[TranscriptSegment, ...],
+) -> float:
+    if not segments:
+        return max(0.0, float(start_seconds))
+    nearest = min(
+        segments,
+        key=lambda segment: abs(segment.start_seconds - start_seconds),
+    )
+    return float(nearest.start_seconds)
+
+
+def _outline(points: list[OutlinePointOutput], segments: tuple[TranscriptSegment, ...]) -> str:
+    lines: list[str] = []
+    for number, point in enumerate(points, start=1):
+        text = point.text.strip()
+        if not text:
+            continue
+        start = _snap_outline_start(point.start_seconds, segments)
+        lines.append(f"{number}. [{_clock(start)}] {text}")
+    return "\n".join(lines)
+
+
 def _hymn(
     title: str,
     meter: str,
@@ -135,28 +184,12 @@ def _quiz(items: list[QuizQuestionOutput]) -> str:
     )
 
 
-def _verbatim_quotations(items: list[str], transcript: str) -> tuple[str, ...]:
-    normalized_transcript = " ".join(transcript.split())
-    quotations: list[str] = []
-    quote_pairs = {('"', '"'), ("“", "”"), ("‘", "’")}
-    for item in items:
-        quotation = " ".join(item.split())
-        if len(quotation) >= 2 and (quotation[0], quotation[-1]) in quote_pairs:
-            quotation = quotation[1:-1].strip()
-        if (
-            quotation
-            and quotation in normalized_transcript
-            and quotation not in quotations
-        ):
-            quotations.append(quotation)
-    return tuple(quotations)
-
-
 class SimpleAIArtifactGenerator:
     def __init__(self, runner: Callable[..., Any] = run_prompt):
         self.runner = runner
 
     def generate(self, transcript: CleanedTranscript) -> GeneratedArtifacts:
+        timestamped = _timestamped_transcript(transcript.segments) or transcript.text
         prompt = f"""
 You are preparing study material for a Congregant's private sermon journal.
 Use only the cleaned intentional-service Transcript below. Be faithful to what
@@ -168,12 +201,16 @@ Produce:
 - a concise, memorable title faithful to the sermon's central message;
 - a concise short summary;
 - a detailed long summary;
-- an ordered point-by-point outline;
+- an ordered point-by-point outline. For each outline point, set start_seconds
+  to the timestamp (in seconds) where that point begins in the Transcript.
+  Choose a time that appears on a Transcript line below; prefer the moment the
+  preacher starts that section, not a later illustration;
 - practical next steps: specific things the Congregant could do differently,
   grounded in the sermon rather than generic advice;
 - one brief call to action: a single concrete, memorable action in one sentence;
-- one to three impactful word-for-word quotations copied exactly from the Transcript;
-  do not paraphrase, add ellipses, or wrap the returned text in quotation marks;
+- one to three impactful quotations using the Transcript's words in order;
+  you may normalize capitalization and punctuation for readability, but do not
+  paraphrase, add ellipses, invent words, or wrap the returned text in quotation marks;
 - thoughtful adult discussion questions;
 - clear, age-appropriate kids discussion questions;
 - two to eight concise, constructive suggestions for the preacher focused on
@@ -197,9 +234,9 @@ Produce:
 - structured Scripture references that the sermon explicitly cites or clearly discusses;
 - at most five reusable thematic Tag suggestions.
 
-Cleaned Transcript:
+Cleaned Transcript with timestamps:
 <transcript>
-{transcript.text}
+{timestamped}
 </transcript>
 """.strip()
 
@@ -221,10 +258,10 @@ Cleaned Transcript:
                 raise PermanentProcessingError(error_message) from error
             raise RetryableProcessingError(str(error)) from error
 
-        quotations = _verbatim_quotations(output.quotations, transcript.text)
+        quotations = accepted_quotations(output.quotations, transcript.text)
         if not quotations:
             raise RetryableProcessingError(
-                "The artifact model did not return a verbatim Sermon quotation."
+                "The artifact model did not return a faithful Sermon quotation."
             )
         expected_line_count = HYMN_METER_LINE_COUNTS[output.hymn_meter]
         if any(
@@ -257,7 +294,7 @@ Cleaned Transcript:
                 ),
                 StudyArtifactResult(
                     kind=StudyArtifact.Kind.OUTLINE,
-                    content=_numbered(output.outline),
+                    content=_outline(output.outline, transcript.segments),
                 ),
                 StudyArtifactResult(
                     kind=StudyArtifact.Kind.PRACTICAL_NEXT_STEPS,

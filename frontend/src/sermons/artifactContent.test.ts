@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   parseDoctrinalReview,
   parseHymn,
+  parseOutlinePoints,
   parseQuiz,
   parseRelatedSources,
   parseTuneSuggestions,
@@ -45,6 +46,18 @@ As Christ has taught us to`)
         name: 'BEECHER',
         traditions: 'Methodist and Anglican hymnals',
       },
+    ])
+  })
+
+  it('parses seekable outline timestamps and keeps older outlines readable', () => {
+    expect(
+      parseOutlinePoints(
+        '1. [00:12] The younger son leaves\n2. [1:05:03] The father runs\n3. Plain older point',
+      ),
+    ).toEqual([
+      { text: 'The younger son leaves', start_seconds: 12 },
+      { text: 'The father runs', start_seconds: 3903 },
+      { text: 'Plain older point', start_seconds: null },
     ])
   })
 

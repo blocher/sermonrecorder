@@ -175,7 +175,7 @@ class ProcessedSermonRepositoryTests(TestCase):
 
         with self.assertRaisesMessage(
             PermanentProcessingError,
-            "verbatim Transcript excerpts",
+            "faithful Transcript excerpts",
         ):
             persist_processed_sermon(self.sermon, invalid)
 

@@ -39,6 +39,7 @@ import {
   paragraphs,
   parseDoctrinalReview,
   parseHymn,
+  parseOutlinePoints,
   parseQuiz,
   parseRelatedSources,
   parseTuneSuggestions,
@@ -183,6 +184,7 @@ const activeAudioUrl = computed(() => {
 const hymn = computed(() => parseHymn(artifact('hymn')))
 const hymnTunes = computed(() => parseTuneSuggestions(artifact('hymn_tune_suggestions')))
 const quiz = computed(() => parseQuiz(artifact('quiz')))
+const outlinePoints = computed(() => parseOutlinePoints(artifact('outline')))
 const relatedSources = computed(() => parseRelatedSources(artifact('related_sources')))
 const doctrinalReview = computed(() => parseDoctrinalReview(artifact('doctrinal_review')))
 const actionsModalTitle = computed(() => {
@@ -2095,6 +2097,10 @@ onBeforeUnmount(() => {
             </div>
             <div v-if="editingKind === 'outline'" class="artifact-editor">
               <textarea v-model="editContent" rows="9" aria-label="Outline"></textarea>
+              <p class="artifact-editor__hint">
+                Keep one numbered line per point. Optional timestamps like
+                <code>1. [05:12] Point text</code> stay seekable.
+              </p>
               <div class="artifact-editor__actions">
                 <button type="button" @click="cancelArtifactEdit">
                   <X :size="15" /> Cancel
@@ -2105,8 +2111,18 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <ol v-else class="outline">
-              <li v-for="item in numberedItems(artifact('outline'))" :key="item">
-                <span>{{ item }}</span>
+              <li v-for="(point, index) in outlinePoints" :key="`${index}-${point.text}`">
+                <button
+                  v-if="point.start_seconds != null"
+                  type="button"
+                  class="outline__seek"
+                  :aria-label="`Play from ${timestamp(point.start_seconds)}`"
+                  @click="seekTo(point.start_seconds)"
+                >
+                  {{ timestamp(point.start_seconds) }}
+                </button>
+                <span v-else class="outline__seek outline__seek--empty" aria-hidden="true"></span>
+                <span>{{ point.text }}</span>
               </li>
             </ol>
           </section>
@@ -2132,7 +2148,9 @@ onBeforeUnmount(() => {
                 rows="8"
                 aria-label="Quotations, one per line"
               ></textarea>
-              <p class="artifact-editor__hint">Keep one word-for-word quotation on each line.</p>
+              <p class="artifact-editor__hint">
+                Keep one quotation per line, using the Transcript's words in order.
+              </p>
               <div class="artifact-editor__actions">
                 <button type="button" @click="cancelArtifactEdit">
                   <X :size="15" /> Cancel
@@ -4445,8 +4463,8 @@ a.tag-chip:focus-visible {
   counter-increment: outline;
   display: grid;
   font-family: var(--font-reading);
-  gap: 1rem;
-  grid-template-columns: 2rem 1fr;
+  gap: 0.75rem 1rem;
+  grid-template-columns: 2rem 3.4rem 1fr;
   line-height: 1.5;
   padding: 0.75rem 0;
 }
@@ -4456,6 +4474,29 @@ a.tag-chip:focus-visible {
   content: counter(outline, upper-roman);
   font-family: var(--font-display);
   font-size: 0.78rem;
+}
+
+.outline__seek {
+  background: transparent;
+  border: 0;
+  color: var(--color-lapis);
+  cursor: pointer;
+  font-family: var(--font-utility);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0;
+  text-align: left;
+}
+
+.outline__seek--empty {
+  cursor: default;
+  min-height: 1em;
+}
+
+.outline__seek:not(.outline__seek--empty):hover,
+.outline__seek:not(.outline__seek--empty):focus-visible {
+  text-decoration: underline;
 }
 
 .tag-list {

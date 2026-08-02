@@ -9,6 +9,7 @@ from .models import (
     Transcript,
 )
 from .processing import PermanentProcessingError, ProcessedSermon
+from .quotations import quotation_matches_transcript, quotation_words
 from .scripture import normalize_scripture_reference
 from .tagging import normalize_tag
 
@@ -64,18 +65,19 @@ def _validate_result(sermon: Sermon, result: ProcessedSermon) -> None:
         for artifact in result.study_artifacts
         if artifact.kind == StudyArtifact.Kind.QUOTATIONS
     )
-    normalized_transcript = " ".join(result.transcript_text.split())
     normalized_quotations = [" ".join(quotation.split()) for quotation in quotations]
+    quotation_identities = [quotation_words(quotation) for quotation in normalized_quotations]
     if (
         not 1 <= len(normalized_quotations) <= 3
-        or len(normalized_quotations) != len(set(normalized_quotations))
+        or any(not identity for identity in quotation_identities)
+        or len(quotation_identities) != len(set(quotation_identities))
         or any(
-            not quotation or quotation not in normalized_transcript
+            not quotation_matches_transcript(quotation, result.transcript_text)
             for quotation in normalized_quotations
         )
     ):
         raise PermanentProcessingError(
-            "Sermon quotations must contain one to three unique, verbatim Transcript excerpts."
+            "Sermon quotations must contain one to three unique, faithful Transcript excerpts."
         )
 
     normalized_tags = [_normalized_tag(name)[1] for name in result.tag_suggestions]

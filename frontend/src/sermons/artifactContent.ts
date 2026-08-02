@@ -53,6 +53,48 @@ export function numberedItems(content: string): string[] {
     .filter(Boolean)
 }
 
+export interface OutlinePoint {
+  text: string
+  start_seconds: number | null
+}
+
+/** Outline lines may include `[M:SS]` / `[H:MM:SS]` after the number for seekable points. */
+export function parseOutlinePoints(content: string): OutlinePoint[] {
+  return content
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(
+        /^\d+\.\s*(?:\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]\s*)?(.*)$/,
+      )
+      if (!match) {
+        return { text: line.replace(/^\d+\.\s*/, '').trim(), start_seconds: null }
+      }
+      const [, first, second, third, text] = match
+      const pointText = (text ?? '').trim()
+      if (!pointText) return null
+      if (first == null || second == null) {
+        return { text: pointText, start_seconds: null }
+      }
+      const hours = third != null ? Number(first) : 0
+      const minutes = third != null ? Number(second) : Number(first)
+      const seconds = third != null ? Number(third) : Number(second)
+      if (
+        !Number.isFinite(hours) ||
+        !Number.isFinite(minutes) ||
+        !Number.isFinite(seconds)
+      ) {
+        return { text: pointText, start_seconds: null }
+      }
+      return {
+        text: pointText,
+        start_seconds: hours * 3600 + minutes * 60 + seconds,
+      }
+    })
+    .filter((point): point is OutlinePoint => point != null)
+}
+
 export function quotationItems(content: string): string[] {
   const quotePairs = new Set(['""', '“”', '‘’'])
   return content
