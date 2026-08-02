@@ -9,8 +9,14 @@ function fakeAudio(readyState = 0) {
   const listeners = new Map<string, Set<EventListener>>()
   const element = {
     readyState,
+    currentTime: 0,
+    networkState: 0,
     error: null as MediaError | null,
-    load: vi.fn(),
+    load: vi.fn(function load(this: { currentTime: number; networkState: number }) {
+      // HTMLMediaElement.load() resets playback position.
+      this.currentTime = 0
+      this.networkState = 2
+    }),
     play: vi.fn(async () => undefined),
     addEventListener: vi.fn((type: string, listener: EventListener) => {
       const set = listeners.get(type) ?? new Set()
@@ -79,5 +85,19 @@ describe('htmlAudio', () => {
 
     expect(element.load).toHaveBeenCalled()
     expect(element.play).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a prior seek when load is required before play', async () => {
+    const element = fakeAudio(1) // HAVE_METADATA after preload="metadata"
+    element.currentTime = 125
+
+    const pending = playHtmlAudio(element as unknown as HTMLAudioElement)
+    element.emit('loadedmetadata')
+    element.emit('canplay')
+    await pending
+
+    expect(element.load).toHaveBeenCalledOnce()
+    expect(element.currentTime).toBe(125)
+    expect(element.play).toHaveBeenCalled()
   })
 })
