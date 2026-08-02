@@ -65,14 +65,25 @@ As Christ has taught us to`)
     ])
   })
 
-  it('keeps public tabs aligned with the owner view except for Reflection', () => {
-    expect(ownerSermonSections.slice(0, -1)).toEqual(sharedSermonSections)
-    expect(ownerSermonSections.at(-1)).toEqual(['reflection', 'Reflect'])
+  it('orders owner tabs Study → Transcript → Discuss → Reflect → Feedback', () => {
+    expect(ownerSermonSections).toEqual([
+      ['study', 'Study'],
+      ['transcript', 'Transcript'],
+      ['discuss', 'Discuss'],
+      ['reflection', 'Reflect'],
+      ['feedback', 'Feedback'],
+    ])
   })
 
-  it('includes a Feedback tab after Study', () => {
-    expect(sharedSermonSections[0]).toEqual(['study', 'Study'])
-    expect(sharedSermonSections[1]).toEqual(['feedback', 'Feedback'])
+  it('hides Hymn and Reflect from public tabs', () => {
+    expect(sharedSermonSections).toEqual([
+      ['study', 'Study'],
+      ['transcript', 'Transcript'],
+      ['discuss', 'Discuss'],
+      ['feedback', 'Feedback'],
+    ])
+    expect(sharedSermonSections.map(([id]) => id)).not.toContain('hymn')
+    expect(ownerSermonSections.map(([id]) => id)).not.toContain('hymn')
   })
 
   it('parses related sources JSON', () => {
