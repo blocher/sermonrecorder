@@ -9,6 +9,7 @@ import {
   RotateCcw,
   Trash2,
 } from '@lucide/vue'
+import { isHtmlAudioAbortError, playHtmlAudio } from '../playback/htmlAudio'
 import type { ServerSermon } from '../sermons/serverSermon'
 
 const props = defineProps<{
@@ -87,35 +88,12 @@ async function setAudioVariant(variant: AudioVariant): Promise<void> {
   element.load()
   if (!wasPlaying) return
   try {
-    await waitForCanPlay(element)
-    await element.play()
+    await playHtmlAudio(element)
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') return
+    if (isHtmlAudioAbortError(error)) return
     playing.value = false
     playbackError.value = true
   }
-}
-
-async function waitForCanPlay(element: HTMLAudioElement): Promise<void> {
-  if (element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return
-
-  await new Promise<void>((resolve, reject) => {
-    const onReady = () => {
-      cleanup()
-      resolve()
-    }
-    const onError = () => {
-      cleanup()
-      reject(new Error('This recording could not be loaded.'))
-    }
-    const cleanup = () => {
-      element.removeEventListener('canplay', onReady)
-      element.removeEventListener('error', onError)
-    }
-    element.addEventListener('canplay', onReady, { once: true })
-    element.addEventListener('error', onError, { once: true })
-    element.load()
-  })
 }
 
 async function togglePlayback(): Promise<void> {
@@ -133,10 +111,9 @@ async function togglePlayback(): Promise<void> {
   }
 
   try {
-    await waitForCanPlay(element)
-    await element.play()
+    await playHtmlAudio(element)
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') return
+    if (isHtmlAudioAbortError(error)) return
     playing.value = false
     playbackError.value = true
   }

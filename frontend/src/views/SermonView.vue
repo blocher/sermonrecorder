@@ -15,6 +15,7 @@ import {
   Pause,
   Play,
   Plus,
+  RefreshCw,
   RotateCcw,
   Share2,
   Trash2,
@@ -25,6 +26,11 @@ import ReflectionEditor from '../components/ReflectionEditor.vue'
 import SermonSectionTabs from '../components/SermonSectionTabs.vue'
 import { useAuth } from '../auth/useAuth'
 import { findNearbyChurches } from '../location/findNearbyChurches'
+import {
+  isHtmlAudioAbortError,
+  playHtmlAudio,
+  waitForHtmlAudioCanPlay,
+} from '../playback/htmlAudio'
 import { formatClock, parseClock, seekRatioFromClientX } from '../playback/seekTrack'
 import {
   numberedItems,
@@ -96,6 +102,8 @@ const audio = ref<HTMLAudioElement>()
 const playing = ref(false)
 const currentSeconds = ref(0)
 const playbackError = ref(false)
+const refreshingAudio = ref(false)
+const audioReloadToken = ref(0)
 type AudioVariant = 'processed' | 'original'
 const audioVariant = ref<AudioVariant>('processed')
 const editingKind = ref<StudyArtifactKind>()
@@ -475,18 +483,25 @@ async function selectSection(section: SermonSection): Promise<void> {
   })
 }
 
-async function togglePlayback(): Promise<void> {
-  if (!audio.value) return
+async function startPlayback(element: HTMLAudioElement): Promise<void> {
   playbackError.value = false
-  if (playing.value) {
-    audio.value.pause()
-    return
-  }
   try {
-    await audio.value.play()
-  } catch {
+    await playHtmlAudio(element)
+  } catch (error) {
+    if (isHtmlAudioAbortError(error)) return
+    playing.value = false
     playbackError.value = true
   }
+}
+
+async function togglePlayback(): Promise<void> {
+  const element = audio.value
+  if (!element) return
+  if (playing.value) {
+    element.pause()
+    return
+  }
+  await startPlayback(element)
 }
 
 async function setAudioVariant(variant: AudioVariant): Promise<void> {
@@ -496,31 +511,62 @@ async function setAudioVariant(variant: AudioVariant): Promise<void> {
   const position = element?.currentTime ?? currentSeconds.value
   audioVariant.value = variant
   playbackError.value = false
+  audioReloadToken.value += 1
   await nextTick()
-  if (!element) return
+  const next = audio.value
+  if (!next) return
   const restorePosition = () => {
-    element.currentTime = position
+    next.currentTime = position
     currentSeconds.value = position
   }
-  element.addEventListener('loadedmetadata', restorePosition, { once: true })
-  element.load()
+  next.addEventListener('loadedmetadata', restorePosition, { once: true })
   if (!wasPlaying) return
-  try {
-    await element.play()
-  } catch {
-    playbackError.value = true
-  }
+  await startPlayback(next)
 }
 
 async function seekTo(seconds: number): Promise<void> {
-  if (!audio.value) return
-  audio.value.currentTime = seconds
+  const element = audio.value
+  if (!element) return
+  element.currentTime = seconds
   currentSeconds.value = seconds
+  await startPlayback(element)
+}
+
+async function refreshPrivateAudioLink(): Promise<void> {
+  const id = String(route.params.id)
+  if (!id || refreshingAudio.value) return
+  const position = audio.value?.currentTime ?? currentSeconds.value
+  refreshingAudio.value = true
   playbackError.value = false
+  audio.value?.pause()
+  playing.value = false
   try {
-    await audio.value.play()
+    const loadedSermon = await loadServerSermon(id)
+    if (String(route.params.id) !== id) return
+    if (loadedSermon.processing_status !== 'ready') {
+      applyLoadedSermon(loadedSermon, id)
+      return
+    }
+    sermon.value = loadedSermon
+    reflectionContent.value = loadedSermon.reflections[0]?.content ?? ''
+    audioReloadToken.value += 1
+    await nextTick()
+    const element = audio.value
+    if (!element) return
+    await waitForHtmlAudioCanPlay(element)
+    element.currentTime = position
+    currentSeconds.value = position
+    try {
+      await element.play()
+    } catch (error) {
+      if (isHtmlAudioAbortError(error)) return
+      if (error instanceof DOMException && error.name === 'NotAllowedError') return
+      throw error
+    }
   } catch {
     playbackError.value = true
+  } finally {
+    refreshingAudio.value = false
   }
 }
 
@@ -558,11 +604,7 @@ async function endTrackScrub(event: PointerEvent): Promise<void> {
   }
   seekFromPointerEvent(event)
   if (!audio.value) return
-  try {
-    await audio.value.play()
-  } catch {
-    playbackError.value = true
-  }
+  await startPlayback(audio.value)
 }
 
 function beginRegenerateConfirmation(): void {
@@ -943,6 +985,12 @@ async function load(id: string): Promise<void> {
   failedSermonId.value = ''
   sermon.value = undefined
   processingSermon.value = undefined
+  playing.value = false
+  currentSeconds.value = 0
+  playbackError.value = false
+  refreshingAudio.value = false
+  audioReloadToken.value += 1
+  audioVariant.value = 'processed'
   editingKind.value = undefined
   editMessage.value = ''
   editingTags.value = false
@@ -1573,6 +1621,7 @@ onBeforeUnmount(clearProcessingPoll)
 
       <section class="audio-player" aria-label="Sermon audio player">
         <audio
+          :key="`${activeAudioUrl}:${audioReloadToken}`"
           ref="audio"
           :src="activeAudioUrl"
           preload="metadata"
@@ -1644,9 +1693,22 @@ onBeforeUnmount(clearProcessingPoll)
           >
             <span :style="{ width: progressPercent }"></span>
           </div>
-          <small v-if="playbackError" class="audio-player__error">
-            Audio could not be played. Reopen this Sermon to refresh its private link.
-          </small>
+          <div v-if="playbackError" class="audio-player__error" role="alert">
+            <span>Audio could not be played. Refresh the private link and try again.</span>
+            <button
+              type="button"
+              class="audio-player__refresh"
+              :disabled="refreshingAudio"
+              aria-label="Refresh private audio link"
+              @click="refreshPrivateAudioLink"
+            >
+              <RefreshCw
+                :size="14"
+                :class="{ 'is-spinning': refreshingAudio }"
+                aria-hidden="true"
+              />
+            </button>
+          </div>
         </div>
       </section>
 
@@ -3422,11 +3484,41 @@ a.tag-chip:focus-visible {
 }
 
 .audio-player__error {
+  align-items: center;
   color: color-mix(in srgb, var(--color-vellum) 72%, var(--color-rubric));
-  display: block;
+  display: flex;
   font-family: var(--font-utility);
   font-size: 0.7rem;
+  gap: 0.45rem;
   margin-top: 0.65rem;
+}
+
+.audio-player__refresh {
+  align-items: center;
+  background: color-mix(in srgb, var(--color-vellum) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-vellum) 28%, transparent);
+  border-radius: 999px;
+  color: inherit;
+  display: inline-flex;
+  flex: 0 0 auto;
+  justify-content: center;
+  min-height: 1.7rem;
+  min-width: 1.7rem;
+  padding: 0.2rem;
+}
+
+.audio-player__refresh:disabled {
+  opacity: 0.7;
+}
+
+.audio-player__refresh .is-spinning {
+  animation: processing-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .audio-player__refresh .is-spinning {
+    animation: none;
+  }
 }
 
 .edit-message {
