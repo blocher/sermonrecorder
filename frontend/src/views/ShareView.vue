@@ -52,7 +52,7 @@ const playbackError = ref(false)
 const refreshingAudio = ref(false)
 const audioReloadToken = ref(0)
 type AudioVariant = 'processed' | 'original'
-const audioVariant = ref<AudioVariant>('processed')
+const audioVariant = ref<AudioVariant>('original')
 const scrubbing = ref(false)
 const activeSection = ref<SermonSection>('study')
 let robotsMeta: HTMLMetaElement | null = null
@@ -665,16 +665,8 @@ onBeforeUnmount(() => {
           v-if="sermon.has_playback_audio"
           class="share-player__variants"
           role="group"
-          aria-label="Audio version"
+          aria-label="Optional audio version"
         >
-          <button
-            type="button"
-            :aria-pressed="audioVariant === 'processed'"
-            :class="{ 'is-active': audioVariant === 'processed' }"
-            @click="setAudioVariant('processed')"
-          >
-            Processed
-          </button>
           <button
             type="button"
             :aria-pressed="audioVariant === 'original'"
@@ -682,6 +674,14 @@ onBeforeUnmount(() => {
             @click="setAudioVariant('original')"
           >
             Original
+          </button>
+          <button
+            type="button"
+            :aria-pressed="audioVariant === 'processed'"
+            :class="{ 'is-active': audioVariant === 'processed' }"
+            @click="setAudioVariant('processed')"
+          >
+            Isolated
           </button>
         </div>
       </div>

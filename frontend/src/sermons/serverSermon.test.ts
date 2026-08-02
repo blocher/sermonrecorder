@@ -62,7 +62,7 @@ const detail: ServerSermonDetail = {
   tag_suggestions: ['Grace'],
   consider_start_seconds: null,
   consider_end_seconds: null,
-  transcription_audio_source: 'playback',
+  transcription_audio_source: 'original',
   created_at: '2026-07-20T15:31:00Z',
   updated_at: '2026-07-20T15:35:00Z',
   audio_url: 'http://api.example.test/api/sermons/ready-sermon/audio/?token=signed',

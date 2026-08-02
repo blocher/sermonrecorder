@@ -280,7 +280,7 @@ class SpeechmaticsTranscriberTests(TestCase):
             ],
         )
 
-    def test_transcribe_uses_playback_audio_when_present(self):
+    def test_transcribe_uses_playback_audio_when_selected(self):
         sermon = self.sermon()
         sermon.playback_audio = SimpleUploadedFile(
             "playback.m4a",
@@ -289,11 +289,13 @@ class SpeechmaticsTranscriberTests(TestCase):
         )
         sermon.playback_audio_mime_type = "audio/mp4"
         sermon.playback_audio_size_bytes = 21
+        sermon.transcription_audio_source = Sermon.TranscriptionAudioSource.PLAYBACK
         sermon.save(
             update_fields=(
                 "playback_audio",
                 "playback_audio_mime_type",
                 "playback_audio_size_bytes",
+                "transcription_audio_source",
                 "updated_at",
             )
         )

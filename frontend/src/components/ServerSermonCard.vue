@@ -29,7 +29,7 @@ const playing = ref(false)
 const playbackError = ref(false)
 const confirmingDelete = ref(false)
 type AudioVariant = 'processed' | 'original'
-const audioVariant = ref<AudioVariant>('processed')
+const audioVariant = ref<AudioVariant>('original')
 
 function activeUrlFor(sermon: typeof props.sermon, variant: AudioVariant): string {
   if (!sermon.has_playback_audio) return sermon.audio_url
@@ -180,17 +180,8 @@ onBeforeUnmount(() => {
         v-if="sermon.has_playback_audio"
         class="server-sermon__variants"
         role="group"
-        aria-label="Audio version"
+        aria-label="Optional audio version"
       >
-        <button
-          type="button"
-          :aria-pressed="audioVariant === 'processed'"
-          :class="{ 'is-active': audioVariant === 'processed' }"
-          :disabled="busy"
-          @click="setAudioVariant('processed')"
-        >
-          Processed
-        </button>
         <button
           type="button"
           :aria-pressed="audioVariant === 'original'"
@@ -199,6 +190,15 @@ onBeforeUnmount(() => {
           @click="setAudioVariant('original')"
         >
           Original
+        </button>
+        <button
+          type="button"
+          :aria-pressed="audioVariant === 'processed'"
+          :class="{ 'is-active': audioVariant === 'processed' }"
+          :disabled="busy"
+          @click="setAudioVariant('processed')"
+        >
+          Isolated
         </button>
       </div>
       <div v-if="!confirmingDelete" class="server-sermon__actions">

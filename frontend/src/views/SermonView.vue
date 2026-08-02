@@ -109,7 +109,7 @@ const playbackError = ref(false)
 const refreshingAudio = ref(false)
 const audioReloadToken = ref(0)
 type AudioVariant = 'processed' | 'original'
-const audioVariant = ref<AudioVariant>('processed')
+const audioVariant = ref<AudioVariant>('original')
 const editingKind = ref<StudyArtifactKind>()
 const editContent = ref('')
 const savingEdit = ref(false)
@@ -144,7 +144,7 @@ const regeneratingMagisterium = ref(false)
 const regenerateMessage = ref('')
 const regenerateStartClock = ref('00:00')
 const regenerateEndClock = ref('00:00')
-const regenerateAudioSource = ref<'playback' | 'original'>('playback')
+const regenerateAudioSource = ref<'playback' | 'original'>('original')
 let magisteriumPollTimer: ReturnType<typeof setTimeout> | undefined
 const scrubbing = ref(false)
 const contextLoading = ref(false)
@@ -659,11 +659,9 @@ function openRegenerateAction(): void {
     current?.consider_end_seconds ?? current?.duration_seconds ?? 0,
   )
   regenerateAudioSource.value =
-    current?.has_playback_audio && current.transcription_audio_source === 'original'
-      ? 'original'
-      : current?.has_playback_audio
-        ? 'playback'
-        : 'original'
+    current?.has_playback_audio && current.transcription_audio_source === 'playback'
+      ? 'playback'
+      : 'original'
   actionsView.value = 'regenerate'
 }
 
@@ -1108,7 +1106,7 @@ async function load(id: string): Promise<void> {
   playbackError.value = false
   refreshingAudio.value = false
   audioReloadToken.value += 1
-  audioVariant.value = 'processed'
+  audioVariant.value = 'original'
   regeneratingMagisterium.value = false
   editingKind.value = undefined
   editMessage.value = ''
@@ -1706,19 +1704,10 @@ onBeforeUnmount(() => {
                 >
                   <p class="rubric-label">Audio to transcribe</p>
                   <p>
-                    Processed is usually clearer for pew recordings. Choose Original if isolation
-                    damaged the speech.
+                    Transcripts use the original recording by default. Isolation still runs in the
+                    background — choose Isolated only if ambient noise is drowning out the speech.
                   </p>
                   <div class="sermon-regenerate-source__choices" role="group" aria-label="Audio to transcribe">
-                    <button
-                      type="button"
-                      :aria-pressed="regenerateAudioSource === 'playback'"
-                      :class="{ 'is-active': regenerateAudioSource === 'playback' }"
-                      :disabled="regenerating || regeneratingMagisterium"
-                      @click="regenerateAudioSource = 'playback'"
-                    >
-                      Processed
-                    </button>
                     <button
                       type="button"
                       :aria-pressed="regenerateAudioSource === 'original'"
@@ -1727,6 +1716,15 @@ onBeforeUnmount(() => {
                       @click="regenerateAudioSource = 'original'"
                     >
                       Original
+                    </button>
+                    <button
+                      type="button"
+                      :aria-pressed="regenerateAudioSource === 'playback'"
+                      :class="{ 'is-active': regenerateAudioSource === 'playback' }"
+                      :disabled="regenerating || regeneratingMagisterium"
+                      @click="regenerateAudioSource = 'playback'"
+                    >
+                      Isolated
                     </button>
                   </div>
                 </div>
@@ -1860,16 +1858,8 @@ onBeforeUnmount(() => {
             v-if="sermon.has_playback_audio"
             class="audio-player__variants"
             role="group"
-            aria-label="Audio version"
+            aria-label="Optional audio version"
           >
-            <button
-              type="button"
-              :aria-pressed="audioVariant === 'processed'"
-              :class="{ 'is-active': audioVariant === 'processed' }"
-              @click="setAudioVariant('processed')"
-            >
-              Processed
-            </button>
             <button
               type="button"
               :aria-pressed="audioVariant === 'original'"
@@ -1877,6 +1867,14 @@ onBeforeUnmount(() => {
               @click="setAudioVariant('original')"
             >
               Original
+            </button>
+            <button
+              type="button"
+              :aria-pressed="audioVariant === 'processed'"
+              :class="{ 'is-active': audioVariant === 'processed' }"
+              @click="setAudioVariant('processed')"
+            >
+              Isolated
             </button>
           </div>
           <div

@@ -41,7 +41,7 @@ const uploadedSermon = {
   tag_suggestions: [] as string[],
   consider_start_seconds: null,
   consider_end_seconds: null,
-  transcription_audio_source: 'playback' as const,
+  transcription_audio_source: 'original' as const,
   created_at: '2026-07-20T15:31:00Z',
   updated_at: '2026-07-20T15:31:00Z',
 }

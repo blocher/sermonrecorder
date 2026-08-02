@@ -145,7 +145,7 @@ class PrivateSermonAudioTests(APITestCase):
         self.assertEqual(playback_response.status_code, status.HTTP_200_OK)
         self.assertEqual(b"".join(playback_response.streaming_content), playback)
         self.assertEqual(default_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(b"".join(default_response.streaming_content), playback)
+        self.assertEqual(b"".join(default_response.streaming_content), self.audio)
 
         self.sermon.playback_audio.delete(save=False)
         self.sermon.playback_audio = None

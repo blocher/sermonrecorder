@@ -114,7 +114,7 @@ class Sermon(models.Model):
         OTHER = "other", "Other"
 
     class TranscriptionAudioSource(models.TextChoices):
-        PLAYBACK = "playback", "Processed playback"
+        PLAYBACK = "playback", "Isolated playback"
         ORIGINAL = "original", "Original upload"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -190,7 +190,7 @@ class Sermon(models.Model):
     transcription_audio_source = models.CharField(
         max_length=20,
         choices=TranscriptionAudioSource,
-        default=TranscriptionAudioSource.PLAYBACK,
+        default=TranscriptionAudioSource.ORIGINAL,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -212,39 +212,32 @@ class Sermon(models.Model):
         return f"{self.owner} · {self.captured_at:%Y-%m-%d %H:%M}"
 
     def listening_audio_file(self):
-        """Prefer the derived playback copy when present; else the original upload."""
-        if self.playback_audio:
-            return self.playback_audio
+        """Serve the original upload by default; isolated playback is opt-in."""
         return self.audio
 
     def listening_audio_mime_type(self) -> str:
-        if self.playback_audio:
-            return self.playback_audio_mime_type or "audio/mp4"
         return self.audio_mime_type
 
     def listening_audio_size_bytes(self) -> int:
-        if self.playback_audio and self.playback_audio_size_bytes is not None:
-            return self.playback_audio_size_bytes
         return self.audio_size_bytes
 
     def original_audio_path(self) -> Path:
         return Path(self.audio.path)
 
     def transcription_audio_path(self) -> Path:
-        """Local path for ASR: processed playback by default, else original."""
+        """Local path for ASR: original by default, or isolated playback when chosen."""
         if (
             self.transcription_audio_source
-            == self.TranscriptionAudioSource.ORIGINAL
+            == self.TranscriptionAudioSource.PLAYBACK
+            and self.playback_audio
         ):
-            return self.original_audio_path()
-        if self.playback_audio:
             return Path(self.playback_audio.path)
         return self.original_audio_path()
 
     def transcription_audio_size_bytes(self) -> int:
         if (
             self.transcription_audio_source
-            != self.TranscriptionAudioSource.ORIGINAL
+            == self.TranscriptionAudioSource.PLAYBACK
             and self.playback_audio
             and self.playback_audio_size_bytes is not None
         ):

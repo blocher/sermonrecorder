@@ -384,7 +384,7 @@ class RegenerateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {
                     "transcription_audio_source": (
-                        "Processed playback audio is not available for this Sermon."
+                        "Isolated playback audio is not available for this Sermon."
                     )
                 }
             )
