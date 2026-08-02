@@ -59,7 +59,11 @@ const activeSection = ref<SermonSection>('study')
 let robotsMeta: HTMLMetaElement | null = null
 let previousRobotsContent: string | null = null
 
-const transcriptLayout = ref<'timeline' | 'reading'>('timeline')
+type TranscriptLayout = 'timeline' | 'reading'
+type TranscriptEdition = 'polished' | 'original'
+
+const transcriptLayout = ref<TranscriptLayout>('timeline')
+const transcriptEdition = ref<TranscriptEdition>('polished')
 
 const progress = computed(() =>
   sermon.value ? Math.min(currentSeconds.value / sermon.value.duration_seconds, 1) : 0,
@@ -78,6 +82,7 @@ const quiz = computed(() => parseQuiz(artifact('quiz')))
 const outlinePoints = computed(() => parseOutlinePoints(artifact('outline')))
 const relatedSources = computed(() => parseRelatedSources(artifact('related_sources')))
 const doctrinalReview = computed(() => parseDoctrinalReview(artifact('doctrinal_review')))
+const originalTranscriptSegments = computed(() => sermon.value?.transcript?.segments ?? [])
 const displayTranscriptSegments = computed(() => {
   const transcript = sermon.value?.transcript
   if (!transcript) return []
@@ -85,14 +90,21 @@ const displayTranscriptSegments = computed(() => {
     ? transcript.display_segments
     : transcript.segments
 })
-const readingTranscriptParagraphs = computed(() => {
-  const transcript = sermon.value?.transcript
-  const segments = displayTranscriptSegments.value
+const usingPolishedTranscript = computed(() => transcriptEdition.value === 'polished')
+const activeTranscriptSegments = computed(() =>
+  usingPolishedTranscript.value
+    ? displayTranscriptSegments.value
+    : originalTranscriptSegments.value,
+)
+
+function readingParagraphsFromSegments(
+  segments: { text: string }[],
+  fallbackText: string,
+): string[] {
   if (!segments.length) {
-    const text = (transcript?.display_text || transcript?.text || '').trim()
+    const text = fallbackText.trim()
     return text ? paragraphs(text) : []
   }
-
   const grouped: string[] = []
   let paragraph = ''
   let wordCount = 0
@@ -109,18 +121,43 @@ const readingTranscriptParagraphs = computed(() => {
   }
   if (paragraph) grouped.push(paragraph)
   return grouped
+}
+
+const readingTranscriptParagraphs = computed(() => {
+  const transcript = sermon.value?.transcript
+  if (usingPolishedTranscript.value) {
+    return readingParagraphsFromSegments(
+      displayTranscriptSegments.value,
+      transcript?.display_text || transcript?.text || '',
+    )
+  }
+  return readingParagraphsFromSegments(
+    originalTranscriptSegments.value,
+    transcript?.text || '',
+  )
 })
-const transcriptViewMeta = computed(() =>
-  transcriptLayout.value === 'timeline'
+const transcriptViewMeta = computed(() => {
+  if (transcriptLayout.value === 'timeline') {
+    return transcriptEdition.value === 'polished'
+      ? {
+          rubric: 'Polished for listening',
+          note: 'Tap a timestamp to listen from that moment.',
+        }
+      : {
+          rubric: 'As spoken',
+          note: 'Side talk removed; wording left as transcribed. Tap a timestamp to listen.',
+        }
+  }
+  return transcriptEdition.value === 'polished'
     ? {
-        rubric: 'Polished for listening',
-        note: 'Tap a timestamp to listen from that moment.',
-      }
-    : {
         rubric: 'Polished for reading',
         note: 'Gathered into longer paragraphs for easier reading.',
-      },
-)
+      }
+    : {
+        rubric: 'As spoken',
+        note: 'As transcribed, gathered into paragraphs for reading.',
+      }
+})
 const capturedDate = computed(() =>
   sermon.value
     ? new Intl.DateTimeFormat(undefined, {
@@ -664,29 +701,56 @@ onBeforeUnmount(() => {
           <section class="share-section share-transcript page-gather">
             <p class="rubric-label">{{ transcriptViewMeta.rubric }}</p>
             <h2>Follow the sermon</h2>
-            <div class="share-transcript-toggle" role="group" aria-label="Transcript layout">
-              <button
-                type="button"
-                :class="{ active: transcriptLayout === 'timeline' }"
-                :aria-pressed="transcriptLayout === 'timeline'"
-                @click="transcriptLayout = 'timeline'"
+            <div class="share-transcript-controls">
+              <div class="share-transcript-toggle" role="group" aria-label="Transcript layout">
+                <button
+                  type="button"
+                  :class="{ active: transcriptLayout === 'timeline' }"
+                  :aria-pressed="transcriptLayout === 'timeline'"
+                  @click="transcriptLayout = 'timeline'"
+                >
+                  Timeline
+                </button>
+                <button
+                  type="button"
+                  :class="{ active: transcriptLayout === 'reading' }"
+                  :aria-pressed="transcriptLayout === 'reading'"
+                  @click="transcriptLayout = 'reading'"
+                >
+                  Reading
+                </button>
+              </div>
+              <div
+                class="share-transcript-edition"
+                role="group"
+                aria-label="Transcript wording"
               >
-                Timeline
-              </button>
-              <button
-                type="button"
-                :class="{ active: transcriptLayout === 'reading' }"
-                :aria-pressed="transcriptLayout === 'reading'"
-                @click="transcriptLayout = 'reading'"
-              >
-                Reading
-              </button>
+                <span class="share-transcript-edition__label">Wording</span>
+                <div class="share-transcript-edition__toggle">
+                  <button
+                    type="button"
+                    :class="{ active: transcriptEdition === 'polished' }"
+                    :aria-pressed="transcriptEdition === 'polished'"
+                    @click="transcriptEdition = 'polished'"
+                  >
+                    Polished
+                  </button>
+                  <button
+                    type="button"
+                    :class="{ active: transcriptEdition === 'original' }"
+                    :aria-pressed="transcriptEdition === 'original'"
+                    @click="transcriptEdition = 'original'"
+                  >
+                    As spoken
+                  </button>
+                </div>
+              </div>
             </div>
             <p class="share-transcript__note">{{ transcriptViewMeta.note }}</p>
             <div v-if="transcriptLayout === 'timeline'" class="share-transcript__segments">
               <div
-                v-for="segment in displayTranscriptSegments"
-                :key="`${segment.start_seconds}-${segment.text}`"
+                v-for="segment in activeTranscriptSegments"
+                :key="`${transcriptEdition}-${segment.start_seconds}-${segment.text}`"
               >
                 <button
                   type="button"
@@ -1436,17 +1500,23 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
+.share-transcript-controls {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1.25rem;
+}
+
 .share-transcript-toggle {
   border: 1px solid var(--color-margin);
   display: grid;
   gap: 0.15rem;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 1.25rem;
   max-width: 18rem;
   padding: 0.2rem;
 }
 
-.share-transcript-toggle button {
+.share-transcript-toggle button,
+.share-transcript-edition__toggle button {
   background: transparent;
   border: 0;
   color: var(--color-ink-muted);
@@ -1459,9 +1529,46 @@ onBeforeUnmount(() => {
   padding: 0.4rem 0.65rem;
 }
 
-.share-transcript-toggle button.active {
+.share-transcript-toggle button.active,
+.share-transcript-edition__toggle button.active {
   background: var(--color-lapis);
   color: var(--color-vellum-light);
+}
+
+.share-transcript-edition {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 0.85rem;
+}
+
+.share-transcript-edition__label {
+  color: var(--color-ink-muted);
+  font-family: var(--font-utility);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.share-transcript-edition__toggle {
+  border: 1px solid color-mix(in srgb, var(--color-margin) 70%, transparent);
+  display: inline-grid;
+  gap: 0.1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0.15rem;
+}
+
+.share-transcript-edition__toggle button {
+  font-size: 0.72rem;
+  font-weight: 600;
+  min-height: 2rem;
+  min-width: 6.5rem;
+}
+
+.share-transcript-edition__toggle button.active {
+  background: color-mix(in srgb, var(--color-lapis) 14%, var(--color-vellum-light));
+  color: var(--color-lapis);
 }
 
 .share-transcript__note {

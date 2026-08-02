@@ -77,6 +77,14 @@ class SermonSharingTests(APITestCase):
                     "text": "The cleaned public Transcript.",
                 }
             ],
+            display_text="The polished public Transcript.",
+            display_segments=[
+                {
+                    "start_seconds": 0,
+                    "end_seconds": 3,
+                    "text": "The polished public Transcript.",
+                }
+            ],
         )
         StudyArtifact.objects.create(
             sermon=self.sermon,
@@ -192,6 +200,14 @@ class SermonSharingTests(APITestCase):
         self.assertEqual(
             response.data["transcript"]["text"],
             "The cleaned public Transcript.",
+        )
+        self.assertEqual(
+            response.data["transcript"]["display_text"],
+            "The polished public Transcript.",
+        )
+        self.assertEqual(
+            response.data["transcript"]["display_segments"][0]["text"],
+            "The polished public Transcript.",
         )
         self.assertNotIn("raw_segments", response.data["transcript"])
         artifact_contents = {
