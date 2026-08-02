@@ -19,6 +19,7 @@ import {
   describeHtmlAudioError,
   isHtmlAudioAbortError,
   playHtmlAudio,
+  prepareHtmlAudioBlobFallback,
   waitForHtmlAudioCanPlay,
 } from '../playback/htmlAudio'
 import { seekRatioFromClientX } from '../playback/seekTrack'
@@ -52,6 +53,7 @@ const playing = ref(false)
 const currentSeconds = ref(0)
 const playbackError = ref(false)
 const playbackErrorDetail = ref('')
+const preparingAudioFallback = ref(false)
 const refreshingAudio = ref(false)
 const audioReloadToken = ref(0)
 type AudioVariant = 'processed' | 'original'
@@ -60,6 +62,9 @@ const scrubbing = ref(false)
 const activeSection = ref<SermonSection>('study')
 let robotsMeta: HTMLMetaElement | null = null
 let previousRobotsContent: string | null = null
+let audioBlobUrl = ''
+let audioFallbackGeneration = 0
+let audioFallbackPromise: Promise<boolean> | undefined
 
 type TranscriptLayout = 'timeline' | 'reading'
 type TranscriptEdition = 'polished' | 'original'
@@ -221,6 +226,16 @@ async function startPlayback(element: HTMLAudioElement): Promise<void> {
   } catch (error) {
     if (isHtmlAudioAbortError(error)) return
     playing.value = false
+    if (await recoverRejectedAudio(element)) {
+      try {
+        await element.play()
+      } catch (playError) {
+        if (playError instanceof DOMException && playError.name === 'NotAllowedError') return
+        if (isHtmlAudioAbortError(playError)) return
+        markPlaybackError(element)
+      }
+      return
+    }
     markPlaybackError(element)
   }
 }
@@ -228,6 +243,74 @@ async function startPlayback(element: HTMLAudioElement): Promise<void> {
 function markPlaybackError(element = audio.value): void {
   playbackError.value = true
   playbackErrorDetail.value = element ? describeHtmlAudioError(element) : ''
+}
+
+function releaseAudioBlobFallback(): void {
+  audioFallbackGeneration += 1
+  audioFallbackPromise = undefined
+  preparingAudioFallback.value = false
+  if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl)
+  audioBlobUrl = ''
+}
+
+async function recoverRejectedAudio(element = audio.value): Promise<boolean> {
+  if (!element) return false
+  if (element.src.startsWith('blob:')) return false
+  if (
+    element.error?.code !== 4 ||
+    element.readyState !== HTMLMediaElement.HAVE_NOTHING ||
+    element.networkState !== HTMLMediaElement.NETWORK_NO_SOURCE
+  ) {
+    return false
+  }
+  if (audioFallbackPromise) return audioFallbackPromise
+
+  const sourceUrl = activeAudioUrl.value
+  if (!sourceUrl) return false
+  const generation = ++audioFallbackGeneration
+  preparingAudioFallback.value = true
+  playbackError.value = false
+  playbackErrorDetail.value = ''
+
+  const pending = (async () => {
+    try {
+      const objectUrl = await prepareHtmlAudioBlobFallback(element, sourceUrl)
+      if (
+        generation !== audioFallbackGeneration ||
+        sourceUrl !== activeAudioUrl.value ||
+        element !== audio.value
+      ) {
+        URL.revokeObjectURL(objectUrl)
+        return false
+      }
+      if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl)
+      audioBlobUrl = objectUrl
+      playbackError.value = false
+      playbackErrorDetail.value = ''
+      return true
+    } catch {
+      if (generation === audioFallbackGeneration) markPlaybackError(element)
+      return false
+    } finally {
+      if (generation === audioFallbackGeneration) {
+        preparingAudioFallback.value = false
+        audioFallbackPromise = undefined
+      }
+    }
+  })()
+  audioFallbackPromise = pending
+  return pending
+}
+
+function handleAudioError(): void {
+  const element = audio.value
+  if (!element || element.src.startsWith('blob:')) {
+    markPlaybackError(element)
+    return
+  }
+  void recoverRejectedAudio(element).then((recovered) => {
+    if (!recovered && !playbackError.value) markPlaybackError(element)
+  })
 }
 
 async function togglePlayback(): Promise<void> {
@@ -244,6 +327,7 @@ async function setAudioVariant(variant: AudioVariant): Promise<void> {
   if (audioVariant.value === variant) return
   const wasPlaying = playing.value
   const position = audio.value?.currentTime ?? currentSeconds.value
+  releaseAudioBlobFallback()
   audioVariant.value = variant
   playbackError.value = false
   playbackErrorDetail.value = ''
@@ -273,6 +357,7 @@ async function refreshSharedAudio(): Promise<void> {
   if (!token || refreshingAudio.value) return
   const position = audio.value?.currentTime ?? currentSeconds.value
   refreshingAudio.value = true
+  releaseAudioBlobFallback()
   playbackError.value = false
   playbackErrorDetail.value = ''
   audio.value?.pause()
@@ -372,6 +457,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  releaseAudioBlobFallback()
   document.documentElement.classList.remove('share-lock')
   document.body.classList.remove('share-lock')
   if (!robotsMeta) return
@@ -799,7 +885,7 @@ onBeforeUnmount(() => {
         @pause="playing = false"
         @ended="playing = false"
         @timeupdate="currentSeconds = scrubbing ? currentSeconds : (audio?.currentTime ?? 0)"
-        @error="markPlaybackError()"
+        @error="handleAudioError"
       ></audio>
       <button
         type="button"
@@ -812,8 +898,11 @@ onBeforeUnmount(() => {
       <div>
         <strong>{{ serverSermonTitle(sermon) }}</strong>
         <span v-if="!playbackError">
-          {{ playing ? 'Playing' : 'Listen' }} · {{ timestamp(currentSeconds) }} /
-          {{ serverSermonDuration(sermon.duration_seconds) }}
+          <template v-if="preparingAudioFallback">Preparing mobile playback…</template>
+          <template v-else>
+            {{ playing ? 'Playing' : 'Listen' }} · {{ timestamp(currentSeconds) }} /
+            {{ serverSermonDuration(sermon.duration_seconds) }}
+          </template>
         </span>
         <div v-else class="share-player__error" role="alert">
           <span>

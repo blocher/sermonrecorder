@@ -56,6 +56,49 @@ export async function waitForHtmlAudioCanPlay(element: HTMLAudioElement): Promis
 }
 
 /**
+ * Download a remote media source and prepare it as a local Blob URL.
+ *
+ * iOS WebKit can reject an otherwise valid ranged M4A URL before decoding it
+ * (MEDIA_ERR_SRC_NOT_SUPPORTED). A local Blob bypasses that remote media loader
+ * while preserving the same authenticated/capability URL and audio bytes.
+ */
+export async function prepareHtmlAudioBlobFallback(
+  element: HTMLAudioElement,
+  sourceUrl: string,
+): Promise<string> {
+  const response = await fetch(sourceUrl, {
+    cache: 'no-store',
+    credentials: 'omit',
+    mode: 'cors',
+  })
+  if (!response.ok) {
+    throw new Error(`Audio download failed (${response.status}).`)
+  }
+
+  const downloaded = await response.blob()
+  if (!downloaded.size) {
+    throw new Error('Audio download was empty.')
+  }
+  const contentType =
+    downloaded.type || response.headers.get('content-type')?.split(';')[0] || 'audio/mp4'
+  const blob =
+    downloaded.type === contentType
+      ? downloaded
+      : new Blob([downloaded], { type: contentType })
+  const objectUrl = URL.createObjectURL(blob)
+
+  element.src = objectUrl
+  element.load()
+  try {
+    await waitForHtmlAudioCanPlay(element)
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl)
+    throw error
+  }
+  return objectUrl
+}
+
+/**
  * Start playback on mobile-safe terms: kick a load when the element is cold,
  * prefer an immediate play() while user activation is fresh, then retry once
  * after canplay if the first attempt lost a readiness race.

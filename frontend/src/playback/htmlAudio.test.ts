@@ -3,6 +3,7 @@ import {
   describeHtmlAudioError,
   isHtmlAudioAbortError,
   playHtmlAudio,
+  prepareHtmlAudioBlobFallback,
   waitForHtmlAudioCanPlay,
 } from './htmlAudio'
 
@@ -11,6 +12,7 @@ function fakeAudio(readyState = 0) {
   const element = {
     readyState,
     currentTime: 0,
+    src: '',
     networkState: 0,
     error: null as MediaError | null,
     load: vi.fn(function load(this: { currentTime: number; networkState: number }) {
@@ -54,6 +56,31 @@ describe('htmlAudio', () => {
     expect(describeHtmlAudioError(element as unknown as HTMLAudioElement)).toBe(
       'This audio source is not supported (media 4, ready 0, network 3)',
     )
+  })
+
+  it('downloads rejected remote audio and prepares a local Blob URL', async () => {
+    const element = fakeAudio(0)
+    const objectUrl = 'blob:https://pewcorder.test/mobile-audio'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(new Blob(['audio'], { type: 'audio/mp4' }))),
+    )
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue(objectUrl)
+
+    const pending = prepareHtmlAudioBlobFallback(
+      element as unknown as HTMLAudioElement,
+      'https://api.example.test/audio/',
+    )
+    await vi.waitFor(() => expect(element.src).toBe(objectUrl))
+    element.emit('canplay')
+
+    await expect(pending).resolves.toBe(objectUrl)
+    expect(fetch).toHaveBeenCalledWith('https://api.example.test/audio/', {
+      cache: 'no-store',
+      credentials: 'omit',
+      mode: 'cors',
+    })
+    expect(element.load).toHaveBeenCalledOnce()
   })
 
   it('resolves immediately when the element already has current data', async () => {
