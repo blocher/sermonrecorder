@@ -1,5 +1,5 @@
 from tempfile import TemporaryDirectory
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
@@ -244,6 +244,16 @@ class SermonSharingTests(APITestCase):
             f"/api/shares/{quote(token, safe='')}/audio/",
             response.data["audio_url"],
         )
+        audio_params = parse_qs(urlsplit(response.data["audio_url"]).query)
+        original_params = parse_qs(
+            urlsplit(response.data["original_audio_url"]).query
+        )
+        self.assertEqual(
+            audio_params["v"],
+            [str(int(self.sermon.updated_at.timestamp()))],
+        )
+        self.assertEqual(original_params["variant"], ["original"])
+        self.assertEqual(original_params["v"], audio_params["v"])
         self.assertEqual(response["Cache-Control"], "private, no-store")
         self.assertNotIn("reflections", response.data)
         self.assertNotIn("This response is private.", str(response.data))

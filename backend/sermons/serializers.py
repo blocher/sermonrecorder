@@ -677,32 +677,39 @@ class PublicSharedSermonSerializer(serializers.ModelSerializer):
             "updated_at",
         )
 
-    def _shared_audio_url(self, *, variant: str | None = None) -> str:
+    def _shared_audio_url(
+        self,
+        sermon: Sermon,
+        *,
+        variant: str | None = None,
+    ) -> str:
         token = self.context.get("share_token")
         if not token:
             return ""
         # Percent-encode the signed token so iOS WebViews do not mishandle ":".
         path = f"/api/shares/{quote(str(token), safe='')}/audio/"
+        params = {"v": str(int(sermon.updated_at.timestamp()))}
         if variant:
-            path = f"{path}?{urlencode({'variant': variant})}"
+            params["variant"] = variant
+        path = f"{path}?{urlencode(params)}"
         request = self.context.get("request")
         if request is not None:
             return request.build_absolute_uri(path)
         return f"{settings.PEWCORDER_PUBLIC_WEB_URL.rstrip('/')}{path}"
 
     def get_audio_url(self, sermon: Sermon) -> str:
-        return self._shared_audio_url()
+        return self._shared_audio_url(sermon)
 
     def get_has_playback_audio(self, sermon: Sermon) -> bool:
         return bool(sermon.playback_audio)
 
     def get_original_audio_url(self, sermon: Sermon) -> str:
-        return self._shared_audio_url(variant="original")
+        return self._shared_audio_url(sermon, variant="original")
 
     def get_playback_audio_url(self, sermon: Sermon) -> str:
         if not sermon.playback_audio:
             return ""
-        return self._shared_audio_url(variant="playback")
+        return self._shared_audio_url(sermon, variant="playback")
 
     def get_tag_suggestions(self, sermon: Sermon) -> list[str]:
         return [suggestion.name for suggestion in sermon.tag_suggestions.all()]
