@@ -10,6 +10,18 @@ export function isHtmlAudioAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
+export function describeHtmlAudioError(element: HTMLAudioElement): string {
+  const code = element.error?.code ?? 0
+  const label =
+    {
+      1: 'Playback was aborted',
+      2: 'A network error interrupted audio',
+      3: 'The audio could not be decoded',
+      4: 'This audio source is not supported',
+    }[code] ?? 'The audio element failed'
+  return `${label} (media ${code}, ready ${element.readyState}, network ${element.networkState})`
+}
+
 function restoreCurrentTime(element: HTMLAudioElement, seconds: number): void {
   if (!(seconds > 0) || !Number.isFinite(seconds)) return
   if (Math.abs(element.currentTime - seconds) < 0.05) return

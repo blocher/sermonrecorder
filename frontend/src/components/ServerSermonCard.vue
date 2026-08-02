@@ -246,7 +246,6 @@ onBeforeUnmount(() => {
       v-if="playbackUrl"
       ref="audio"
       preload="metadata"
-      crossorigin="anonymous"
       :src="playbackUrl"
       @play="playing = true"
       @pause="playing = false"

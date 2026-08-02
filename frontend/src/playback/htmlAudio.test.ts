@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  describeHtmlAudioError,
   isHtmlAudioAbortError,
   playHtmlAudio,
   waitForHtmlAudioCanPlay,
@@ -43,6 +44,16 @@ describe('htmlAudio', () => {
   it('detects AbortError from play interruptions', () => {
     expect(isHtmlAudioAbortError(new DOMException('interrupted', 'AbortError'))).toBe(true)
     expect(isHtmlAudioAbortError(new Error('nope'))).toBe(false)
+  })
+
+  it('describes media failures with browser state', () => {
+    const element = fakeAudio(0)
+    element.networkState = 3
+    element.error = { code: 4 } as MediaError
+
+    expect(describeHtmlAudioError(element as unknown as HTMLAudioElement)).toBe(
+      'This audio source is not supported (media 4, ready 0, network 3)',
+    )
   })
 
   it('resolves immediately when the element already has current data', async () => {

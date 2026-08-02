@@ -29,6 +29,7 @@ import SermonSectionTabs from '../components/SermonSectionTabs.vue'
 import { useAuth } from '../auth/useAuth'
 import { recordingCapturePlace } from '../location/recordingCapturePlace'
 import {
+  describeHtmlAudioError,
   isHtmlAudioAbortError,
   playHtmlAudio,
   waitForHtmlAudioCanPlay,
@@ -110,6 +111,7 @@ const audio = ref<HTMLAudioElement>()
 const playing = ref(false)
 const currentSeconds = ref(0)
 const playbackError = ref(false)
+const playbackErrorDetail = ref('')
 const refreshingAudio = ref(false)
 const audioReloadToken = ref(0)
 type AudioVariant = 'processed' | 'original'
@@ -582,13 +584,19 @@ async function selectSection(section: SermonSection): Promise<void> {
 
 async function startPlayback(element: HTMLAudioElement): Promise<void> {
   playbackError.value = false
+  playbackErrorDetail.value = ''
   try {
     await playHtmlAudio(element)
   } catch (error) {
     if (isHtmlAudioAbortError(error)) return
     playing.value = false
-    playbackError.value = true
+    markPlaybackError(element)
   }
+}
+
+function markPlaybackError(element = audio.value): void {
+  playbackError.value = true
+  playbackErrorDetail.value = element ? describeHtmlAudioError(element) : ''
 }
 
 async function togglePlayback(): Promise<void> {
@@ -608,6 +616,7 @@ async function setAudioVariant(variant: AudioVariant): Promise<void> {
   const position = element?.currentTime ?? currentSeconds.value
   audioVariant.value = variant
   playbackError.value = false
+  playbackErrorDetail.value = ''
   audioReloadToken.value += 1
   await nextTick()
   const next = audio.value
@@ -635,6 +644,7 @@ async function refreshPrivateAudioLink(): Promise<void> {
   const position = audio.value?.currentTime ?? currentSeconds.value
   refreshingAudio.value = true
   playbackError.value = false
+  playbackErrorDetail.value = ''
   audio.value?.pause()
   playing.value = false
   try {
@@ -661,7 +671,7 @@ async function refreshPrivateAudioLink(): Promise<void> {
       throw error
     }
   } catch {
-    playbackError.value = true
+    markPlaybackError()
   } finally {
     refreshingAudio.value = false
   }
@@ -2820,13 +2830,12 @@ onBeforeUnmount(() => {
             :key="`${activeAudioUrl}:${audioReloadToken}`"
             ref="audio"
             :src="activeAudioUrl"
-            crossorigin="anonymous"
             preload="metadata"
             @play="playing = true"
             @pause="playing = false"
             @ended="playing = false"
             @timeupdate="currentSeconds = scrubbing ? currentSeconds : (audio?.currentTime ?? 0)"
-            @error="playbackError = true"
+            @error="markPlaybackError()"
           ></audio>
           <button
             class="audio-player__play"
@@ -2844,7 +2853,10 @@ onBeforeUnmount(() => {
               {{ serverSermonDuration(sermon.duration_seconds) }}
             </span>
             <div v-else class="audio-player__error" role="alert">
-              <span>Audio could not be played. Refresh the private link and try again.</span>
+              <span>
+                Audio could not be played. Refresh the private link and try again.
+                <small v-if="playbackErrorDetail">{{ playbackErrorDetail }}</small>
+              </span>
               <button
                 type="button"
                 class="audio-player__refresh"
@@ -3958,6 +3970,11 @@ a.tag-chip:focus-visible {
   font-size: 0.7rem;
   gap: 0.4rem;
   margin-top: 0.2rem;
+}
+
+.audio-player__error small {
+  display: block;
+  opacity: 0.8;
 }
 
 .audio-player__refresh {
