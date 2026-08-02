@@ -15,7 +15,10 @@ from .models import Sermon
 class PrivateSermonAudioTests(APITestCase):
     def setUp(self):
         self.media_directory = TemporaryDirectory()
-        self.settings_override = override_settings(MEDIA_ROOT=self.media_directory.name)
+        self.settings_override = override_settings(
+            MEDIA_ROOT=self.media_directory.name,
+            SERMON_AUDIO_X_ACCEL_PREFIX="",
+        )
         self.settings_override.enable()
         self.addCleanup(self.settings_override.disable)
         self.addCleanup(self.media_directory.cleanup)
@@ -92,7 +95,7 @@ class PrivateSermonAudioTests(APITestCase):
         self.assertEqual(response["Content-Type"], "audio/mp4")
         self.assertEqual(response["Content-Length"], str(len(self.audio)))
 
-    def test_tiny_prefix_range_is_expanded_for_ios_media_probes(self):
+    def test_tiny_prefix_range_returns_exactly_the_requested_bytes(self):
         parsed = urlsplit(self.audio_url())
         self.client.force_authenticate(user=None)
 
@@ -103,11 +106,32 @@ class PrivateSermonAudioTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_206_PARTIAL_CONTENT)
         body = b"".join(response.streaming_content)
-        self.assertEqual(body, self.audio)
+        self.assertEqual(body, self.audio[:2])
         self.assertEqual(
             response["Content-Range"],
-            f"bytes 0-{len(self.audio) - 1}/{len(self.audio)}",
+            f"bytes 0-1/{len(self.audio)}",
         )
+
+    @override_settings(
+        SERMON_AUDIO_X_ACCEL_PREFIX="/_protected_sermon_audio/",
+    )
+    def test_production_delegates_authorized_audio_to_nginx(self):
+        parsed = urlsplit(self.audio_url())
+        self.client.force_authenticate(user=None)
+
+        response = self.client.get(
+            f"{parsed.path}?{parsed.query}",
+            HTTP_RANGE="bytes=0-1",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.content, b"")
+        self.assertEqual(
+            response["X-Accel-Redirect"],
+            f"/_protected_sermon_audio/{self.sermon.audio.name}",
+        )
+        self.assertEqual(response["Accept-Ranges"], "bytes")
+        self.assertEqual(response["Content-Type"], "audio/mp4")
 
     def test_invalid_or_mismatched_audio_capabilities_are_rejected(self):
         parsed = urlsplit(self.audio_url())

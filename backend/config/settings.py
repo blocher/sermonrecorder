@@ -288,6 +288,10 @@ CHURCH_SUGGESTION_LIMIT = int(os.environ.get("CHURCH_SUGGESTION_LIMIT", "5"))
 SERMON_AUDIO_URL_MAX_AGE_SECONDS = int(
     os.environ.get("SERMON_AUDIO_URL_MAX_AGE_SECONDS", str(4 * 60 * 60))
 )
+SERMON_AUDIO_X_ACCEL_PREFIX = os.environ.get(
+    "SERMON_AUDIO_X_ACCEL_PREFIX",
+    "",
+).strip()
 PEWCORDER_PUBLIC_WEB_URL = os.environ.get(
     "PEWCORDER_PUBLIC_WEB_URL",
     "http://127.0.0.1:5173",
