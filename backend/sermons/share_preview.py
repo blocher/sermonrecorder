@@ -72,25 +72,45 @@ def _truncate(text: str, max_chars: int) -> str:
     return f"{clipped}…"
 
 
-def _sermon_title(sermon: Sermon) -> str:
-    title = (sermon.title or "").strip()
-    if title:
-        return title
-    return f"Sermon · {_format_share_date(sermon.captured_at)}"
+def _sermon_name(sermon: Sermon) -> str:
+    return (sermon.title or "").strip()
+
+
+def _share_preview_title(sermon: Sermon) -> str:
+    """Build 'NAME - a sermon by X at Y on Z', omitting unavailable segments."""
+    name = _sermon_name(sermon)
+    preacher = (
+        sermon.preacher.name.strip()
+        if sermon.preacher and sermon.preacher.name.strip()
+        else ""
+    )
+    church = (
+        sermon.church.name.strip()
+        if sermon.church and sermon.church.name.strip()
+        else ""
+    )
+    date_label = _format_share_date(sermon.captured_at)
+
+    clause_bits: list[str] = ["a sermon"]
+    if preacher:
+        clause_bits.append(f"by {preacher}")
+    if church:
+        clause_bits.append(f"at {church}")
+    if date_label:
+        clause_bits.append(f"on {date_label}")
+    clause = " ".join(clause_bits)
+
+    if name:
+        return f"{name} - {clause}"
+    return clause[0].upper() + clause[1:]
 
 
 def build_share_preview(sermon: Sermon) -> SharePreview:
-    title = _sermon_title(sermon)
-    date_label = _format_share_date(sermon.captured_at)
+    title = _share_preview_title(sermon)
+    name = _sermon_name(sermon) or "Sermon"
 
-    identity_bits: list[str] = []
-    if sermon.preacher and sermon.preacher.name.strip():
-        identity_bits.append(sermon.preacher.name.strip())
-    identity_bits.append(date_label)
-    if sermon.church and sermon.church.name.strip():
-        identity_bits.append(sermon.church.name.strip())
-
-    parts = [" · ".join(identity_bits)]
+    # Title already carries preacher / church / date; description adds the rest.
+    parts: list[str] = []
     liturgical = (sermon.liturgical_day or "").strip()
     if liturgical:
         parts.append(liturgical)
@@ -99,12 +119,15 @@ def build_share_preview(sermon: Sermon) -> SharePreview:
     if summary:
         parts.append(summary)
 
+    if not parts:
+        parts.append("Listen on Pewcorder")
+
     # Single-line descriptions unfurl more reliably in iMessage and Slack.
     description = _truncate(" — ".join(parts), _DESCRIPTION_MAX_CHARS)
     return SharePreview(
         title=title,
         description=description,
-        page_title=f"{title} · Pewcorder",
+        page_title=f"{name} · Pewcorder",
     )
 
 

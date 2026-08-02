@@ -48,25 +48,44 @@ class BuildSharePreviewTests(TestCase):
         )
 
     def test_preview_includes_title_preacher_date_and_summary(self):
-        with override_settings(TIME_ZONE="America/New_York"):
+        with override_settings(TIME_ZONE="UTC"):
             preview = build_share_preview(self.sermon)
 
-        self.assertEqual(preview.title, "The Banquet Table")
-        self.assertIn("Rev. Miriam Cho", preview.description)
-        self.assertIn("Jan 15, 2026", preview.description)
-        self.assertIn("Grace Parish", preview.description)
+        self.assertEqual(
+            preview.title,
+            (
+                "The Banquet Table - a sermon by Rev. Miriam Cho "
+                "at Grace Parish on Jan 15, 2026"
+            ),
+        )
         self.assertIn("Second Sunday after Epiphany", preview.description)
         self.assertIn("Grace sets a table", preview.description)
         self.assertEqual(preview.page_title, "The Banquet Table · Pewcorder")
 
-    def test_untitled_sermon_falls_back_to_dated_label(self):
+    def test_untitled_sermon_omits_name_segment(self):
         self.sermon.title = ""
         self.sermon.save(update_fields=["title"])
 
         with override_settings(TIME_ZONE="UTC"):
             preview = build_share_preview(self.sermon)
 
-        self.assertEqual(preview.title, "Sermon · Jan 15, 2026")
+        self.assertEqual(
+            preview.title,
+            "A sermon by Rev. Miriam Cho at Grace Parish on Jan 15, 2026",
+        )
+
+    def test_missing_preacher_and_church_are_omitted(self):
+        self.sermon.preacher = None
+        self.sermon.church = None
+        self.sermon.save(update_fields=["preacher", "church"])
+
+        with override_settings(TIME_ZONE="UTC"):
+            preview = build_share_preview(self.sermon)
+
+        self.assertEqual(
+            preview.title,
+            "The Banquet Table - a sermon on Jan 15, 2026",
+        )
 
     def test_long_summary_is_truncated(self):
         StudyArtifact.objects.filter(
@@ -174,8 +193,8 @@ class SharedSermonPageTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "text/html; charset=utf-8")
         body = response.content.decode()
-        self.assertIn('property="og:title" content="The Banquet Table"', body)
-        self.assertIn("Rev. Miriam Cho", body)
+        self.assertIn("a sermon by Rev. Miriam Cho", body)
+        self.assertIn('property="og:title" content="The Banquet Table - a sermon', body)
         self.assertIn("Grace sets a table before strangers.", body)
         self.assertIn(
             'property="og:image" content="https://listen.example.test/og-share.png"',
@@ -200,5 +219,8 @@ class SharedSermonPageTests(APITestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.content.decode()
-        self.assertIn('property="og:title" content="The Banquet Table"', body)
+        self.assertIn(
+            'property="og:title" content="The Banquet Table - a sermon',
+            body,
+        )
         self.assertIn("Opening shared sermon", body)
