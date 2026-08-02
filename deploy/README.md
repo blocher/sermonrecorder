@@ -7,6 +7,8 @@
 | `https://api.pewcorder.benlocher.com` | Django API + admin (gunicorn `127.0.0.1:8003`) |
 | `https://pewcorder.benlocher.com` | Vue SPA |
 
+Share URLs (`/share/<token>`) on the SPA host are proxied to Django so crawlers (iMessage, Slack, etc.) receive Open Graph tags with sermon title, date, preacher, and short summary. Re-copy `deploy/nginx/pewcorder.benlocher.com.conf` into both the HTTP and Certbot HTTPS server blocks when changing that proxy.
+
 ## DNS (required before Certbot / public HTTPS)
 
 Managed in Squarespace Domains (formerly Google Domains) for `benlocher.com`.

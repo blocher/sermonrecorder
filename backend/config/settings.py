@@ -280,6 +280,12 @@ PEWCORDER_PUBLIC_WEB_URL = os.environ.get(
     "PEWCORDER_PUBLIC_WEB_URL",
     "http://127.0.0.1:5173",
 )
+PEWCORDER_WEB_DIST_DIR = Path(
+    os.environ.get(
+        "PEWCORDER_WEB_DIST_DIR",
+        "/var/www/pewcorder.benlocher.com/dist",
+    )
+)
 EMAIL_BACKEND = os.environ.get(
     "DJANGO_EMAIL_BACKEND",
     "django.core.mail.backends.console.EmailBackend",

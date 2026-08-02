@@ -19,6 +19,8 @@ from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
 
+from sermons.sharing import shared_sermon_page
+
 
 def health(request):
     return JsonResponse({"status": "ok"})
@@ -30,4 +32,6 @@ urlpatterns = [
     path("api/auth/", include("accounts.urls")),
     path("api/sermons/", include("sermons.urls")),
     path("api/shares/", include("sermons.share_urls")),
+    # Proxied from the SPA host so crawlers receive Open Graph tags.
+    path("share/<str:token>", shared_sermon_page, name="shared-sermon-page"),
 ]

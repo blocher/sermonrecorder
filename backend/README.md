@@ -34,6 +34,8 @@ Ready detail responses contain an owner-issued, four-hour audio capability URL r
 
 Ready Sermons can also publish one active unlisted Share Link. The public payload includes audio, the cleaned Transcript, Study artifacts, Scripture references, and Tag suggestions, but never Reflections or private-library relationships. Revocation immediately disables both the page and its range-capable audio endpoint. Set `PEWCORDER_PUBLIC_WEB_URL` to the deployed Vue application's HTTPS origin so native apps share a reachable web URL.
 
+The SPA host proxies `/share/<token>` to Django (`shared_sermon_page`), which injects Open Graph / Twitter meta tags (title, preacher, date, church, short summary, and `og-share.png`) into the built SPA shell from `PEWCORDER_WEB_DIST_DIR` so iMessage and other unfurls show a useful preview.
+
 Congregants can keep an owner-private list of Saved Recipients and send each recipient an individual HTML/text handout linking to that Share page. Configure `DJANGO_EMAIL_BACKEND`, `DJANGO_DEFAULT_FROM_EMAIL`, and the provider-specific SMTP or transactional-email environment in production; the development default prints messages to the console.
 
 Churches and Preachers are reusable, owner-private personal-book records. A Sermon can reference either and can store a standard Occasion kind plus an optional free-text Liturgical day. These fields are optional, editable after capture, and included in owner, Share-page, and email projections without becoming prerequisites for recording.

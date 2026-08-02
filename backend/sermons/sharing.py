@@ -18,6 +18,11 @@ from rest_framework.views import APIView
 from .models import Sermon, ShareLink
 from .private_audio import sermon_audio_response
 from .serializers import PublicSharedSermonSerializer
+from .share_preview import (
+    build_share_preview,
+    render_share_preview_html,
+    share_page_canonical_url,
+)
 
 SHARE_TOKEN_SALT = "pewcorder.unlisted-sermon-share"
 
@@ -136,4 +141,36 @@ def shared_sermon_audio(request: HttpRequest, token: str) -> HttpResponse:
         return HttpResponse(status=404)
     response = sermon_audio_response(request, share_link.sermon)
     response["Cache-Control"] = "private, no-store"
+    return response
+
+
+@require_GET
+def shared_sermon_page(request: HttpRequest, token: str) -> HttpResponse:
+    """Serve the SPA shell with sermon-specific Open Graph tags for link unfurls."""
+    try:
+        share_link = _active_share_link(token)
+    except (Http404, NotFound):
+        return HttpResponse(
+            (
+                "<!doctype html><html lang='en'><head>"
+                "<meta charset='UTF-8' />"
+                "<title>Shared sermon unavailable · Pewcorder</title>"
+                "<meta name='robots' content='noindex' />"
+                "</head><body><p>This shared sermon is unavailable.</p></body></html>"
+            ),
+            status=404,
+            content_type="text/html; charset=utf-8",
+        )
+
+    preview = build_share_preview(share_link.sermon)
+    canonical_url = share_page_canonical_url(token)
+    response = HttpResponse(
+        render_share_preview_html(
+            preview=preview,
+            canonical_url=canonical_url,
+        ),
+        content_type="text/html; charset=utf-8",
+    )
+    # Allow brief CDN/crawler caching; sermon metadata rarely changes mid-share.
+    response["Cache-Control"] = "public, max-age=300"
     return response
