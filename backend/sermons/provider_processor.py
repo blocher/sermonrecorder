@@ -4,6 +4,7 @@ from django.conf import settings
 from django.utils.module_loading import import_string
 
 from .audio_duration import probe_audio_duration_seconds
+from .audio_faststart import ensure_sermon_listen_audio_faststart
 from .magisterium_enrichment import (
     MagisteriumArtifacts,
     MagisteriumEnricher,
@@ -87,8 +88,11 @@ class ProviderSermonProcessor:
         self.magisterium_enricher = magisterium_enricher or MagisteriumEnricher()
 
     def process(self, sermon: Sermon) -> ProcessedSermon:
+        # iOS Safari cannot play progressive M4A when moov is after mdat.
+        ensure_sermon_listen_audio_faststart(sermon)
         isolate_sermon_voice(sermon)
         normalize_sermon_playback_audio(sermon)
+        ensure_sermon_listen_audio_faststart(sermon)
         _sync_duration_from_audio(sermon)
         transcript = self.transcriber.transcribe(sermon)
         # Study / Magisterium prompts must use the unpolished intentional-service text.

@@ -46,6 +46,7 @@ class PlaybackAudioTests(TestCase):
 
         def fake_ffmpeg(command: tuple[str, ...]) -> None:
             self.assertIn(PLAYBACK_AUDIO_FILTER, command)
+            self.assertIn("+faststart", command)
             Path(command[-1]).write_bytes(b"louder-normalized-audio")
 
         with (

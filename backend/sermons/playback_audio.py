@@ -87,6 +87,8 @@ def normalize_sermon_playback_audio(
                 "aac",
                 "-b:a",
                 PLAYBACK_AUDIO_BITRATE,
+                "-movflags",
+                "+faststart",
                 str(temp_path),
             )
         )

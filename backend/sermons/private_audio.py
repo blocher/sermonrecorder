@@ -10,7 +10,7 @@ from django.http import FileResponse, HttpRequest, HttpResponse, StreamingHttpRe
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils.http import content_disposition_header
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_http_methods
 
 from .models import Sermon
 
@@ -135,7 +135,7 @@ def sermon_audio_response(request: HttpRequest, sermon: Sermon) -> HttpResponse:
     return response
 
 
-@require_GET
+@require_http_methods(["GET", "HEAD"])
 def sermon_private_audio(request: HttpRequest, sermon_id: UUID) -> HttpResponse:
     token = request.GET.get("token", "")
     try:

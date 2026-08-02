@@ -179,6 +179,8 @@ def _encode_playback_m4a(source_path: Path, destination_path: Path) -> None:
         "aac",
         "-b:a",
         "128k",
+        "-movflags",
+        "+faststart",
         str(destination_path),
     )
     try:
