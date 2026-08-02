@@ -387,9 +387,20 @@ onBeforeUnmount(() => {
             <div class="share-register__entry">
               <dt><BookOpenText :size="15" aria-hidden="true" />Occasion</dt>
               <dd>
-                <strong :class="{ 'is-unset': !sermon.occasion_kind }">
-                  {{ occasionLabel(sermon.occasion_kind) || 'Not specified' }}
+                <strong
+                  :class="{
+                    'is-unset': !sermon.occasion_kind && !sermon.liturgical_day,
+                  }"
+                >
+                  {{
+                    occasionLabel(sermon.occasion_kind) ||
+                    sermon.liturgical_day ||
+                    'Not specified'
+                  }}
                 </strong>
+                <small v-if="sermon.occasion_kind && sermon.liturgical_day">{{
+                  sermon.liturgical_day
+                }}</small>
               </dd>
             </div>
             <div class="share-register__entry">
