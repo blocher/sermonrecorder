@@ -12,6 +12,8 @@ import {
   UserRound,
 } from '@lucide/vue'
 import BrandMark from '../components/BrandMark.vue'
+import DoctrinalFindingsList from '../components/DoctrinalFindingsList.vue'
+import RelatedSourcesList from '../components/RelatedSourcesList.vue'
 import SermonSectionTabs from '../components/SermonSectionTabs.vue'
 import {
   isHtmlAudioAbortError,
@@ -434,27 +436,10 @@ onBeforeUnmount(() => {
             <p class="share-feedback__note">
               Sources suggested via Magisterium AI Search. Confirm relevance before relying on them.
             </p>
-            <div v-if="relatedSources.length" class="share-source-list">
-              <article v-for="source in relatedSources" :key="`${source.title}-${source.year}`">
-                <h3>
-                  <a
-                    v-if="source.source_url"
-                    :href="source.source_url"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {{ source.title }}
-                  </a>
-                  <template v-else>{{ source.title }}</template>
-                </h3>
-                <p v-if="source.author || source.year" class="share-source-list__meta">
-                  <span v-if="source.author">{{ source.author }}</span>
-                  <span v-if="source.author && source.year"> · </span>
-                  <span v-if="source.year">{{ source.year }}</span>
-                </p>
-                <p v-if="source.excerpt">{{ source.excerpt }}</p>
-              </article>
-            </div>
+            <RelatedSourcesList
+              v-if="relatedSources.length"
+              :sources="relatedSources"
+            />
             <p v-else class="share-feedback__note">No related sources were suggested.</p>
           </section>
         </template>
@@ -486,54 +471,10 @@ onBeforeUnmount(() => {
             <p class="share-feedback__note">
               Advisory only. Verify every judgment against Scripture and the Church’s Magisterium.
             </p>
-            <div v-if="doctrinalReview.findings.length" class="share-doctrinal-list">
-              <article
-                v-for="finding in doctrinalReview.findings"
-                :key="finding.assertion"
-              >
-                <p class="share-doctrinal-list__severity" :data-severity="finding.severity">
-                  {{ finding.severity }}
-                </p>
-                <h3>{{ finding.assertion }}</h3>
-                <p>{{ finding.explanation }}</p>
-                <ul v-if="finding.citations.length" class="share-citation-list">
-                  <li
-                    v-for="citation in finding.citations"
-                    :key="citation.document_title + citation.document_reference"
-                  >
-                    <strong>
-                      <a
-                        v-if="citation.source_url"
-                        :href="citation.source_url"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {{ citation.document_title || 'Cited source' }}
-                      </a>
-                      <template v-else>
-                        {{ citation.document_title || 'Cited source' }}
-                      </template>
-                    </strong>
-                    <span v-if="citation.document_author || citation.document_reference">
-                      —
-                      <template v-if="citation.document_author">
-                        {{ citation.document_author }}
-                      </template>
-                      <template v-if="citation.document_reference">
-                        §{{ citation.document_reference }}
-                      </template>
-                    </span>
-                    <p v-if="citation.cited_text">{{ citation.cited_text }}</p>
-                  </li>
-                </ul>
-              </article>
-            </div>
-            <p v-else class="share-feedback__note">
-              {{
-                doctrinalReview.summary ||
-                'No assertions were flagged as heretical or borderline relative to Catholic teaching.'
-              }}
-            </p>
+            <DoctrinalFindingsList
+              :findings="doctrinalReview.findings"
+              :empty-summary="doctrinalReview.summary"
+            />
           </section>
         </template>
 
@@ -1100,56 +1041,6 @@ onBeforeUnmount(() => {
   content: '✦';
   left: 0.25rem;
   position: absolute;
-}
-
-.share-source-list,
-.share-doctrinal-list {
-  display: grid;
-  gap: 1.15rem;
-  margin-top: 1.5rem;
-}
-
-.share-source-list article,
-.share-doctrinal-list article {
-  border-top: 1px solid var(--color-margin);
-  display: grid;
-  gap: 0.35rem;
-  padding-top: 1rem;
-}
-
-.share-source-list h3,
-.share-doctrinal-list h3 {
-  font-family: var(--font-reading);
-  font-size: 1.05rem;
-  margin: 0;
-}
-
-.share-source-list a,
-.share-citation-list a {
-  color: var(--color-lapis);
-  text-decoration: none;
-}
-
-.share-source-list__meta,
-.share-doctrinal-list__severity {
-  color: var(--color-ink-muted);
-  font-family: var(--font-utility);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.share-citation-list {
-  display: grid;
-  gap: 0.75rem;
-  list-style: none;
-  margin: 0.6rem 0 0;
-  padding: 0;
-}
-
-.share-citation-list p {
-  margin: 0.35rem 0 0;
 }
 
 .share-hymn {

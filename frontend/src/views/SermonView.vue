@@ -22,7 +22,9 @@ import {
   UserRound,
   X,
 } from '@lucide/vue'
+import DoctrinalFindingsList from '../components/DoctrinalFindingsList.vue'
 import ReflectionEditor from '../components/ReflectionEditor.vue'
+import RelatedSourcesList from '../components/RelatedSourcesList.vue'
 import SermonSectionTabs from '../components/SermonSectionTabs.vue'
 import { useAuth } from '../auth/useAuth'
 import { findNearbyChurches } from '../location/findNearbyChurches'
@@ -2199,27 +2201,10 @@ onBeforeUnmount(() => {
                 </button>
               </div>
             </div>
-            <div v-else-if="relatedSources.length" class="source-list">
-              <article v-for="source in relatedSources" :key="`${source.title}-${source.year}`">
-                <h3>
-                  <a
-                    v-if="source.source_url"
-                    :href="source.source_url"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {{ source.title }}
-                  </a>
-                  <template v-else>{{ source.title }}</template>
-                </h3>
-                <p v-if="source.author || source.year" class="source-list__meta">
-                  <span v-if="source.author">{{ source.author }}</span>
-                  <span v-if="source.author && source.year"> · </span>
-                  <span v-if="source.year">{{ source.year }}</span>
-                </p>
-                <p v-if="source.excerpt">{{ source.excerpt }}</p>
-              </article>
-            </div>
+            <RelatedSourcesList
+              v-else-if="relatedSources.length"
+              :sources="relatedSources"
+            />
             <p v-else class="scripture-links__empty">No related sources were suggested.</p>
           </section>
         </template>
@@ -2306,53 +2291,11 @@ onBeforeUnmount(() => {
                 </button>
               </div>
             </div>
-            <template v-else>
-              <div v-if="doctrinalReview.findings.length" class="doctrinal-list">
-                <article
-                  v-for="finding in doctrinalReview.findings"
-                  :key="finding.assertion"
-                >
-                  <p class="doctrinal-list__severity" :data-severity="finding.severity">
-                    {{ finding.severity }}
-                  </p>
-                  <h3>{{ finding.assertion }}</h3>
-                  <p>{{ finding.explanation }}</p>
-                  <ul v-if="finding.citations.length" class="citation-list">
-                    <li v-for="citation in finding.citations" :key="citation.document_title + citation.document_reference">
-                      <strong>
-                        <a
-                          v-if="citation.source_url"
-                          :href="citation.source_url"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {{ citation.document_title || 'Cited source' }}
-                        </a>
-                        <template v-else>
-                          {{ citation.document_title || 'Cited source' }}
-                        </template>
-                      </strong>
-                      <span v-if="citation.document_author || citation.document_reference">
-                        —
-                        <template v-if="citation.document_author">
-                          {{ citation.document_author }}
-                        </template>
-                        <template v-if="citation.document_reference">
-                          §{{ citation.document_reference }}
-                        </template>
-                      </span>
-                      <p v-if="citation.cited_text">{{ citation.cited_text }}</p>
-                    </li>
-                  </ul>
-                </article>
-              </div>
-              <p v-else class="scripture-links__empty">
-                {{
-                  doctrinalReview.summary ||
-                  'No assertions were flagged as heretical or borderline relative to Catholic teaching.'
-                }}
-              </p>
-            </template>
+            <DoctrinalFindingsList
+              v-else
+              :findings="doctrinalReview.findings"
+              :empty-summary="doctrinalReview.summary"
+            />
           </section>
 
           <p
@@ -3896,77 +3839,6 @@ a.tag-chip:focus-visible {
   list-style: none;
   margin: 1.1rem 0 0;
   padding: 0;
-}
-
-.source-list,
-.doctrinal-list {
-  display: grid;
-  gap: 1.1rem;
-  margin-top: 1rem;
-}
-
-.source-list article,
-.doctrinal-list article {
-  border-left: 2px solid var(--color-rule-gold);
-  display: grid;
-  gap: 0.35rem;
-  padding: 0.15rem 0 0.15rem 1rem;
-}
-
-.source-list h3,
-.doctrinal-list h3 {
-  font-family: var(--font-reading);
-  font-size: 1.02rem;
-  font-weight: 650;
-  margin: 0;
-}
-
-.source-list h3 a,
-.citation-list a {
-  color: var(--color-lapis);
-  text-decoration: none;
-}
-
-.source-list h3 a:hover,
-.citation-list a:hover {
-  text-decoration: underline;
-}
-
-.source-list__meta,
-.doctrinal-list__severity {
-  color: var(--color-ink-muted);
-  font-family: var(--font-utility);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.doctrinal-list__severity[data-severity='heretical'] {
-  color: #8a3b2d;
-}
-
-.doctrinal-list__severity[data-severity='borderline'] {
-  color: #8a6a2d;
-}
-
-.citation-list {
-  display: grid;
-  gap: 0.75rem;
-  list-style: none;
-  margin: 0.55rem 0 0;
-  padding: 0;
-}
-
-.citation-list li {
-  color: var(--color-ink-muted);
-  font-family: var(--font-reading);
-  font-size: 0.92rem;
-  line-height: 1.5;
-}
-
-.citation-list p {
-  margin: 0.35rem 0 0;
 }
 
 .feedback-note {
