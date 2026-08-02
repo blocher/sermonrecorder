@@ -49,6 +49,8 @@ const detail: ServerSermonDetail = {
   source_draft_id: 'local-draft',
   title: 'Grace Meets Us Here',
   captured_at: '2026-07-20T15:30:00Z',
+  capture_latitude: null,
+  capture_longitude: null,
   duration_seconds: 2700,
   audio_mime_type: 'audio/mp4',
   audio_size_bytes: 1024,

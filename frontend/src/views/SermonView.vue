@@ -27,7 +27,7 @@ import ReflectionEditor from '../components/ReflectionEditor.vue'
 import RelatedSourcesList from '../components/RelatedSourcesList.vue'
 import SermonSectionTabs from '../components/SermonSectionTabs.vue'
 import { useAuth } from '../auth/useAuth'
-import { findNearbyChurches } from '../location/findNearbyChurches'
+import { recordingCapturePlace } from '../location/recordingCapturePlace'
 import {
   isHtmlAudioAbortError,
   playHtmlAudio,
@@ -51,6 +51,7 @@ import {
   createShareLink,
   deleteSermon,
   loadChurches,
+  loadNearbyChurches,
   loadPreachers,
   loadShareLink,
   loadServerSermon,
@@ -1005,19 +1006,27 @@ async function saveNewChurch(): Promise<void> {
 
 async function suggestNearbyChurches(): Promise<void> {
   if (findingChurches.value) return
+  const place = sermon.value ? recordingCapturePlace(sermon.value) : null
+  if (!place) {
+    contextMessage.value =
+      'Nearby Churches need the place captured with this recording. Older Sermons may not have one — add a Church manually.'
+    churchSuggestions.value = []
+    return
+  }
+
   findingChurches.value = true
   churchSuggestions.value = []
   contextMessage.value = ''
   try {
-    churchSuggestions.value = await findNearbyChurches()
+    churchSuggestions.value = await loadNearbyChurches(place.latitude, place.longitude)
     contextMessage.value = churchSuggestions.value.length
-      ? 'Choose a Church near your current location to add it to your private place book.'
-      : 'No Churches were found near your current location. You can still add one manually.'
+      ? 'Choose a Church near where this was recorded to add it to your private place book.'
+      : 'No Churches were found near where this was recorded. You can still add one manually.'
   } catch (error) {
     contextMessage.value =
       error instanceof Error
         ? error.message
-        : 'Churches near your current location could not be suggested.'
+        : 'Churches near where this was recorded could not be suggested.'
   } finally {
     findingChurches.value = false
   }
@@ -1607,7 +1616,11 @@ onBeforeUnmount(() => {
                       @click="suggestNearbyChurches"
                     >
                       <LocateFixed :size="15" aria-hidden="true" />
-                      {{ findingChurches ? 'Finding near me…' : 'Find Churches near me' }}
+                      {{
+                        findingChurches
+                          ? 'Finding near recording…'
+                          : 'Find Churches near recording'
+                      }}
                     </button>
                     <div v-if="churchSuggestions.length" class="church-suggestions">
                       <button

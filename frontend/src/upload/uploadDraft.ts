@@ -14,11 +14,21 @@ type UploadProgress = (value: number) => void
 
 function metadata(draft: LocalDraft): Record<string, string> {
   const duration = Math.max(1, Math.round(Number(draft.durationSeconds) || 1))
-  return {
+  const fields: Record<string, string> = {
     source_draft_id: draft.id,
     captured_at: draft.createdAt,
     duration_seconds: String(duration),
   }
+  if (
+    draft.latitude != null &&
+    draft.longitude != null &&
+    Number.isFinite(draft.latitude) &&
+    Number.isFinite(draft.longitude)
+  ) {
+    fields.capture_latitude = draft.latitude.toFixed(6)
+    fields.capture_longitude = draft.longitude.toFixed(6)
+  }
+  return fields
 }
 
 function parseResponse(body: string | undefined): UploadedSermon {

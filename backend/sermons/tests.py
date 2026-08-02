@@ -96,6 +96,28 @@ class SermonApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["source_draft_id"], "native-draft")
 
+    def test_upload_persists_recording_capture_coordinates(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.post(
+            "/api/sermons/",
+            {
+                "source_draft_id": "place-draft",
+                "captured_at": "2026-07-20T15:30:00Z",
+                "duration_seconds": 2700,
+                "capture_latitude": "39.952600",
+                "capture_longitude": "-75.165200",
+                "audio": sermon_audio(),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["capture_latitude"], "39.952600")
+        self.assertEqual(response.data["capture_longitude"], "-75.165200")
+        sermon = Sermon.objects.get(id=response.data["id"])
+        self.assertEqual(str(sermon.capture_latitude), "39.952600")
+        self.assertEqual(str(sermon.capture_longitude), "-75.165200")
+
     def test_repeating_a_draft_upload_is_idempotent(self):
         first = self.upload("same-draft")
         second = self.upload("same-draft")

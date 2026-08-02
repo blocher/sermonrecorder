@@ -38,6 +38,8 @@ export interface ServerSermon {
   source_draft_id: string
   title: string
   captured_at: string
+  capture_latitude: string | null
+  capture_longitude: string | null
   duration_seconds: number
   audio_url: string
   has_playback_audio: boolean

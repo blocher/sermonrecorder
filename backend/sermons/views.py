@@ -15,7 +15,13 @@ from .serializers import (
 )
 from .tasks import enqueue_magisterium_regeneration, enqueue_sermon_processing
 
-UPLOAD_METADATA_FIELDS = ("source_draft_id", "captured_at", "duration_seconds")
+UPLOAD_METADATA_FIELDS = (
+    "source_draft_id",
+    "captured_at",
+    "duration_seconds",
+    "capture_latitude",
+    "capture_longitude",
+)
 IN_PROGRESS_STATUSES = (
     Sermon.ProcessingStatus.UPLOADED,
     Sermon.ProcessingStatus.PROCESSING,

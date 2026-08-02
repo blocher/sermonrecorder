@@ -533,7 +533,9 @@ onBeforeUnmount(() => {
           >
             <LoaderCircle v-if="suggestionsBusy" class="spin" :size="16" aria-hidden="true" />
             <MapPin v-else :size="16" aria-hidden="true" />
-            {{ suggestionsBusy ? 'Looking nearby…' : 'Suggest nearby Churches' }}
+            {{
+              suggestionsBusy ? 'Looking near recording…' : 'Suggest Churches near recording'
+            }}
           </button>
           <small v-if="suggestionsMessage">{{ suggestionsMessage }}</small>
         </div>

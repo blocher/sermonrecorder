@@ -199,6 +199,8 @@ class SermonSerializer(serializers.ModelSerializer):
             "source_draft_id",
             "title",
             "captured_at",
+            "capture_latitude",
+            "capture_longitude",
             "duration_seconds",
             "audio",
             "audio_url",
@@ -244,6 +246,25 @@ class SermonSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
+        extra_kwargs = {
+            "capture_latitude": {"required": False, "allow_null": True},
+            "capture_longitude": {"required": False, "allow_null": True},
+        }
+
+    def validate(self, attrs):
+        latitude = attrs.get(
+            "capture_latitude",
+            getattr(self.instance, "capture_latitude", None),
+        )
+        longitude = attrs.get(
+            "capture_longitude",
+            getattr(self.instance, "capture_longitude", None),
+        )
+        if (latitude is None) != (longitude is None):
+            raise serializers.ValidationError(
+                "Save capture latitude and longitude together, or leave both blank."
+            )
+        return attrs
 
     def validate_audio(self, audio):
         mime_type = (audio.content_type or "").split(";", 1)[0].lower()

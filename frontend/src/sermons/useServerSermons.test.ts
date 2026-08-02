@@ -23,6 +23,8 @@ const uploadedSermon = {
   source_draft_id: 'local-draft',
   title: '',
   captured_at: '2026-07-20T15:30:00Z',
+  capture_latitude: null,
+  capture_longitude: null,
   duration_seconds: 2700,
   audio_url: 'http://api.example.test/api/sermons/server-sermon/audio/?token=signed',
   has_playback_audio: false,

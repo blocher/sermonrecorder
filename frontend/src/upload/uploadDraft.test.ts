@@ -77,7 +77,41 @@ describe('Draft upload', () => {
     expect(options.body.get('source_draft_id')).toBe(draft.id)
     expect(options.body.get('captured_at')).toBe(draft.createdAt)
     expect(options.body.get('duration_seconds')).toBe('2700')
+    expect(options.body.get('capture_latitude')).toBeNull()
+    expect(options.body.get('capture_longitude')).toBeNull()
     expect(options.body.get('audio')).toBeInstanceOf(Blob)
+  })
+
+  it('sends the place captured with the recording for nearby Church lookup later', async () => {
+    const draft: LocalDraft = {
+      id: 'placed-draft',
+      createdAt: '2026-07-20T15:30:00.000Z',
+      durationSeconds: 2700,
+      mimeType: 'audio/webm',
+      sizeBytes: 7,
+      latitude: 39.9526,
+      longitude: -75.1652,
+      audio: new Blob(['sermon'], { type: 'audio/webm' }),
+    }
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 'server-sermon-id',
+          source_draft_id: draft.id,
+          processing_status: 'uploaded',
+        }),
+        { status: 201 },
+      ),
+    )
+
+    await uploadDraft(draft)
+
+    const [, options] = mocks.fetch.mock.calls[0] as unknown as [
+      string,
+      RequestInit & { body: FormData },
+    ]
+    expect(options.body.get('capture_latitude')).toBe('39.952600')
+    expect(options.body.get('capture_longitude')).toBe('-75.165200')
   })
 
   it('keeps the local Draft when the API rejects an upload', async () => {

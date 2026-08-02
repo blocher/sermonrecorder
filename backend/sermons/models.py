@@ -127,6 +127,21 @@ class Sermon(models.Model):
     title = models.CharField(max_length=160, blank=True)
     title_edited_at = models.DateTimeField(null=True, blank=True)
     captured_at = models.DateTimeField()
+    # Precise place captured when the Draft was recorded (not the Church book entry).
+    capture_latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=(MinValueValidator(-90), MaxValueValidator(90)),
+    )
+    capture_longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=(MinValueValidator(-180), MaxValueValidator(180)),
+    )
     duration_seconds = models.PositiveIntegerField(
         validators=(MinValueValidator(1), MaxValueValidator(12 * 60 * 60))
     )
