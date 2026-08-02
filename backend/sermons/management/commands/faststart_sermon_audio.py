@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from django.core.management.base import BaseCommand, CommandError
 
 from sermons.audio_faststart import (
@@ -57,7 +59,7 @@ class Command(BaseCommand):
                 needs_original = m4a_needs_faststart(sermon.original_audio_path())
                 needs_playback = bool(
                     sermon.playback_audio
-                    and m4a_needs_faststart(sermon.playback_audio.path)
+                    and m4a_needs_faststart(Path(sermon.playback_audio.path))
                 )
             except (NotImplementedError, OSError, ValueError) as error:
                 failed += 1
