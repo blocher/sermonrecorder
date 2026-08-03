@@ -3369,13 +3369,18 @@ a.tag-chip:focus-visible {
   border-bottom: 1px solid var(--color-rule-gold);
   border-top: 1px solid var(--color-rule-gold);
   display: grid;
-  grid-template-columns: 1.35fr 1fr 1.2fr 1fr 0.7fr;
+  /* Length needs room for icon + spaced "LENGTH"; 0.7fr was clipping the label. */
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr) minmax(6.5rem, 0.9fr);
   margin: 2rem 0 0;
 }
 
 .sermon-register__entry {
   min-width: 0;
   padding: 1rem clamp(0.7rem, 2vw, 1.15rem);
+}
+
+.sermon-register__entry:last-child {
+  min-width: 6.5rem;
 }
 
 .sermon-register__entry + .sermon-register__entry {
@@ -3391,7 +3396,9 @@ a.tag-chip:focus-visible {
   font-weight: 700;
   gap: 0.35rem;
   letter-spacing: 0.08em;
+  max-width: 100%;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .sermon-register dd {

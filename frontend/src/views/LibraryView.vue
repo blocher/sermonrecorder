@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 defineOptions({ name: 'LibraryView' })
@@ -116,6 +116,7 @@ const hasMoreSermons = computed(() =>
 )
 let searchTimer: ReturnType<typeof globalThis.setTimeout> | undefined
 let searchVersion = 0
+let readyLoadVersion = 0
 let resumingRedirectedDraft = false
 
 async function loadReadySermons(reset: boolean): Promise<void> {
@@ -124,20 +125,25 @@ async function loadReadySermons(reset: boolean): Promise<void> {
     readyCount.value = 0
     readyPage.value = 0
     readyHasMore.value = false
+    loadingReady.value = false
     return
   }
 
   const page = reset ? 1 : readyPage.value + 1
+  const loadVersion = ++readyLoadVersion
   if (reset) loadingReady.value = true
   else loadingMore.value = true
 
   try {
     const result = await searchServerSermons({}, page)
+    if (loadVersion !== readyLoadVersion) return
     readySermons.value = reset ? result.results : [...readySermons.value, ...result.results]
     readyCount.value = result.count
     readyPage.value = page
     readyHasMore.value = Boolean(result.next)
+    searchError.value = ''
   } catch (error) {
+    if (loadVersion !== readyLoadVersion) return
     if (reset) {
       readySermons.value = []
       readyCount.value = 0
@@ -146,8 +152,10 @@ async function loadReadySermons(reset: boolean): Promise<void> {
     searchError.value =
       error instanceof Error ? error.message : 'Your Sermon library could not be searched.'
   } finally {
-    loadingReady.value = false
-    loadingMore.value = false
+    if (loadVersion === readyLoadVersion) {
+      loadingReady.value = false
+      loadingMore.value = false
+    }
   }
 }
 
@@ -396,10 +404,22 @@ async function deleteReadySermon(id: string): Promise<void> {
   }
 }
 
+let libraryHasActivated = false
 onMounted(() => void startPolling())
+onActivated(() => {
+  // Skip the first activate (pairs with onMounted); refresh later KeepAlive restores.
+  if (!libraryHasActivated) {
+    libraryHasActivated = true
+    return
+  }
+  if (!isAuthenticated.value) return
+  void loadReadySermons(true)
+  void startPolling()
+})
 onBeforeUnmount(() => {
   stopPolling()
   searchVersion += 1
+  readyLoadVersion += 1
   if (searchTimer) globalThis.clearTimeout(searchTimer)
   document.body.classList.remove('library-search-lock')
 })
@@ -710,15 +730,28 @@ watch(
       </template>
 
       <div v-else-if="!searching && !loadingReady" class="empty-search">
-        <p class="rubric-label">{{ hasSearchCriteria ? 'No match' : 'Your library is ready' }}</p>
+        <p class="rubric-label">
+          {{
+            hasSearchCriteria
+              ? 'No match'
+              : isAuthenticated
+                ? 'Your library is ready'
+                : 'Sign in required'
+          }}
+        </p>
         <h3>
           {{
             hasSearchCriteria
               ? 'Nothing in your library matches this search yet.'
-              : 'Your first processed Sermon will appear here.'
+              : isAuthenticated
+                ? 'Your first processed Sermon will appear here.'
+                : 'Sign in to see Sermons on this device’s local API.'
           }}
         </h3>
         <button v-if="hasSearchCriteria" type="button" @click="clearSearch">Clear search</button>
+        <RouterLink v-else-if="!isAuthenticated" class="empty-search__signin" to="/account">
+          Sign in
+        </RouterLink>
       </div>
     </section>
 
@@ -1047,11 +1080,13 @@ watch(
   margin: 1rem 0 1.5rem;
 }
 
-.empty-search button {
+.empty-search button,
+.empty-search__signin {
   background: transparent;
   border: 0;
   color: var(--color-lapis);
   cursor: pointer;
+  display: inline-block;
   font-family: var(--font-utility);
   font-size: 0.82rem;
   font-weight: 700;
@@ -1452,7 +1487,7 @@ watch(
   border-top: 1px solid color-mix(in srgb, var(--color-rule-gold) 72%, transparent);
   display: grid;
   gap: 0;
-  grid-template-columns: 1.35fr 1fr 1fr 0.7fr;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) minmax(5.75rem, 0.9fr);
   margin: 1rem 0 0;
   padding-top: 0.85rem;
 }
@@ -1460,6 +1495,10 @@ watch(
 .sermon-entry__register > div {
   min-width: 0;
   padding: 0 0.65rem;
+}
+
+.sermon-entry__register > div:last-child {
+  min-width: 5.75rem;
 }
 
 .sermon-entry__register > div:first-child {
@@ -1476,6 +1515,8 @@ watch(
   display: flex;
   font-family: var(--font-utility);
   font-size: 0.64rem;
+  max-width: 100%;
+  white-space: nowrap;
   font-weight: 720;
   gap: 0.28rem;
   letter-spacing: 0.08em;

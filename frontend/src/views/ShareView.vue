@@ -1115,13 +1115,18 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--color-rule-gold);
   border-top: 1px solid var(--color-rule-gold);
   display: grid;
-  grid-template-columns: 1.35fr 1fr 1.2fr 1fr 0.7fr;
+  /* Length needs room for icon + spaced "LENGTH"; 0.7fr was clipping the label. */
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr) minmax(6.5rem, 0.9fr);
   margin: 1.35rem 0 0;
 }
 
 .share-register__entry {
   min-width: 0;
   padding: 1rem clamp(0.7rem, 2vw, 1.15rem);
+}
+
+.share-register__entry:last-child {
+  min-width: 6.5rem;
 }
 
 .share-register__entry + .share-register__entry {
@@ -1132,6 +1137,8 @@ onBeforeUnmount(() => {
   align-items: center;
   color: var(--color-rubric);
   display: inline-flex;
+  max-width: 100%;
+  white-space: nowrap;
   font-family: var(--font-utility);
   font-size: 0.65rem;
   font-weight: 700;
