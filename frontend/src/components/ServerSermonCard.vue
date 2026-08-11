@@ -9,7 +9,7 @@ import {
   RotateCcw,
   Trash2,
 } from '@lucide/vue'
-import { isHtmlAudioAbortError, playHtmlAudio } from '../playback/htmlAudio'
+import { isHtmlAudioAbortError, playHtmlAudio, seekHtmlAudio, type HtmlAudioPlaySession } from '../playback/htmlAudio'
 import type { ServerSermon } from '../sermons/serverSermon'
 
 const props = defineProps<{
@@ -30,6 +30,32 @@ const playbackError = ref(false)
 const confirmingDelete = ref(false)
 type AudioVariant = 'playback' | 'isolated' | 'original'
 const audioVariant = ref<AudioVariant>(props.sermon.has_playback_audio ? 'playback' : 'original')
+let playSession: HtmlAudioPlaySession = { cancelled: false }
+let suppressPauseUi = 0
+
+function beginPlaySession(): HtmlAudioPlaySession {
+  playSession.cancelled = true
+  playSession = { cancelled: false }
+  return playSession
+}
+
+function cancelPlaySession(): void {
+  playSession.cancelled = true
+}
+
+function onAudioPlay(): void {
+  playing.value = true
+}
+
+function onAudioPause(): void {
+  if (suppressPauseUi > 0) return
+  playing.value = false
+}
+
+function onAudioEnded(): void {
+  cancelPlaySession()
+  playing.value = false
+}
 
 function activeUrlFor(sermon: typeof props.sermon, variant: AudioVariant): string {
   if (variant === 'original') return sermon.original_audio_url || sermon.audio_url
@@ -80,23 +106,40 @@ async function setAudioVariant(variant: AudioVariant): Promise<void> {
   const element = audio.value
   const wasPlaying = playing.value
   const position = element?.currentTime ?? 0
+  cancelPlaySession()
   audioVariant.value = variant
   playbackUrl.value = activeUrlFor(props.sermon, variant)
   playbackError.value = false
   await nextTick()
   if (!element) return
-  const restorePosition = () => {
-    element.currentTime = position
-  }
-  element.addEventListener('loadedmetadata', restorePosition, { once: true })
+  // Changing :src alone can leave the previous file's readyState; force a reload.
   element.load()
-  if (!wasPlaying) return
+  if (!wasPlaying) {
+    suppressPauseUi += 1
+    try {
+      await seekHtmlAudio(element, position)
+    } catch {
+      /* park best-effort; next play will resumeAt */
+    } finally {
+      suppressPauseUi = Math.max(0, suppressPauseUi - 1)
+    }
+    return
+  }
+  playing.value = true
+  const session = beginPlaySession()
+  suppressPauseUi += 1
   try {
-    await playHtmlAudio(element)
+    await playHtmlAudio(element, { resumeAt: position, session })
+    if (session.cancelled) playing.value = false
   } catch (error) {
-    if (isHtmlAudioAbortError(error)) return
+    if (session.cancelled || isHtmlAudioAbortError(error)) {
+      if (session.cancelled) playing.value = false
+      return
+    }
     playing.value = false
     playbackError.value = true
+  } finally {
+    suppressPauseUi = Math.max(0, suppressPauseUi - 1)
   }
 }
 
@@ -110,16 +153,30 @@ async function togglePlayback(): Promise<void> {
   playbackError.value = false
 
   if (playing.value) {
+    cancelPlaySession()
     element.pause()
+    playing.value = false
     return
   }
 
+  const session = beginPlaySession()
+  playing.value = true
+  suppressPauseUi += 1
   try {
-    await playHtmlAudio(element)
+    await playHtmlAudio(element, {
+      resumeAt: element.currentTime,
+      session,
+    })
+    if (session.cancelled) playing.value = false
   } catch (error) {
-    if (isHtmlAudioAbortError(error)) return
+    if (session.cancelled || isHtmlAudioAbortError(error)) {
+      if (session.cancelled) playing.value = false
+      return
+    }
     playing.value = false
     playbackError.value = true
+  } finally {
+    suppressPauseUi = Math.max(0, suppressPauseUi - 1)
   }
 }
 
@@ -272,11 +329,11 @@ onBeforeUnmount(() => {
     <audio
       v-if="playbackUrl"
       ref="audio"
-      preload="none"
+      preload="metadata"
       :src="playbackUrl"
-      @play="playing = true"
-      @pause="playing = false"
-      @ended="playing = false"
+      @play="onAudioPlay"
+      @pause="onAudioPause"
+      @ended="onAudioEnded"
       @error="playbackError = true"
     />
   </article>

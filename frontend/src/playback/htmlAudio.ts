@@ -22,10 +22,51 @@ export function describeHtmlAudioError(element: HTMLAudioElement): string {
   return `${label} (media ${code}, ready ${element.readyState}, network ${element.networkState})`
 }
 
+/** Caller-owned token so an in-flight play can be cancelled by pause / variant swap. */
+export type HtmlAudioPlaySession = {
+  cancelled: boolean
+}
+
+export type PlayHtmlAudioOptions = {
+  /** Absolute seconds to restore after load(); defaults to element.currentTime. */
+  resumeAt?: number
+  /** When cancelled becomes true, do not call play() again after waiting. */
+  session?: HtmlAudioPlaySession
+}
+
 function restoreCurrentTime(element: HTMLAudioElement, seconds: number): void {
   if (!(seconds > 0) || !Number.isFinite(seconds)) return
   if (Math.abs(element.currentTime - seconds) < 0.05) return
   element.currentTime = seconds
+}
+
+function sessionCancelled(session?: HtmlAudioPlaySession): boolean {
+  return Boolean(session?.cancelled)
+}
+
+/** Wait until duration/seek are available, forcing a load when needed (iOS). */
+export async function waitForHtmlAudioMetadata(element: HTMLAudioElement): Promise<void> {
+  if (element.readyState >= HAVE_METADATA) return
+
+  await new Promise<void>((resolve, reject) => {
+    const onReady = () => {
+      cleanup()
+      resolve()
+    }
+    const onError = () => {
+      cleanup()
+      reject(new Error('This recording could not be loaded.'))
+    }
+    const cleanup = () => {
+      element.removeEventListener('loadedmetadata', onReady)
+      element.removeEventListener('error', onError)
+    }
+    element.addEventListener('loadedmetadata', onReady, { once: true })
+    element.addEventListener('error', onError, { once: true })
+    if (element.networkState !== NETWORK_LOADING) {
+      element.load()
+    }
+  })
 }
 
 /** Wait until the element can begin playback, forcing a load when needed (iOS). */
@@ -52,6 +93,44 @@ export async function waitForHtmlAudioCanPlay(element: HTMLAudioElement): Promis
     if (element.networkState !== NETWORK_LOADING) {
       element.load()
     }
+  })
+}
+
+/**
+ * Seek once metadata is available and wait for the engine to acknowledge it.
+ * Critical on iOS Chrome where currentTime assignment is async and often ignored
+ * until the media pipeline has loaded enough to satisfy the seek.
+ */
+export async function seekHtmlAudio(
+  element: HTMLAudioElement,
+  seconds: number,
+  options: { timeoutMs?: number } = {},
+): Promise<void> {
+  const target = Number.isFinite(seconds) ? Math.max(0, seconds) : 0
+  if (target <= 0) {
+    if (element.currentTime !== 0) element.currentTime = 0
+    return
+  }
+
+  await waitForHtmlAudioMetadata(element)
+  if (Math.abs(element.currentTime - target) < 0.05) return
+
+  const timeoutMs = options.timeoutMs ?? 4000
+  await new Promise<void>((resolve) => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      element.removeEventListener('seeked', onSeeked)
+      globalThis.clearTimeout(timer)
+      resolve()
+    }
+    const onSeeked = () => finish()
+    const timer = globalThis.setTimeout(finish, timeoutMs)
+    element.addEventListener('seeked', onSeeked, { once: true })
+    element.currentTime = target
+    // Some engines apply the seek synchronously and never fire seeked.
+    if (Math.abs(element.currentTime - target) < 0.25) finish()
   })
 }
 
@@ -104,12 +183,24 @@ export async function prepareHtmlAudioBlobFallback(
  * after canplay if the first attempt lost a readiness race.
  *
  * Preserves currentTime across load(), so seek-then-play (timestamp taps,
- * scrubbing) does not restart from the beginning when only metadata is ready.
+ * scrubbing, variant swaps) does not restart from the beginning when only
+ * metadata is ready. Pass resumeAt when the element was remounted at 0.
+ *
+ * Pass a session token and set session.cancelled=true on pause so an in-flight
+ * canplay retry cannot restart playback after the Congregant paused.
  */
-export async function playHtmlAudio(element: HTMLAudioElement): Promise<void> {
-  const resumeAt = element.currentTime
+export async function playHtmlAudio(
+  element: HTMLAudioElement,
+  options: PlayHtmlAudioOptions = {},
+): Promise<void> {
+  const resumeAt = options.resumeAt ?? element.currentTime
+  const session = options.session
+
+  if (sessionCancelled(session)) return
 
   if (element.readyState >= HAVE_CURRENT_DATA) {
+    await seekHtmlAudio(element, resumeAt)
+    if (sessionCancelled(session)) return
     await element.play()
     return
   }
@@ -118,7 +209,9 @@ export async function playHtmlAudio(element: HTMLAudioElement): Promise<void> {
   // load() resets currentTime — restore after metadata / before retries.
   element.addEventListener(
     'loadedmetadata',
-    () => restoreCurrentTime(element, resumeAt),
+    () => {
+      if (!sessionCancelled(session)) restoreCurrentTime(element, resumeAt)
+    },
     { once: true },
   )
   element.load()
@@ -128,14 +221,21 @@ export async function playHtmlAudio(element: HTMLAudioElement): Promise<void> {
 
   try {
     await element.play()
-    restoreCurrentTime(element, resumeAt)
+    if (sessionCancelled(session)) {
+      element.pause()
+      return
+    }
+    await seekHtmlAudio(element, resumeAt)
     return
   } catch (error) {
-    if (isHtmlAudioAbortError(error)) return
-    if (element.error) throw error
+    if (sessionCancelled(session)) return
+    // load() often aborts the first play() on cold elements — retry after canplay.
+    if (!isHtmlAudioAbortError(error) && element.error) throw error
   }
 
   await waitForHtmlAudioCanPlay(element)
-  restoreCurrentTime(element, resumeAt)
+  if (sessionCancelled(session)) return
+  await seekHtmlAudio(element, resumeAt)
+  if (sessionCancelled(session)) return
   await element.play()
 }

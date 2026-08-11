@@ -20,7 +20,9 @@ import {
   isHtmlAudioAbortError,
   playHtmlAudio,
   prepareHtmlAudioBlobFallback,
+  seekHtmlAudio,
   waitForHtmlAudioCanPlay,
+  type HtmlAudioPlaySession,
 } from '../playback/htmlAudio'
 import { seekRatioFromClientX } from '../playback/seekTrack'
 import {
@@ -65,6 +67,33 @@ let previousRobotsContent: string | null = null
 let audioBlobUrl = ''
 let audioFallbackGeneration = 0
 let audioFallbackPromise: Promise<boolean> | undefined
+let playSession: HtmlAudioPlaySession = { cancelled: false }
+let suppressPauseUi = 0
+
+function beginPlaySession(): HtmlAudioPlaySession {
+  playSession.cancelled = true
+  playSession = { cancelled: false }
+  return playSession
+}
+
+function cancelPlaySession(): void {
+  playSession.cancelled = true
+}
+
+function onAudioPlay(): void {
+  playing.value = true
+}
+
+function onAudioPause(): void {
+  // load()/seek while bootstrapping fires pause; keep the intentional play UI.
+  if (suppressPauseUi > 0) return
+  playing.value = false
+}
+
+function onAudioEnded(): void {
+  cancelPlaySession()
+  playing.value = false
+}
 
 type TranscriptLayout = 'timeline' | 'reading'
 type TranscriptEdition = 'polished' | 'original'
@@ -218,25 +247,50 @@ async function selectSection(section: SermonSection): Promise<void> {
   })
 }
 
-async function startPlayback(element: HTMLAudioElement): Promise<void> {
+async function startPlayback(
+  element: HTMLAudioElement,
+  resumeAt = element.currentTime || currentSeconds.value,
+): Promise<void> {
+  const session = beginPlaySession()
   playbackError.value = false
   playbackErrorDetail.value = ''
+  playing.value = true
+  suppressPauseUi += 1
   try {
-    await playHtmlAudio(element)
+    await playHtmlAudio(element, { resumeAt, session })
+    if (session.cancelled) {
+      playing.value = false
+      return
+    }
   } catch (error) {
-    if (isHtmlAudioAbortError(error)) return
+    if (session.cancelled || isHtmlAudioAbortError(error)) {
+      if (session.cancelled) playing.value = false
+      return
+    }
     playing.value = false
     if (await recoverRejectedAudio(element)) {
       try {
-        await element.play()
+        suppressPauseUi += 1
+        await playHtmlAudio(element, { resumeAt, session })
       } catch (playError) {
-        if (playError instanceof DOMException && playError.name === 'NotAllowedError') return
-        if (isHtmlAudioAbortError(playError)) return
+        if (playError instanceof DOMException && playError.name === 'NotAllowedError') {
+          playing.value = false
+          return
+        }
+        if (session.cancelled || isHtmlAudioAbortError(playError)) {
+          if (session.cancelled) playing.value = false
+          return
+        }
+        playing.value = false
         markPlaybackError(element)
+      } finally {
+        suppressPauseUi = Math.max(0, suppressPauseUi - 1)
       }
       return
     }
     markPlaybackError(element)
+  } finally {
+    suppressPauseUi = Math.max(0, suppressPauseUi - 1)
   }
 }
 
@@ -317,39 +371,48 @@ async function togglePlayback(): Promise<void> {
   const element = audio.value
   if (!element) return
   if (playing.value) {
+    cancelPlaySession()
     element.pause()
+    playing.value = false
     return
   }
-  await startPlayback(element)
+  await startPlayback(element, element.currentTime || currentSeconds.value)
 }
 
 async function setAudioVariant(variant: AudioVariant): Promise<void> {
   if (audioVariant.value === variant) return
   const wasPlaying = playing.value
-  const position = audio.value?.currentTime ?? currentSeconds.value
+  const position = audio.value?.currentTime || currentSeconds.value
+  cancelPlaySession()
   releaseAudioBlobFallback()
   audioVariant.value = variant
   playbackError.value = false
   playbackErrorDetail.value = ''
+  currentSeconds.value = position
   audioReloadToken.value += 1
   await nextTick()
   const next = audio.value
   if (!next) return
-  const restorePosition = () => {
-    next.currentTime = position
-    currentSeconds.value = position
+  if (!wasPlaying) {
+    suppressPauseUi += 1
+    try {
+      await seekHtmlAudio(next, position)
+      currentSeconds.value = position
+    } catch {
+      currentSeconds.value = position
+    } finally {
+      suppressPauseUi = Math.max(0, suppressPauseUi - 1)
+    }
+    return
   }
-  next.addEventListener('loadedmetadata', restorePosition, { once: true })
-  if (!wasPlaying) return
-  await startPlayback(next)
+  await startPlayback(next, position)
 }
 
 async function seekTo(seconds: number): Promise<void> {
   const element = audio.value
   if (!element) return
-  element.currentTime = seconds
   currentSeconds.value = seconds
-  await startPlayback(element)
+  await startPlayback(element, seconds)
 }
 
 async function refreshSharedAudio(): Promise<void> {
@@ -357,6 +420,7 @@ async function refreshSharedAudio(): Promise<void> {
   if (!token || refreshingAudio.value) return
   const position = audio.value?.currentTime ?? currentSeconds.value
   refreshingAudio.value = true
+  cancelPlaySession()
   releaseAudioBlobFallback()
   playbackError.value = false
   playbackErrorDetail.value = ''
@@ -368,15 +432,22 @@ async function refreshSharedAudio(): Promise<void> {
     await nextTick()
     const element = audio.value
     if (!element) return
-    await waitForHtmlAudioCanPlay(element)
-    element.currentTime = position
-    currentSeconds.value = position
+    suppressPauseUi += 1
     try {
-      await element.play()
+      await waitForHtmlAudioCanPlay(element)
+      await seekHtmlAudio(element, position)
+      currentSeconds.value = position
+      const session = beginPlaySession()
+      playing.value = true
+      await playHtmlAudio(element, { resumeAt: position, session })
+      if (session.cancelled) playing.value = false
     } catch (error) {
+      playing.value = false
       if (isHtmlAudioAbortError(error)) return
       if (error instanceof DOMException && error.name === 'NotAllowedError') return
       throw error
+    } finally {
+      suppressPauseUi = Math.max(0, suppressPauseUi - 1)
     }
   } catch {
     markPlaybackError()
@@ -882,10 +953,10 @@ onBeforeUnmount(() => {
         :key="`${activeAudioUrl}:${audioReloadToken}`"
         ref="audio"
         :src="activeAudioUrl"
-        preload="none"
-        @play="playing = true"
-        @pause="playing = false"
-        @ended="playing = false"
+        preload="metadata"
+        @play="onAudioPlay"
+        @pause="onAudioPause"
+        @ended="onAudioEnded"
         @timeupdate="currentSeconds = scrubbing ? currentSeconds : (audio?.currentTime ?? 0)"
         @error="handleAudioError"
       ></audio>
