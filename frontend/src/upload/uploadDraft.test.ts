@@ -4,8 +4,13 @@ const mocks = vi.hoisted(() => ({
   authorizedAccessToken: vi.fn(async () => 'access-token'),
   fetch: vi.fn(),
   native: { value: false },
-  removeListener: vi.fn(),
-  uploadFile: vi.fn(),
+  removeListener: vi.fn(async () => undefined),
+  acknowledgeEvent: vi.fn(async () => undefined),
+  addListener: vi.fn(),
+  startUpload: vi.fn(),
+  startUploadKeepAlive: vi.fn(async () => undefined),
+  stopUploadKeepAlive: vi.fn(async () => undefined),
+  eventHandler: null as null | ((event: unknown) => void),
 }))
 
 vi.mock('../auth/useAuth', () => ({
@@ -19,10 +24,11 @@ vi.mock('@capacitor/core', () => ({
   },
 }))
 
-vi.mock('@capacitor/file-transfer', () => ({
-  FileTransfer: {
-    addListener: vi.fn(async () => ({ remove: mocks.removeListener })),
-    uploadFile: mocks.uploadFile,
+vi.mock('@capgo/capacitor-uploader', () => ({
+  Uploader: {
+    addListener: mocks.addListener,
+    acknowledgeEvent: mocks.acknowledgeEvent,
+    startUpload: mocks.startUpload,
   },
 }))
 
@@ -30,15 +36,60 @@ vi.mock('../recording/nativeDraftFiles', () => ({
   nativeDraftFileUri: vi.fn(async () => 'file:///data/drafts/native.m4a'),
 }))
 
+vi.mock('./uploadKeepAlive', () => ({
+  startUploadKeepAlive: mocks.startUploadKeepAlive,
+  stopUploadKeepAlive: mocks.stopUploadKeepAlive,
+}))
+
 vi.stubGlobal('fetch', mocks.fetch)
 
 import type { LocalDraft } from '../recording/draftRepository'
 import { uploadDraft } from './uploadDraft'
 
+const memoryStore = new Map<string, string>()
+
+vi.stubGlobal('localStorage', {
+  getItem: (key: string) => memoryStore.get(key) ?? null,
+  setItem: (key: string, value: string) => {
+    memoryStore.set(key, value)
+  },
+  removeItem: (key: string) => {
+    memoryStore.delete(key)
+  },
+  clear: () => {
+    memoryStore.clear()
+  },
+})
+
 afterEach(() => {
   vi.clearAllMocks()
   mocks.native.value = false
+  mocks.eventHandler = null
+  memoryStore.clear()
 })
+
+function mockNativeUploader() {
+  mocks.addListener.mockImplementation(async (_name: string, handler: (event: unknown) => void) => {
+    mocks.eventHandler = handler
+    return { remove: mocks.removeListener }
+  })
+  mocks.startUpload.mockImplementation(async () => {
+    queueMicrotask(() => {
+      mocks.eventHandler?.({
+        id: 'upload-1',
+        name: 'uploading',
+        payload: { percent: 40 },
+      })
+      mocks.eventHandler?.({
+        id: 'upload-1',
+        name: 'completed',
+        eventId: 'event-1',
+        payload: { statusCode: 201 },
+      })
+    })
+    return { id: 'upload-1' }
+  })
+}
 
 describe('Draft upload', () => {
   it('sends browser audio and idempotency metadata to the authenticated API', async () => {
@@ -131,15 +182,22 @@ describe('Draft upload', () => {
     await expect(uploadDraft(draft)).rejects.toThrow('Unsupported audio.')
   })
 
-  it('streams native Draft files without loading them into JavaScript memory', async () => {
+  it('uploads native Draft files in the background without loading them into JavaScript memory', async () => {
     mocks.native.value = true
-    mocks.uploadFile.mockResolvedValueOnce({
-      response: JSON.stringify({
-        id: 'native-sermon',
-        source_draft_id: 'native-draft',
-        processing_status: 'uploaded',
-      }),
-    })
+    mockNativeUploader()
+    mocks.fetch
+      .mockResolvedValueOnce(new Response('{}', { status: 400 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'native-sermon',
+            source_draft_id: 'native-draft',
+            processing_status: 'uploaded',
+          }),
+          { status: 200 },
+        ),
+      )
+
     const draft: LocalDraft = {
       id: 'native-draft',
       createdAt: '2026-07-20T15:30:00.000Z',
@@ -149,22 +207,93 @@ describe('Draft upload', () => {
       audioPath: 'drafts/native.m4a',
     }
 
-    await expect(uploadDraft(draft)).resolves.toMatchObject({ id: 'native-sermon' })
+    const progress: number[] = []
+    await expect(uploadDraft(draft, (value) => progress.push(value))).resolves.toMatchObject({
+      id: 'native-sermon',
+    })
 
-    expect(mocks.uploadFile).toHaveBeenCalledWith(
+    expect(mocks.startUpload).toHaveBeenCalledWith(
       expect.objectContaining({
-        chunkedMode: false,
-        fileKey: 'audio',
+        fileField: 'audio',
+        filePath: 'file:///data/drafts/native.m4a',
         headers: { Authorization: 'Bearer access-token' },
+        method: 'POST',
         mimeType: 'audio/mp4',
-        params: {
+        parameters: {
           source_draft_id: 'native-draft',
           captured_at: draft.createdAt,
           duration_seconds: '2700',
         },
-        path: 'file:///data/drafts/native.m4a',
+        serverUrl: 'http://api.example.test/api/sermons/',
+        uploadType: 'multipart',
+        maxRetries: 2,
       }),
     )
+    expect(mocks.acknowledgeEvent).toHaveBeenCalledWith({ eventId: 'event-1' })
+    expect(mocks.startUploadKeepAlive).toHaveBeenCalledOnce()
+    expect(mocks.stopUploadKeepAlive).toHaveBeenCalledOnce()
     expect(mocks.removeListener).toHaveBeenCalledOnce()
+    expect(progress).toContain(0.4)
+    expect(memoryStore.get('pewcorder.activeUploadDraftId')).toBeUndefined()
+  })
+
+  it('recovers when a prior native upload already created the Sermon', async () => {
+    mocks.native.value = true
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 'already-there',
+          source_draft_id: 'native-draft',
+          processing_status: 'processing',
+        }),
+        { status: 200 },
+      ),
+    )
+    const draft: LocalDraft = {
+      id: 'native-draft',
+      createdAt: '2026-07-20T15:30:00.000Z',
+      durationSeconds: 392,
+      mimeType: 'audio/mp4',
+      sizeBytes: 1024,
+      audioPath: 'drafts/native.m4a',
+    }
+
+    await expect(uploadDraft(draft)).resolves.toMatchObject({ id: 'already-there' })
+    expect(mocks.startUpload).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a clear interrupt message when the background upload fails', async () => {
+    mocks.native.value = true
+    mocks.addListener.mockImplementation(async (_name: string, handler: (event: unknown) => void) => {
+      mocks.eventHandler = handler
+      return { remove: mocks.removeListener }
+    })
+    mocks.startUpload.mockImplementation(async () => {
+      queueMicrotask(() => {
+        mocks.eventHandler?.({
+          id: 'upload-1',
+          name: 'failed',
+          eventId: 'event-fail',
+          payload: { error: 'The network connection was lost.' },
+        })
+      })
+      return { id: 'upload-1' }
+    })
+    mocks.fetch
+      .mockResolvedValueOnce(new Response('{}', { status: 400 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 400 }))
+
+    const draft: LocalDraft = {
+      id: 'native-draft',
+      createdAt: '2026-07-20T15:30:00.000Z',
+      durationSeconds: 392,
+      mimeType: 'audio/mp4',
+      sizeBytes: 1024,
+      audioPath: 'drafts/native.m4a',
+    }
+
+    await expect(uploadDraft(draft)).rejects.toThrow(/interrupted|try Process again/i)
+    expect(mocks.startUploadKeepAlive).toHaveBeenCalledOnce()
+    expect(mocks.stopUploadKeepAlive).toHaveBeenCalledOnce()
   })
 })

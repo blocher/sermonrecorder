@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { App } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -26,7 +28,11 @@ import {
   type ServerChurch,
   type ServerPreacher,
 } from '../sermons/serverSermon'
-import { uploadDraft } from '../upload/uploadDraft'
+import {
+  findUploadedSermonForDraft,
+  getActiveUploadDraftId,
+  uploadDraft,
+} from '../upload/uploadDraft'
 
 const props = defineProps<{
   draftId: string
@@ -227,6 +233,34 @@ function chooseSavedPreacher(id: string): void {
   if (preacher) preacherName.value = preacher.name
 }
 
+async function advanceAfterUpload(sermonIdValue: string): Promise<void> {
+  sermonId.value = sermonIdValue
+  await removeDraft(props.draftId)
+  await refreshDrafts()
+  await loadBooks()
+  step.value = 'place'
+  void loadSuggestions()
+}
+
+async function recoverIfAlreadyUploaded(): Promise<boolean> {
+  if (!isAuthenticated.value || sermonId.value || processBusy.value) return false
+  if (getActiveUploadDraftId() !== props.draftId) return false
+
+  processBusy.value = true
+  processProgress.value = Math.max(processProgress.value, 0.05)
+  actionError.value = ''
+  try {
+    const existing = await findUploadedSermonForDraft(props.draftId)
+    if (!existing?.id) return false
+    await advanceAfterUpload(existing.id)
+    return true
+  } catch {
+    return false
+  } finally {
+    processBusy.value = false
+  }
+}
+
 async function processDraft(): Promise<void> {
   const current = draft.value
   if (!current || processBusy.value) return
@@ -248,12 +282,7 @@ async function processDraft(): Promise<void> {
     const sermon = await uploadDraft(current, (progress) => {
       processProgress.value = progress
     })
-    sermonId.value = sermon.id
-    await removeDraft(props.draftId)
-    await refreshDrafts()
-    await loadBooks()
-    step.value = 'place'
-    void loadSuggestions()
+    await advanceAfterUpload(sermon.id)
   } catch (error) {
     actionError.value =
       error instanceof Error ? error.message : 'This Draft could not be sent for processing.'
@@ -365,6 +394,11 @@ function finishToSermon(): void {
 }
 
 function dismiss(): void {
+  if (processBusy.value && !sermonId.value) {
+    actionError.value =
+      'Upload is still running. You can lock the phone or switch apps — come back here when it finishes.'
+    return
+  }
   if (sermonId.value) {
     finishToSermon()
     return
@@ -387,15 +421,24 @@ watch(locationStatus, (status, previous) => {
   }
 })
 
+let resumeHandle: { remove: () => Promise<void> } | undefined
+
 onMounted(async () => {
   document.body.classList.add('draft-wizard-lock')
   void loadBooks()
   await nextTick()
   modal.value?.focus()
+  void recoverIfAlreadyUploaded()
+  if (Capacitor.isNativePlatform()) {
+    resumeHandle = await App.addListener('resume', () => {
+      if (step.value === 'decide' && !sermonId.value) void recoverIfAlreadyUploaded()
+    })
+  }
 })
 
 onBeforeUnmount(() => {
   document.body.classList.remove('draft-wizard-lock')
+  void resumeHandle?.remove()
 })
 </script>
 
@@ -456,7 +499,7 @@ onBeforeUnmount(() => {
         <p class="rubric-label">Step 1 · Process</p>
         <p class="draft-wizard__lead">
           Your pew recording is safe on this device. Process it into your private library, or discard
-          it now.
+          it now. You can lock the phone or switch apps while it uploads.
         </p>
 
         <p v-if="actionError" class="draft-wizard__error" role="alert">{{ actionError }}</p>
@@ -472,7 +515,7 @@ onBeforeUnmount(() => {
             <Upload v-else :size="18" aria-hidden="true" />
             {{
               processBusy
-                ? `Processing ${Math.round(processProgress * 100)}%`
+                ? `Uploading ${Math.round(processProgress * 100)}%`
                 : isAuthenticated
                   ? 'Process'
                   : 'Sign in to process'
