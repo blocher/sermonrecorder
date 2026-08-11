@@ -275,18 +275,42 @@ CHURCH_SUGGESTION_PROVIDER = os.environ.get(
     "CHURCH_SUGGESTION_PROVIDER",
     "sermons.church_suggestions.OverpassChurchSuggestionProvider",
 )
-OVERPASS_API_URL = os.environ.get(
-    "OVERPASS_API_URL",
+# Public global Overpass instances (OSM wiki). Prefer private.coffee for capacity.
+_DEFAULT_OVERPASS_API_URLS = [
+    "https://overpass.private.coffee/api/interpreter",
     "https://overpass-api.de/api/interpreter",
-)
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+]
+
+
+def _overpass_api_urls() -> list[str]:
+    configured = _csv_env("OVERPASS_API_URLS")
+    if configured:
+        return configured
+    primary = os.environ.get("OVERPASS_API_URL", "").strip()
+    if not primary:
+        return list(_DEFAULT_OVERPASS_API_URLS)
+    if primary in _DEFAULT_OVERPASS_API_URLS:
+        return list(_DEFAULT_OVERPASS_API_URLS)
+    return [primary, *(_DEFAULT_OVERPASS_API_URLS)]
+
+
+OVERPASS_API_URLS = _overpass_api_urls()
+# Kept for older env files and tests; provider prefers OVERPASS_API_URLS.
+OVERPASS_API_URL = OVERPASS_API_URLS[0]
 OVERPASS_USER_AGENT = os.environ.get(
     "OVERPASS_USER_AGENT",
     "Pewcorder/0.1 (contact: support@pewcorder.app)",
-)
+).strip().strip('"').strip("'")
 CHURCH_SUGGESTION_TIMEOUT_SECONDS = float(
     os.environ.get("CHURCH_SUGGESTION_TIMEOUT_SECONDS", "20")
 )
 CHURCH_SUGGESTION_LIMIT = int(os.environ.get("CHURCH_SUGGESTION_LIMIT", "5"))
+GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "").strip().strip('"').strip("'")
+GOOGLE_PLACES_NEARBY_SEARCH_URL = os.environ.get(
+    "GOOGLE_PLACES_NEARBY_SEARCH_URL",
+    "https://places.googleapis.com/v1/places:searchNearby",
+).strip()
 SERMON_AUDIO_URL_MAX_AGE_SECONDS = int(
     os.environ.get("SERMON_AUDIO_URL_MAX_AGE_SECONDS", str(4 * 60 * 60))
 )

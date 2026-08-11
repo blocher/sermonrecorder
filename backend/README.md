@@ -46,6 +46,24 @@ Native device registrations are owner-private and their tokens are never returne
 
 Direct iOS delivery requires `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_AUTH_KEY_PATH`, `APNS_TOPIC`, and the correct `APNS_USE_SANDBOX` value. Direct Android delivery requires `FCM_PROJECT_ID` and `FCM_SERVICE_ACCOUNT_FILE` for a service account authorized to send Firebase Cloud Messaging HTTP v1 messages. Keep the Apple `.p8` key and Firebase service-account JSON outside the repository; `backend/credentials/` is ignored for local credential mounts. Confirmed unregistered tokens are deactivated, transient provider failures retry with backoff, and credential/payload errors fail their delivery without retrying Sermon processing.
 
-The authenticated Church-suggestion endpoint accepts one validated coordinate pair and queries the configured `CHURCH_SUGGESTION_PROVIDER`. The default Overpass adapter finds nearby Christian places of worship, deduplicates and distance-orders them, and identifies itself through `OVERPASS_USER_AGENT` as required by the public service. The coordinate fix is not persisted by lookup; only a suggestion the Congregant confirms becomes a reusable private Church with provider coordinates.
+The authenticated Church-suggestion endpoint accepts one validated coordinate pair and queries the configured `CHURCH_SUGGESTION_PROVIDER`. The default Overpass adapter finds nearby Christian places of worship, deduplicates and distance-orders them, identifies itself through `OVERPASS_USER_AGENT`, and tries `OVERPASS_API_URLS` in order on 429/5xx/timeouts. Set `CHURCH_SUGGESTION_PROVIDER=sermons.church_suggestions.GooglePlacesChurchSuggestionProvider` and `GOOGLE_PLACES_API_KEY` to use Google Places Nearby Search (New) instead (Places API New must be enabled; Pro field mask only). The coordinate fix is not persisted by lookup; only a suggestion the Congregant confirms becomes a reusable private Church with provider coordinates.
+
+### Google Places API key
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and create or select a project.
+2. Enable billing on the project (required even for the free monthly quota).
+3. APIs & Services → Library → enable **Places API (New)** (not only the legacy Places API).
+4. APIs & Services → Credentials → Create credentials → API key.
+5. Restrict the key: Application restrictions (IP for the API server if stable) and API restrictions → **Places API (New)** only.
+6. Put the key in `backend/.env` (and production env):
+
+```bash
+GOOGLE_PLACES_API_KEY=your_key_here
+CHURCH_SUGGESTION_PROVIDER=sermons.church_suggestions.GooglePlacesChurchSuggestionProvider
+```
+
+7. Restart gunicorn/uvicorn (or `runserver`) so Django reloads settings.
+
+Nearby Search Pro is about $32 / 1,000 requests after 5,000 free calls per month when requesting name, address, and location only.
 
 SQLite and local media storage are development defaults. Production must provide `DJANGO_SECRET_KEY`, persistent database/object storage, HTTPS hosts, and worker infrastructure.

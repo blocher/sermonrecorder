@@ -10,7 +10,8 @@ Accepted
 - A signed-in Congregant may explicitly request nearby Churches while editing a Sermon's context.
 - The app requests foreground precise location for that action, sends one coordinate pair to the authenticated backend, and does not retain the device fix.
 - The backend validates the coordinates and delegates lookup through `ChurchSuggestionProvider`.
-- The default Overpass adapter searches nearby Christian places of worship, identifies Pewcorder through a configured User-Agent, applies a bounded radius/result limit, and returns distance-ordered suggestions.
+- The default Overpass adapter searches nearby Christian places of worship, identifies Pewcorder through a configured User-Agent, applies a bounded radius/result limit, retries across configured Overpass mirrors on transient failures, and returns distance-ordered suggestions.
+- An optional Google Places Nearby Search (New) adapter can replace Overpass when `GOOGLE_PLACES_API_KEY` is configured and `CHURCH_SUGGESTION_PROVIDER` points at `GooglePlacesChurchSuggestionProvider`.
 - Lookup alone persists nothing. The Congregant must confirm a suggestion before it becomes a reusable owner-private Church; its provider coordinates may then be stored on that Church.
 - Permission denial, provider failure, or no results always leaves manual Church creation available.
 

@@ -1,3 +1,4 @@
+import logging
 import math
 from dataclasses import asdict, dataclass
 from typing import Protocol
@@ -5,6 +6,10 @@ from typing import Protocol
 import httpx
 from django.conf import settings
 from django.utils.module_loading import import_string
+
+logger = logging.getLogger(__name__)
+
+_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 
 class ChurchSuggestionUnavailable(Exception):
@@ -48,39 +53,153 @@ class OverpassChurchSuggestionProvider:
 );
 out center tags;
 """.strip()
+        elements = _fetch_overpass_elements(query)
+        return _dedupe_and_limit(
+            (
+                suggestion
+                for element in elements
+                if (suggestion := _overpass_suggestion(element, latitude, longitude))
+                is not None
+            )
+        )
+
+
+class GooglePlacesChurchSuggestionProvider:
+    """Nearby Search (New) for churches. Requires GOOGLE_PLACES_API_KEY."""
+
+    def nearby(
+        self,
+        latitude: float,
+        longitude: float,
+        radius_meters: int,
+    ) -> list[ChurchSuggestion]:
+        api_key = (getattr(settings, "GOOGLE_PLACES_API_KEY", "") or "").strip()
+        if not api_key:
+            raise ChurchSuggestionUnavailable(
+                "Nearby Churches are temporarily unavailable."
+            )
+
+        max_results = max(1, min(int(settings.CHURCH_SUGGESTION_LIMIT), 20))
         try:
             response = httpx.post(
-                settings.OVERPASS_API_URL,
-                content=query,
+                settings.GOOGLE_PLACES_NEARBY_SEARCH_URL,
                 headers={
-                    "Content-Type": "text/plain",
-                    "User-Agent": settings.OVERPASS_USER_AGENT,
+                    "Content-Type": "application/json",
+                    "X-Goog-Api-Key": api_key,
+                    # Pro SKU fields only — name, address, coordinates, id.
+                    "X-Goog-FieldMask": (
+                        "places.id,places.displayName,"
+                        "places.formattedAddress,places.location"
+                    ),
+                },
+                json={
+                    "includedTypes": ["church"],
+                    "maxResultCount": max_results,
+                    "rankPreference": "DISTANCE",
+                    "locationRestriction": {
+                        "circle": {
+                            "center": {
+                                "latitude": latitude,
+                                "longitude": longitude,
+                            },
+                            "radius": float(radius_meters),
+                        }
+                    },
                 },
                 timeout=settings.CHURCH_SUGGESTION_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
-            elements = response.json().get("elements", [])
-        except (httpx.HTTPError, ValueError, AttributeError) as error:
+            places = response.json().get("places", [])
+        except (httpx.HTTPError, ValueError, AttributeError, TypeError) as error:
+            logger.info("Google Places Nearby Search failed: %s", error)
             raise ChurchSuggestionUnavailable(
                 "Nearby Churches are temporarily unavailable."
             ) from error
 
-        suggestions: dict[tuple[str, str], ChurchSuggestion] = {}
-        for element in elements:
-            suggestion = _suggestion(element, latitude, longitude)
-            if suggestion is None:
+        return _dedupe_and_limit(
+            (
+                suggestion
+                for place in places
+                if (suggestion := _google_place_suggestion(place, latitude, longitude))
+                is not None
+            )
+        )
+
+
+def _dedupe_and_limit(suggestions) -> list[ChurchSuggestion]:
+    unique: dict[tuple[str, str], ChurchSuggestion] = {}
+    for suggestion in suggestions:
+        identity = (suggestion.name.casefold(), suggestion.address.casefold())
+        current = unique.get(identity)
+        if current is None or suggestion.distance_meters < current.distance_meters:
+            unique[identity] = suggestion
+    return sorted(
+        unique.values(),
+        key=lambda item: (item.distance_meters, item.name),
+    )[: settings.CHURCH_SUGGESTION_LIMIT]
+
+
+def _overpass_endpoints() -> list[str]:
+    urls = getattr(settings, "OVERPASS_API_URLS", None)
+    if urls:
+        return list(urls)
+    primary = getattr(settings, "OVERPASS_API_URL", "")
+    return [primary] if primary else []
+
+
+def _is_retryable_overpass_error(error: Exception) -> bool:
+    if isinstance(error, (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError)):
+        return True
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code in _RETRYABLE_STATUS_CODES
+    if isinstance(error, (ValueError, AttributeError)):
+        return True
+    return False
+
+
+def _fetch_overpass_elements(query: str) -> list:
+    endpoints = _overpass_endpoints()
+    if not endpoints:
+        raise ChurchSuggestionUnavailable(
+            "Nearby Churches are temporarily unavailable."
+        )
+
+    last_error: Exception | None = None
+    headers = {
+        "Content-Type": "text/plain",
+        "User-Agent": settings.OVERPASS_USER_AGENT,
+    }
+    timeout = settings.CHURCH_SUGGESTION_TIMEOUT_SECONDS
+
+    for index, url in enumerate(endpoints):
+        try:
+            response = httpx.post(
+                url,
+                content=query,
+                headers=headers,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            return payload.get("elements", [])
+        except (httpx.HTTPError, ValueError, AttributeError) as error:
+            last_error = error
+            remaining = index < len(endpoints) - 1
+            if remaining and _is_retryable_overpass_error(error):
+                logger.info(
+                    "Overpass endpoint %s failed (%s); trying next mirror.",
+                    url,
+                    error,
+                )
                 continue
-            identity = (suggestion.name.casefold(), suggestion.address.casefold())
-            current = suggestions.get(identity)
-            if current is None or suggestion.distance_meters < current.distance_meters:
-                suggestions[identity] = suggestion
-        return sorted(
-            suggestions.values(),
-            key=lambda suggestion: (suggestion.distance_meters, suggestion.name),
-        )[: settings.CHURCH_SUGGESTION_LIMIT]
+            break
+
+    raise ChurchSuggestionUnavailable(
+        "Nearby Churches are temporarily unavailable."
+    ) from last_error
 
 
-def _suggestion(
+def _overpass_suggestion(
     element: dict,
     origin_latitude: float,
     origin_longitude: float,
@@ -110,6 +229,45 @@ def _suggestion(
         provider_id=f"osm:{element.get('type', 'element')}:{element.get('id', '')}",
         name=name,
         address=" ".join(str(address).split()),
+        latitude=latitude,
+        longitude=longitude,
+        distance_meters=round(
+            _distance_meters(
+                origin_latitude,
+                origin_longitude,
+                latitude,
+                longitude,
+            )
+        ),
+    )
+
+
+def _google_place_suggestion(
+    place: dict,
+    origin_latitude: float,
+    origin_longitude: float,
+) -> ChurchSuggestion | None:
+    display = place.get("displayName") or {}
+    name = " ".join(str(display.get("text", "")).split())
+    if not name:
+        return None
+    location = place.get("location") or {}
+    try:
+        latitude = float(location["latitude"])
+        longitude = float(location["longitude"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    place_id = str(place.get("id") or "").strip()
+    if not place_id:
+        resource_name = str(place.get("name") or "").strip()
+        place_id = resource_name.removeprefix("places/") if resource_name else ""
+    if not place_id:
+        return None
+    address = " ".join(str(place.get("formattedAddress") or "").split())
+    return ChurchSuggestion(
+        provider_id=f"google:{place_id}",
+        name=name,
+        address=address,
         latitude=latitude,
         longitude=longitude,
         distance_meters=round(
