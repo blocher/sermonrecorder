@@ -26,6 +26,10 @@ from .processing import (
     TranscriptSegment,
 )
 from .transcript_cleanup import intentional_service_segments
+from .transcription_warmup import (
+    effective_warmup_seconds,
+    strip_warmup_from_raw_segments,
+)
 
 
 @dataclass(frozen=True)
@@ -115,6 +119,15 @@ class OpenAIDiarizedTranscriber:
         except OpenAIError as error:
             raise PermanentProcessingError(str(error)) from error
 
+        if not raw_segments:
+            raise PermanentProcessingError("No speech was found in the Sermon audio.")
+
+        raw_segments = list(
+            strip_warmup_from_raw_segments(
+                raw_segments,
+                effective_warmup_seconds(sermon.duration_seconds),
+            )
+        )
         if not raw_segments:
             raise PermanentProcessingError("No speech was found in the Sermon audio.")
 

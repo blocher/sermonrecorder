@@ -9,6 +9,10 @@ from django.conf import settings
 
 from .models import Sermon
 from .processing import PermanentProcessingError
+from .transcription_warmup import (
+    effective_warmup_seconds,
+    write_warmup_prefixed_audio,
+)
 
 MAX_TRANSCRIPTION_UPLOAD_BYTES = 24 * 1024 * 1024
 # Louder, clearer mono for distant pew speech before OpenAI VAD/ASR.
@@ -49,6 +53,16 @@ def prepared_audio_chunks(sermon: Sermon) -> Iterator[tuple[AudioChunk, ...]]:
     audio_size_bytes = sermon.transcription_audio_size_bytes()
     with TemporaryDirectory(prefix=f"pewcorder-{sermon.id}-") as directory:
         directory_path = Path(directory)
+        warmup_seconds = effective_warmup_seconds(sermon.duration_seconds)
+        if warmup_seconds > 0:
+            warmed = directory_path / "warmup-prefixed.m4a"
+            write_warmup_prefixed_audio(
+                source_path,
+                warmed,
+                duration_seconds=sermon.duration_seconds,
+                warmup_seconds=warmup_seconds,
+            )
+            source_path = warmed
         if (
             audio_size_bytes <= MAX_TRANSCRIPTION_UPLOAD_BYTES
             and sermon.duration_seconds <= chunk_seconds

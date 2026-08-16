@@ -88,7 +88,10 @@ def generated_artifacts() -> GeneratedArtifacts:
 class ProviderPipelineTests(TestCase):
     def setUp(self):
         self.media_directory = TemporaryDirectory()
-        self.settings_override = override_settings(MEDIA_ROOT=self.media_directory.name)
+        self.settings_override = override_settings(
+            MEDIA_ROOT=self.media_directory.name,
+            TRANSCRIPTION_WARMUP_SECONDS=0,
+        )
         self.settings_override.enable()
         self.addCleanup(self.settings_override.disable)
         self.addCleanup(self.media_directory.cleanup)

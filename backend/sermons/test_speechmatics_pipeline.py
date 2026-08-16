@@ -186,6 +186,7 @@ class SpeechmaticsTranscriberTests(TestCase):
             SPEECHMATICS_API_BASE_URL="https://asr.example.test",
             SPEECHMATICS_POLL_INTERVAL_SECONDS=0,
             SPEECHMATICS_JOB_TIMEOUT_SECONDS=5,
+            TRANSCRIPTION_WARMUP_SECONDS=0,
         )
         self.settings_override.enable()
         self.addCleanup(self.settings_override.disable)

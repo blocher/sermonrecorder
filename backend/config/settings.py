@@ -348,6 +348,10 @@ FFPROBE_BINARY = os.environ.get("FFPROBE_BINARY", "ffprobe")
 SERMON_TRANSCRIPTION_CHUNK_SECONDS = int(
     os.environ.get("SERMON_TRANSCRIPTION_CHUNK_SECONDS", "600")
 )
+# Prefix this much tail audio so ASR has context before the real opening.
+TRANSCRIPTION_WARMUP_SECONDS = float(
+    os.environ.get("TRANSCRIPTION_WARMUP_SECONDS", "45")
+)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 # Still required for Study artifacts and intentional-service transcript cleanup.
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")

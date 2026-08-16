@@ -20,6 +20,10 @@ from .processing import (
     RetryableProcessingError,
 )
 from .transcript_cleanup import intentional_service_segments
+from .transcription_warmup import (
+    strip_warmup_from_speechmatics_payload,
+    warmed_transcription_audio,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +34,9 @@ MAX_SEGMENT_SECONDS = 50.0
 TERMINAL_PUNCTUATION = {".", "!", "?"}
 
 
-def speechmatics_raw_segments(payload: dict[str, Any]) -> tuple[RawTranscriptSegment, ...]:
+def speechmatics_raw_segments(
+    payload: dict[str, Any],
+) -> tuple[RawTranscriptSegment, ...]:
     """Collapse Speechmatics words into timed speaker segments.
 
     Breaks on speaker changes, pause gaps, long sentence endings, and a max
@@ -168,10 +174,15 @@ class SpeechmaticsDiarizedTranscriber:
         if not source_path.is_file():
             raise PermanentProcessingError("The Sermon audio file is missing on disk.")
 
-        job_id = self._submit_job(source_path)
-        self._wait_for_job(job_id)
-        payload = self._fetch_transcript(job_id)
+        with warmed_transcription_audio(source_path, sermon.duration_seconds) as (
+            upload_path,
+            warmup_seconds,
+        ):
+            job_id = self._submit_job(upload_path)
+            self._wait_for_job(job_id)
+            payload = self._fetch_transcript(job_id)
 
+        payload = strip_warmup_from_speechmatics_payload(payload, warmup_seconds)
         raw_segments = speechmatics_raw_segments(payload)
         if not raw_segments:
             raise PermanentProcessingError("No speech was found in the Sermon audio.")
