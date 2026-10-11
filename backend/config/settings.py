@@ -172,7 +172,7 @@ MEDIA_URL = "/media/"
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 CSRF_TRUSTED_ORIGINS = _csv_env(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173",
+    "http://localhost:5175,http://127.0.0.1:5175",
 )
 if not DEBUG:
     SESSION_COOKIE_SECURE = True
@@ -187,7 +187,7 @@ AUTH_USER_MODEL = "accounts.User"
 
 CORS_ALLOWED_ORIGINS = _csv_env(
     "DJANGO_CORS_ALLOWED_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173,capacitor://localhost,http://localhost",
+    "http://localhost:5175,http://127.0.0.1:5175,capacitor://localhost,http://localhost",
 )
 # Media elements on iOS may preflight Range; expose length/range for seekers.
 CORS_ALLOW_HEADERS = (
@@ -225,7 +225,7 @@ APPLE_OAUTH_CLIENT_IDS = tuple(
     if value.strip()
 )
 
-CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://127.0.0.1:6382/0")
 CELERY_TASK_IGNORE_RESULT = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_BEAT_SCHEDULE = {
@@ -320,7 +320,7 @@ SERMON_AUDIO_X_ACCEL_PREFIX = os.environ.get(
 ).strip()
 PEWCORDER_PUBLIC_WEB_URL = os.environ.get(
     "PEWCORDER_PUBLIC_WEB_URL",
-    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5175",
 )
 PEWCORDER_WEB_DIST_DIR = Path(
     os.environ.get(

@@ -50,7 +50,7 @@ describe('Pewcorder social session exchange', () => {
 
     expect(mocks.acquireSocialIdToken).toHaveBeenCalledWith('google')
     expect(mocks.fetch).toHaveBeenCalledWith(
-      'http://127.0.0.1:8000/api/auth/social/',
+      'http://127.0.0.1:8005/api/auth/social/',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({

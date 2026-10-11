@@ -9,7 +9,7 @@ set projectRoot to "~/projects/sermonrecorder"
 set backendDir to projectRoot & "/backend"
 set activateVenv to "source " & backendDir & "/.venv/bin/activate"
 -- Listeners only; escalate to SIGKILL if the port is still held.
-set freeRedisPort to "pids=$(lsof -t -iTCP:6379 -sTCP:LISTEN 2>/dev/null || true); if [ -n \"$pids\" ]; then kill $pids 2>/dev/null || true; sleep 0.5; pids=$(lsof -t -iTCP:6379 -sTCP:LISTEN 2>/dev/null || true); if [ -n \"$pids\" ]; then kill -9 $pids 2>/dev/null || true; sleep 0.3; fi; fi"
+set freeRedisPort to "pids=$(lsof -t -iTCP:6382 -sTCP:LISTEN 2>/dev/null || true); if [ -n \"$pids\" ]; then kill $pids 2>/dev/null || true; sleep 0.5; pids=$(lsof -t -iTCP:6382 -sTCP:LISTEN 2>/dev/null || true); if [ -n \"$pids\" ]; then kill -9 $pids 2>/dev/null || true; sleep 0.3; fi; fi"
 
 tell application "iTerm"
 	activate
@@ -42,7 +42,7 @@ tell application "iTerm"
 		write text "cd " & projectRoot
 		write text activateVenv
 		write text freeRedisPort
-		write text "redis-server"
+		write text "redis-server --port 6382"
 		set pane2 to (split horizontally with default profile)
 	end tell
 	
@@ -52,8 +52,8 @@ tell application "iTerm"
 		set name to "Pewcorder Backend"
 		write text "cd " & backendDir
 		write text activateVenv
-		write text "kill $(lsof -t -iTCP:8000 -sTCP:LISTEN 2>/dev/null) 2>/dev/null || true"
-		write text "python manage.py runserver"
+		write text "kill $(lsof -t -iTCP:8005 -sTCP:LISTEN 2>/dev/null) 2>/dev/null || true"
+		write text "python manage.py runserver 127.0.0.1:8005"
 		set pane3 to (split horizontally with default profile)
 	end tell
 	
@@ -73,7 +73,7 @@ tell application "iTerm"
 		set name to "Pewcorder Frontend"
 		write text "cd " & projectRoot & "/frontend"
 		write text activateVenv
-		write text "kill $(lsof -t -iTCP:5173 -sTCP:LISTEN 2>/dev/null) 2>/dev/null || true"
+		write text "kill $(lsof -t -iTCP:5175 -sTCP:LISTEN 2>/dev/null) 2>/dev/null || true"
 		write text "npm run dev"
 		set pane5 to (split horizontally with default profile)
 	end tell
@@ -90,5 +90,5 @@ end tell
 
 -- Open Chrome to the frontend once Vite is likely up
 try
-	do shell script "sleep 2; open -a 'Google Chrome' 'http://localhost:5173/' > /dev/null 2>&1 &"
+	do shell script "sleep 2; open -a 'Google Chrome' 'http://localhost:5175/' > /dev/null 2>&1 &"
 end try
